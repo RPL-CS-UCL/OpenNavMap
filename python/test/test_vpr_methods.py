@@ -8,6 +8,9 @@ Usage: python test_vpr_methods.py \
 '''
 
 import sys
+sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation')
+sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation/thrid_party/deep-image-retrieval')
+
 import faiss
 import torch
 import logging

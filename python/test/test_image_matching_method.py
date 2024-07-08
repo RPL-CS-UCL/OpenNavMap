@@ -1,0 +1,120 @@
+import torch
+import argparse
+import matplotlib
+from pathlib import Path
+
+from matching.utils import get_image_pairs_paths  # Import utility for getting image pairs
+from matching import viz2d, get_matcher, available_models  # Import necessary modules from matching package
+
+import sys
+
+# This is to be able to use matplotlib also without a GUI
+if not hasattr(sys, "ps1"):
+    matplotlib.use("Agg")
+
+def setup_args():
+    """Setup command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Image Matching Models",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--matcher",
+        type=str,
+        default="sift-lg",
+        choices=available_models,
+        help="choose your matcher",
+    )
+    parser.add_argument(
+        "--im_size", type=int, default=512, help="resize img to im_size x im_size"
+    )
+    parser.add_argument("--n_kpts", type=int, default=2048, help="max num keypoints")
+    parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"])
+    parser.add_argument(
+        "--no_viz",
+        action="store_true",
+        help="pass --no_viz to avoid saving visualizations",
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        default="assets/example_pairs",
+        help="path to either (1) dir with dirs with pairs or (2) txt file with two img paths per line",
+    )
+    parser.add_argument(
+        "--out_dir", type=str, default=None, help="path where outputs are saved"
+    )
+
+    return parser.parse_args()
+
+def initialize_matcher(args):
+    """Initialize the matcher with provided arguments."""
+    return get_matcher(
+        args.matcher, device=args.device, max_num_keypoints=args.n_kpts
+    )
+
+def process_image_pair(matcher, img0_path, img1_path, image_size):
+    """Process a pair of images using the matcher."""
+    image0 = matcher.load_image(img0_path, resize=image_size)
+    image1 = matcher.load_image(img1_path, resize=image_size)
+    import time
+    start_time = time.time()
+    result = matcher(image0, image1)
+    print('Matching costs time: {:3f}s'.format(time.time() - start_time))
+    return result, image0, image1
+
+def save_visualization(image0, image1, mkpts0, mkpts1, out_dir, index):
+    """Save visualization of the matching results."""
+    viz2d.plot_images([image0, image1])
+    viz2d.plot_matches(mkpts0, mkpts1, color="lime", lw=0.2)
+    viz2d.add_text(0, f"{len(mkpts1)} matches", fs=20)
+    viz_path = out_dir / f"output_{index}.jpg"
+    viz2d.save_plot(viz_path)
+    return viz_path
+
+def save_output(result, img0_path, img1_path, matcher_name, n_kpts, im_size, out_dir, index):
+    """Save the output data to a file."""
+    dict_path = out_dir / f"output_{index}.torch"
+    output_dict = {
+        "num_inliers": result["num_inliers"],
+        "H": result["H"],
+        "mkpts0": result["inliers0"],
+        "mkpts1": result["inliers1"],
+        "img0_path": img0_path,
+        "img1_path": img1_path,
+        "matcher": matcher_name,
+        "n_kpts": n_kpts,
+        "im_size": im_size,
+    }
+    torch.save(output_dict, dict_path)
+    return dict_path
+
+def main(args):
+    """Main function to run the image matching process."""
+    image_size = [args.im_size, args.im_size]
+    args.out_dir.mkdir(exist_ok=True, parents=True)
+
+    matcher = initialize_matcher(args)
+    pairs_of_paths = get_image_pairs_paths(args.input)
+
+    for i, (img0_path, img1_path) in enumerate(pairs_of_paths):
+        result, image0, image1 = process_image_pair(matcher, img0_path, img1_path, image_size)
+        num_inliers, mkpts0, mkpts1 = result["num_inliers"], result["inliers0"], result["inliers1"]
+        
+        out_str = f"Paths: {str(img0_path), str(img1_path)}. Found {num_inliers} inliers after RANSAC. "
+        
+        if not args.no_viz:
+            viz_path = save_visualization(image0, image1, mkpts0, mkpts1, args.out_dir, i)
+            out_str += f"Viz saved in {viz_path}. "
+        
+        dict_path = save_output(result, img0_path, img1_path, args.matcher, args.n_kpts, args.im_size, args.out_dir, i)
+        out_str += f"Output saved in {dict_path}"
+        
+        print(out_str)
+
+if __name__ == "__main__":
+    args = setup_args()
+    if args.out_dir is None:
+        args.out_dir = Path(f"outputs_{args.matcher}")
+    args.out_dir = Path(args.out_dir)
+    main(args)
