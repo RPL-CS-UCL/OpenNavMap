@@ -12,8 +12,9 @@ import time
 import argparse
 import matplotlib
 from pathlib import Path
+import numpy as np
 
-from pycpptools.python.utils_math.tools_eigen import compute_relative_dis
+from pycpptools.python.utils_math.tools_eigen import compute_relative_dis, convert_vec_to_matrix
 
 from matching.utils import get_image_pairs_paths, to_numpy
 from matching import available_models
@@ -37,6 +38,7 @@ def setup_args():
 	parser.add_argument("--n_kpts", type=int, default=2048, help="max num keypoints")
 	parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"])
 	parser.add_argument("--no_viz", action="store_true", help="pass --no_viz to avoid saving visualizations")
+	parser.add_argument("--sample_map", type=int, default=1, help="sample of map")
 	parser.add_argument("--sample_obs", type=int, default=1, help="sample of observation")
 	return parser.parse_args()
 
@@ -49,13 +51,8 @@ def main(args):
 	"""Initialize image matcher"""
 	matcher = initialize_matcher(args.matcher, args.device, args.n_kpts)
 
-	start_time = time.time()
-	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), image_size)
-	print(f'Load {len(image_graph.nodes)} image nodes of the graph costs {(time.time() - start_time):3f}s')
-
-	start_time = time.time()
+	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), image_size, args.sample_map)
 	image_obs = ImageObsLoader.load_data(os.path.join(args.dataset_path, 'obs'), image_size, args.sample_obs)
-	print(f'Load {len(image_obs.nodes)} image obs costs {(time.time() - start_time):3f}s')	
 
 	for obs_id, obs_node in image_obs.nodes.items():
 		all_dis_trans, all_dis_angle, all_map_id = [], [], []
@@ -64,35 +61,42 @@ def main(args):
 			all_dis_trans.append(dis_trans)
 			all_dis_angle.append(dis_angle)
 			all_map_id.append(map_id)
+			if dis_angle > 90.0: continue
 
-		if all_dis_trans.index(min(all_dis_trans)) == all_dis_angle.index(min(all_dis_angle)):
-			map_id = all_map_id[all_dis_trans.index(min(all_dis_trans))]
-			map_node = image_graph.get_node(map_id)
+		map_id = all_map_id[all_dis_trans.index(min(all_dis_trans))]
+		map_node = image_graph.get_node(map_id)
 
-			start_time = time.time()
-			result = matching_image_pair(matcher, map_node.image, obs_node.image)
-			print('Matching costs time: {:3f}s'.format(time.time() - start_time))
+		start_time = time.time()
+		result = matching_image_pair(matcher, map_node.image, obs_node.image)
+		num_inliers, mkpts0, mkpts1 = result["num_inliers"], result["inliers0"], result["inliers1"]
+		print('Found {} matched keypoints, matching costs time: {:3f}s'.format(num_inliers, time.time() - start_time))
+		
+		out_str = f"Paths: map_id ({map_id}), obs_id ({obs_id}). Found {num_inliers} inliers after RANSAC. "
+		if not args.no_viz:
+				viz_path = save_visualization(map_node.image, obs_node.image, mkpts0, mkpts1, out_dir, obs_id, n_viz=100)
+				out_str += f"Viz saved in {viz_path}. "
+		
+		dict_path = save_output(result, None, None, args.matcher, args.n_kpts, image_size, out_dir, obs_id)
+		out_str += f"Output saved in {dict_path}"       
+		print(out_str)
 
-			num_inliers, mkpts0, mkpts1 = result["num_inliers"], result["inliers0"], result["inliers1"]
-			print('Found {} matched keypoints'.format(num_inliers))
+		if args.matcher == 'duster':
+			scene = result["duster_scene"]
+			# NOTE(gogojjh): definition of im_poses is given pair_viewer.py
+			im_poses = scene.get_im_poses()
+			im_poses = to_numpy(scene.get_im_poses())
+			est_T = im_poses[1]
+			if abs(np.sum(np.diag(est_T)) - 4.0) < 1e-5:
+				# NOTE(gogojjh): change the definition of est_T since it is originally defined as T_obs_map
+				est_T = np.linalg.inv(im_poses[0])
+			print('Estimated Poses:\n', est_T)
+
+			T_w_map = convert_vec_to_matrix(map_node.t_w_cam, map_node.quat_w_cam)
+			T_w_obs = convert_vec_to_matrix(obs_node.t_w_cam, obs_node.quat_w_cam)
+			T_map_obs = np.linalg.inv(T_w_map) @ T_w_obs
+			print('Groundtruth Poses:\n', T_map_obs)
 			
-			out_str = f"Paths: map_id ({map_id}), obs_id ({obs_id}). Found {num_inliers} inliers after RANSAC. "
-			if not args.no_viz:
-					viz_path = save_visualization(map_node.image, obs_node.image, mkpts0, mkpts1, out_dir, obs_id, n_viz=100)
-					out_str += f"Viz saved in {viz_path}. "
-			
-			dict_path = save_output(result, None, None, args.matcher, args.n_kpts, image_size, out_dir, obs_id)
-			out_str += f"Output saved in {dict_path}"       
-			print(out_str)
-
-			if args.matcher == 'duster':
-				scene = result["duster_scene"]
-				im_poses = scene.get_im_poses()
-				im_poses = to_numpy(scene.get_im_poses())
-				est_R, est_t = im_poses[1][:3, :3], im_poses[1][:3, 3]
-				print('Estimated R:\n', est_R)
-				print('Estimated t:\n', est_t.T)
-				scene.show()
+			scene.show(cam_size=0.05)
 
 if __name__ == "__main__":
 		args = setup_args()
