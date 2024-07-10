@@ -37,8 +37,9 @@ def setup_args():
 				choices=available_models,
 				help="choose your matcher",
 		)
-		parser.add_argument("--im_width", type=int, default=288, help="resize img to im_width")
-		parser.add_argument("--im_height", type=int, default=512, help="resize img to im_height")
+		parser.add_argument("--image_size", type=int, default=512, nargs="+",
+												help="Resizing shape for images (HxW). If a single int is passed, set the"
+												"smallest edge of all images to this value, while keeping aspect ratio")
 		parser.add_argument("--n_kpts", type=int, default=2048, help="max num keypoints")
 		parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"])
 		parser.add_argument(
@@ -55,6 +56,9 @@ def setup_args():
 		parser.add_argument(
 				"--out_dir", type=str, default=None, help="path where outputs are saved"
 		)
+
+		if args.image_size and len(args.image_size) > 2:
+				raise ValueError(f"The --image_size parameter can only take up to 2 values, but has received {len(args.image_size)}.")
 
 		return parser.parse_args()
 

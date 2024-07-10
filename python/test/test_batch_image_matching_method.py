@@ -19,9 +19,8 @@ from pycpptools.python.utils_math.tools_eigen import compute_relative_dis, conve
 from matching.utils import get_image_pairs_paths, to_numpy
 from matching import available_models
 
-from utils.utils_image_matching_method import initialize_matcher, matching_image_pair, save_visualization, save_output
+from utils.utils_image_matching_method import *
 from image_graph import ImageGraphLoader, ImageGraph
-from image_obs import ImageObsLoader, ImageObs
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):
@@ -33,8 +32,9 @@ def setup_args():
 																		formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 	parser.add_argument("--dataset_path", type=str, default="matterport3d", help="path to dataset_path")
 	parser.add_argument("--matcher", type=str, default="sift-lg", choices=available_models, help="choose your matcher")
-	parser.add_argument("--im_width", type=int, default=288, help="resize img to im_width")
-	parser.add_argument("--im_height", type=int, default=512, help="resize img to im_height")
+	parser.add_argument("--image_size", type=int, default=512, nargs="+",
+											help="Resizing shape for images (HxW). If a single int is passed, set the"
+											"smallest edge of all images to this value, while keeping aspect ratio")
 	parser.add_argument("--n_kpts", type=int, default=2048, help="max num keypoints")
 	parser.add_argument("--device", type=str, default="cuda", choices=["cpu", "cuda"])
 	parser.add_argument("--no_viz", action="store_true", help="pass --no_viz to avoid saving visualizations")
@@ -44,16 +44,17 @@ def setup_args():
 
 def main(args):
 	"""Main function to run the image matching process."""
-	image_size = [args.im_height, args.im_width]
-	out_dir = Path(os.path.join(args.dataset_path, 'output_batch_image_matching'))
-	out_dir.mkdir(exist_ok=True, parents=True)
+	image_size = args.image_size
+	log_dir = setup_log_environment(os.path.join(args.dataset_path, 'output_batch_image_matching'), args)
 
 	"""Initialize image matcher"""
 	matcher = initialize_matcher(args.matcher, args.device, args.n_kpts)
 
-	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), image_size, args.sample_map)
-	image_obs = ImageObsLoader.load_data(os.path.join(args.dataset_path, 'obs'), image_size, args.sample_obs)
+	"""Load image data"""
+	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), image_size, normalized=False, num_sample=args.sample_map)
+	image_obs = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'obs'), image_size, normalized=False, num_sample=args.sample_obs)
 
+	"""Perform image matcher"""
 	for obs_id, obs_node in image_obs.nodes.items():
 		all_dis_trans, all_dis_angle, all_map_id = [], [], []
 		for map_id, map_node in image_graph.nodes.items():
@@ -71,16 +72,16 @@ def main(args):
 		num_inliers, mkpts0, mkpts1 = result["num_inliers"], result["inliers0"], result["inliers1"]
 		print('Found {} matched keypoints, matching costs time: {:3f}s'.format(num_inliers, time.time() - start_time))
 		
+		"""Save matching results"""
 		out_str = f"Paths: map_id ({map_id}), obs_id ({obs_id}). Found {num_inliers} inliers after RANSAC. "
-		if not args.no_viz:
-				viz_path = save_visualization(map_node.image, obs_node.image, mkpts0, mkpts1, out_dir, obs_id, n_viz=100)
-				out_str += f"Viz saved in {viz_path}. "
-		
-		dict_path = save_output(result, None, None, args.matcher, args.n_kpts, image_size, out_dir, obs_id)
+		viz_path = save_visualization(map_node.image, obs_node.image, mkpts0, mkpts1, log_dir, obs_id, n_viz=100)
+		out_str += f"Viz saved in {viz_path}. "
+		dict_path = save_output(result, None, None, args.matcher, args.n_kpts, image_size, log_dir, obs_id)
 		out_str += f"Output saved in {dict_path}"       
 		print(out_str)
 
-		if args.matcher == 'duster':
+		"""Visualize matching results"""
+		if (not args.no_viz) and args.matcher == 'duster':
 			scene = result["duster_scene"]
 			# NOTE(gogojjh): definition of im_poses is given pair_viewer.py
 			im_poses = scene.get_im_poses()

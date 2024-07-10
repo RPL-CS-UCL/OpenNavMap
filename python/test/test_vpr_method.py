@@ -9,7 +9,7 @@ Usage: python test_vpr_methods.py \
 
 import sys
 sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation')
-sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation/thrid_party/deep-image-retrieval')
+sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation/third_party/deep-image-retrieval')
 
 import faiss
 import torch
@@ -54,6 +54,7 @@ def create_datasets(args):
 
 def extract_descriptors(model, test_ds, args):
     """Extract and return all descriptors from the test dataset."""
+    start_time = time.time()
     with torch.inference_mode():
         # Extract database descriptors
         logging.debug("Extracting database descriptors for evaluation/testing")
@@ -72,13 +73,12 @@ def extract_descriptors(model, test_ds, args):
                                    list(range(test_ds.num_database, test_ds.num_database + test_ds.num_queries)))
         queries_dataloader = DataLoader(dataset=queries_subset_ds, num_workers=args.num_workers,
                                         batch_size=1)
-        start_time = time.time()
         for images, indices in tqdm(queries_dataloader):
             descriptors = model(images.to(args.device))
-            print('Extract desc costs: {:3f}s'.format(time.time() - start_time))
             descriptors = descriptors.cpu().numpy()
             all_descriptors[indices.numpy(), :] = descriptors
-
+    
+    print('Extract desc costs: {:3f}s'.format((time.time() - start_time) / len(all_descriptors)))
     queries_descriptors = all_descriptors[test_ds.num_database:]
     database_descriptors = all_descriptors[:test_ds.num_database]
     return queries_descriptors, database_descriptors
