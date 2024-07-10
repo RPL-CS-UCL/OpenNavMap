@@ -17,12 +17,11 @@ from pathlib import Path
 import numpy as np
 
 from pycpptools.python.utils_math.tools_eigen import compute_relative_dis, convert_vec_to_matrix
-
 from matching.utils import get_image_pairs_paths, to_numpy
 from matching import available_models
 
 from utils.utils_image_matching_method import *
-from image_graph import ImageGraphLoader, ImageGraph
+from image_graph import ImageGraphLoader
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):

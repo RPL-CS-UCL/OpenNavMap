@@ -5,20 +5,19 @@ Usage: python test_image_matching_method.py \
 	--image_sizesd 288 512
 '''
 
+import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
 import torch
 import argparse
 import matplotlib
 from pathlib import Path
+import numpy as np
 
-from matching.utils import get_image_pairs_paths, to_numpy  # Import utility for getting image pairs
 from matching import available_models  # Import necessary modules from matching package
-
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
+from matching.utils import get_image_pairs_paths, to_numpy  # Import utility for getting image pairs
 
 import utils.utils_image_matching_method as uimm
-import numpy as np
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):
