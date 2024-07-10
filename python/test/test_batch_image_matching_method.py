@@ -1,9 +1,11 @@
 '''
 Usage: python test_batch_image_matching_method.py \
 	--matcher duster \
-	--input /Titan/code/robohike_ws/src/topo_loc/python/test/logs/anymal_ops_mos/2024-07-08_13-32-18/match_pairs.txt \
-	--im_width 288 \
-	--im_height 512
+	--dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
+	--image_size 288 512 \
+	--device cuda \
+	--sample_map 1 \
+	--sample_obs 1000
 '''
 import os
 import sys
@@ -68,8 +70,13 @@ def main(args):
 		map_node = image_graph.get_node(map_id)
 
 		start_time = time.time()
-		result = matching_image_pair(matcher, map_node.image, obs_node.image)
-		num_inliers, mkpts0, mkpts1 = result["num_inliers"], result["inliers0"], result["inliers1"]
+		result = matcher(map_node.image, obs_node.image)
+		num_inliers, H, mkpts0, mkpts1 = (
+				result["num_inliers"],
+				result["H"],
+				result["inliers0"],
+				result["inliers1"],
+		)
 		print('Found {} matched keypoints, matching costs time: {:3f}s'.format(num_inliers, time.time() - start_time))
 		
 		"""Save matching results"""
@@ -82,13 +89,15 @@ def main(args):
 
 		"""Visualize matching results"""
 		if (not args.no_viz) and args.matcher == 'duster':
-			scene = result["duster_scene"]
+			print('Estimated H:\n', H)
+			
+			scene = matcher.scene
 			# NOTE(gogojjh): definition of im_poses is given pair_viewer.py
 			im_poses = scene.get_im_poses()
 			im_poses = to_numpy(scene.get_im_poses())
 			est_T = im_poses[1]
+			# NOTE(gogojjh): change the definition of est_T since it is originally defined as T_obs_map
 			if abs(np.sum(np.diag(est_T)) - 4.0) < 1e-5:
-				# NOTE(gogojjh): change the definition of est_T since it is originally defined as T_obs_map
 				est_T = np.linalg.inv(im_poses[0])
 			print('Estimated Poses:\n', est_T)
 
