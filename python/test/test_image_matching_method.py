@@ -1,9 +1,8 @@
 '''
 Usage: python test_image_matching_method.py \
 	--matcher duster \
-	--input /Titan/code/robohike_ws/src/topo_loc/python/test/logs/anymal_ops_mos/2024-07-08_13-32-18/match_pairs.txt \
-	--im_width 288 \
-	--im_height 512
+	--input /Titan/code/robohike_ws/src/topo_loc/python/test/logs/match_pairs.txt \
+	--image_sizesd 288 512
 '''
 
 import torch
@@ -19,6 +18,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
 
 import utils.utils_image_matching_method as uimm
+import numpy as np
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):
@@ -56,15 +56,11 @@ def setup_args():
 		parser.add_argument(
 				"--out_dir", type=str, default=None, help="path where outputs are saved"
 		)
-
-		if args.image_size and len(args.image_size) > 2:
-				raise ValueError(f"The --image_size parameter can only take up to 2 values, but has received {len(args.image_size)}.")
-
 		return parser.parse_args()
 
 def main(args):
 		"""Main function to run the image matching process."""
-		image_size = [args.im_width, args.im_height]
+		image_size = args.image_size
 		args.out_dir.mkdir(exist_ok=True, parents=True)
 
 		matcher = uimm.initialize_matcher(args.matcher, args.device, args.n_kpts)
@@ -75,10 +71,15 @@ def main(args):
 
 				import time
 				start_time = time.time()
-				result = uimm.matching_image_pair(matcher, image0, image1)
+				result = matcher(image0, image1)
 				print('Matching costs time: {:3f}s'.format(time.time() - start_time))
 
-				num_inliers, mkpts0, mkpts1 = result["num_inliers"], result["inliers0"], result["inliers1"]
+				num_inliers, H, mkpts0, mkpts1 = (
+						result["num_inliers"],
+						result["H"],
+						result["inliers0"],
+						result["inliers1"],
+				)
 				print('Found {} matched keypoints'.format(num_inliers))
 				out_str = f"Paths: {str(img0_path), str(img1_path)}. Found {num_inliers} inliers after RANSAC. "
 				if not args.no_viz:
@@ -92,16 +93,22 @@ def main(args):
 				print(out_str)
 
 				if args.matcher == 'duster':
-					scene = result["duster_scene"]
+					scene = matcher.scene
 					im_poses = to_numpy(scene.get_im_poses())
-					est_R, est_t = im_poses[1][:3, :3], im_poses[1][:3, 3]
-					print('Estimated R:\n', est_R)
-					print('Estimated t:\n', est_t.T)
-					scene.show()
+					est_T = im_poses[1]
+					if abs(np.sum(np.diag(est_T)) - 4.0) < 1e-5:
+						# NOTE(gogojjh): change the definition of est_T since it is originally defined as T_obs_map
+						est_T = np.linalg.inv(im_poses[0])
+					print('Estimated H:\n', H)
+					print('Estimated Poses:\n', est_T)
+					
+					scene.show(cam_size=0.05)
 
 if __name__ == "__main__":
 		args = setup_args()
 		if args.out_dir is None:
 				args.out_dir = Path(f"outputs_{args.matcher}")
 		args.out_dir = Path(args.out_dir)
+		if args.image_size and len(args.image_size) > 2:
+				raise ValueError(f"The --image_size parameter can only take up to 2 values, but has received {len(args.image_size)}.")
 		main(args)
