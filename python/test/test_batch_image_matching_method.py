@@ -1,11 +1,7 @@
 '''
-Usage: python test_batch_image_matching_method.py \
-	--matcher duster \
+Usage: python test_batch_image_matching_method.py --matcher duster \
 	--dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
-	--image_size 288 512 \
-	--device cuda \
-	--sample_map 1 \
-	--sample_obs 1000
+	--image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000
 '''
 import os
 import sys
@@ -100,8 +96,8 @@ def main(args):
 				est_T = np.linalg.inv(im_poses[0])
 			print('Estimated Poses:\n', est_T)
 
-			T_w_map = convert_vec_to_matrix(map_node.t_w_cam, map_node.quat_w_cam)
-			T_w_obs = convert_vec_to_matrix(obs_node.t_w_cam, obs_node.quat_w_cam)
+			T_w_map = convert_vec_to_matrix(map_node.t_w_cam, map_node.quat_w_cam, 'wxyz')
+			T_w_obs = convert_vec_to_matrix(obs_node.t_w_cam, obs_node.quat_w_cam, 'wxyz')
 			T_map_obs = np.linalg.inv(T_w_map) @ T_w_obs
 			print('Groundtruth Poses:\n', T_map_obs)
 			
