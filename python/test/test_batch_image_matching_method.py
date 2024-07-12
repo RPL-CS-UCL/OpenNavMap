@@ -1,7 +1,7 @@
 '''
 Usage: python test_batch_image_matching_method.py --matcher duster \
-	--dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
-	--image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000
+--dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
+--image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000
 '''
 import os
 import sys
@@ -12,7 +12,7 @@ import matplotlib
 from pathlib import Path
 import numpy as np
 
-from pycpptools.python.utils_math.tools_eigen import compute_relative_dis, convert_vec_to_matrix
+from pycpptools.python.utils_math.tools_eigen import compute_relative_dis, compute_relative_dis_TF, convert_vec_to_matrix
 from matching.utils import get_image_pairs_paths, to_numpy
 from matching import available_models
 
@@ -48,45 +48,62 @@ def main(args):
 	matcher = initialize_matcher(args.matcher, args.device, args.n_kpts)
 
 	"""Load image data"""
-	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), image_size, normalized=False, num_sample=args.sample_map)
-	image_obs = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'obs'), image_size, normalized=False, num_sample=args.sample_obs)
+	path_map = os.path.join(args.dataset_path, 'map')
+	image_graph = ImageGraphLoader.load_data(path_map, image_size, normalized=False, num_sample=args.sample_map)
+	path_obs = os.path.join(args.dataset_path, 'obs')
+	image_obs = ImageGraphLoader.load_data(path_obs, image_size, normalized=False, num_sample=args.sample_obs)
+
+	rot_e = []
+	trans_e = []
 
 	"""Perform image matcher"""
 	for obs_id, obs_node in image_obs.nodes.items():
-		all_dis_trans, all_dis_angle, all_map_id = [], [], []
-		for map_id, map_node in image_graph.nodes.items():
+		all_map_id = list(image_graph.nodes.keys())
+		all_dis_trans, all_dis_angle = [], []
+		for _, map_node in image_graph.nodes.items():
 			dis_trans, dis_angle = compute_relative_dis(map_node.t_w_cam, map_node.quat_w_cam, obs_node.t_w_cam, obs_node.quat_w_cam)
 			all_dis_trans.append(dis_trans)
 			all_dis_angle.append(dis_angle)
-			all_map_id.append(map_id)
 			if dis_angle > 90.0: continue
 
 		map_id = all_map_id[all_dis_trans.index(min(all_dis_trans))]
 		map_node = image_graph.get_node(map_id)
 
-		start_time = time.time()
-		result = matcher(map_node.image, obs_node.image)
-		num_inliers, H, mkpts0, mkpts1 = (
-				result["num_inliers"],
-				result["H"],
-				result["inliers0"],
-				result["inliers1"],
-		)
-		print('Found {} matched keypoints, matching costs time: {:3f}s'.format(num_inliers, time.time() - start_time))
-		
-		"""Save matching results"""
-		out_str = f"Paths: map_id ({map_id}), obs_id ({obs_id}). Found {num_inliers} inliers after RANSAC. "
-		viz_path = save_visualization(map_node.image, obs_node.image, mkpts0, mkpts1, log_dir, obs_id, n_viz=100)
-		out_str += f"Viz saved in {viz_path}. "
-		dict_path = save_output(result, None, None, args.matcher, args.n_kpts, image_size, log_dir, obs_id)
-		out_str += f"Output saved in {dict_path}"       
-		print(out_str)
+		try:
+			print(f'Matching image pairs: {map_node.img_path} - {obs_node.img_path}')
+			start_time = time.time()
+			result = matcher(map_node.image, obs_node.image)
+			num_inliers, H, mkpts0, mkpts1 = (
+					result["num_inliers"],
+					result["H"],
+					result["inliers0"],
+					result["inliers1"],
+			)
+			print('Found {} matched keypoints, matching costs time: {:3f}s'.format(num_inliers, time.time() - start_time))
+			
+			"""Save matching results"""
+			out_str = f"Paths: map_id ({map_id}), obs_id ({obs_id}). Found {num_inliers} inliers after RANSAC. "
+			viz_path = save_visualization(map_node.image, obs_node.image, mkpts0, mkpts1, log_dir, obs_id, n_viz=100)
+			out_str += f"Viz saved in {viz_path}. "
+			dict_path = save_output(result, None, None, args.matcher, args.n_kpts, image_size, log_dir, obs_id)
+			out_str += f"Output saved in {dict_path}"       
+			print(out_str)
+		except Exception as e:
+			print(f"Error in Matching: {e}")
+			print(f"May occur due to no overlapping regions or insufficient matching.")
+			continue
 
 		"""Visualize matching results"""
-		if (not args.no_viz) and args.matcher == 'duster':
-			print('Estimated H:\n', H)
+		if args.matcher == 'duster':
+			# Groundtruth poses
+			T_w_map = convert_vec_to_matrix(map_node.t_w_cam, map_node.quat_w_cam, 'xyzw')
+			T_w_obs = convert_vec_to_matrix(obs_node.t_w_cam, obs_node.quat_w_cam, 'xyzw')
+			T_map_obs = np.linalg.inv(T_w_map) @ T_w_obs
+			print('Groundtruth Poses:\n', T_map_obs)
+
+			scene = matcher.scene	
+			# print('Estimated H:\n', H)
 			
-			scene = matcher.scene
 			# NOTE(gogojjh): definition of im_poses is given pair_viewer.py
 			im_poses = scene.get_im_poses()
 			im_poses = to_numpy(scene.get_im_poses())
@@ -96,12 +113,22 @@ def main(args):
 				est_T = np.linalg.inv(im_poses[0])
 			print('Estimated Poses:\n', est_T)
 
-			T_w_map = convert_vec_to_matrix(map_node.t_w_cam, map_node.quat_w_cam, 'wxyz')
-			T_w_obs = convert_vec_to_matrix(obs_node.t_w_cam, obs_node.quat_w_cam, 'wxyz')
-			T_map_obs = np.linalg.inv(T_w_map) @ T_w_obs
-			print('Groundtruth Poses:\n', T_map_obs)
-			
-			scene.show(cam_size=0.05)
+			# Normalized poses
+			est_T_normalized = np.copy(est_T)
+			scale = T_map_obs[2, 3] / est_T[2, 3]
+			est_T_normalized[:3, 3] *= scale
+			print(f'Normalized Poses with scale {scale}:\n', est_T_normalized)
+
+			# Compute error
+			dis_trans, dis_angle = compute_relative_dis_TF(est_T_normalized, T_map_obs)
+			rot_e.append(dis_angle)
+			trans_e.append(dis_trans)
+
+			if not args.no_viz:			
+				scene.show(cam_size=0.05)
+
+	# Save rotation and translation error
+	save_error(np.array(rot_e), np.array(trans_e), log_dir)
 
 if __name__ == "__main__":
 		args = setup_args()
