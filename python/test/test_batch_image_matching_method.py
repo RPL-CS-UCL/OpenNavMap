@@ -133,7 +133,7 @@ def main(args):
 			if not args.no_viz:			
 				scene.show(cam_size=0.05)
 
-	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node()} s')
+	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node()}s')
 	
 	# Save rotation and translation error
 	save_error(np.array(rot_e), np.array(trans_e), log_dir)
