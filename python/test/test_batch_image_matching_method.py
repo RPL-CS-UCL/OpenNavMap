@@ -96,7 +96,7 @@ def main(args):
 			
 			scene = matcher.scene
 			
-			######################################
+			###################################### Analyze duster's results
 			# Retrieve rgb and predicted confidence and depth map from duster
 			rgb_image_map = np.transpose(to_numpy(map_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
 			rgb_image_obs = np.transpose(to_numpy(obs_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
@@ -108,10 +108,9 @@ def main(args):
 			plot_images(conf_img_map, conf_img_obs, title1=f"Conf (Map-{map_id})", title2=f"Conf (Obs-{obs_id})", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_conf.png'))
 			
-			# Compute the scale
+			# Compute the scale by aligning two depth images
 			depth_image_gt = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
 			depth_image_est = to_numpy(scene.get_depthmaps())[1]
-
 			depth_image_ref = np.zeros_like(depth_image_gt)
 			depth_image_target = np.zeros_like(depth_image_est)
 			mask = (depth_image_gt > args.min_depth_pro) & (depth_image_gt < args.max_depth_pro)
@@ -121,24 +120,28 @@ def main(args):
 			meas_scale = compute_scale_factor(depth_image_ref, depth_image_target)
 			print(f'Scale Factor: {meas_scale:.3f}')			
 
-			total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, 1.0))
-			mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
-			total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale))
-			mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
-			print(f'Total Disp before Scaling: {total_dis_before_scaling:.5f}, ', 
-						f'Mean Disp before Scaling: {mean_dis_before_scaling:.5f}')
-			print(f'Total Disp after Scaling: {total_dis_after_scaling:.5f}, ', 
-						f'Mean Disp after Scaling: {mean_dis_after_scaling:.5f}')
-			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
+			# total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, 1.0))
+			# mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
+			# total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale))
+			# mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
+			# print(f'Total Disp before Scaling: {total_dis_before_scaling:.5f}, ', 
+			# 			f'Mean Disp before Scaling: {mean_dis_before_scaling:.5f}')
+			# print(f'Total Disp after Scaling: {total_dis_after_scaling:.5f}, ', 
+			# 			f'Mean Disp after Scaling: {mean_dis_after_scaling:.5f}')
+			# print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
 
 			depth_image_target_scale = meas_scale * depth_image_target
-			plot_images(depth_image_ref, depth_image_target, title1="Depth1 (Ref)", title2="Depth2 (Ori)", 
+			plot_images(depth_image_ref, depth_image_target, 
+									title1=f"Depth-GT (Obs-{obs_id})", title2=f"Depth-Ori (Obs-{obs_id})", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_depth.png'))
-			plot_images(depth_image_ref, depth_image_target_scale, title1="Depth1 (Ref)", title2="Depth2 (Scaled)", 
+			plot_images(depth_image_ref, depth_image_target_scale, 
+									title1=f"Depth-GT (Obs-{obs_id})", title2=f"Depth-Scaled (Obs-{obs_id})", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_depth_scaling.png'))		
-			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, 1.0), title1="Depth (Ref)", title2="Error Map",
+			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, 1.0), 
+									title1=f"Depth-GT (Obs-{obs_id})", title2="Error Map",
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_error_map.png'))
-			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale), title1="Depth (Ref)", title2="Error Map", 
+			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale), 
+									title1=f"Depth-GT (Obs-{obs_id})", title2="Error Map", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_error_map_scaling.png'))		
 			######################################
 
