@@ -91,28 +91,49 @@ def main(args):
 			
 			scene = matcher.scene
 			
-			# DEBUG(gogojjh): analyze the generate rgb and depth image
-			rgb_image = to_numpy(map_node.rgb_image)
-			depth_image = to_numpy(map_node.depth_image)
-			save_input_images(rgb_image * 255, depth_image / args.depth_scale,
-												os.path.join(log_dir, f'map_gt_rgb_{map_id}.png'), 
- 											  os.path.join(log_dir, f'map_gt_depth_{map_id}.png'))
-			rgb_image = scene.imgs[0]
-			depth_image = to_numpy(scene.get_depthmaps())[0]
-			save_duster_images(rgb_image * 255, depth_image / args.depth_scale, 
-												 os.path.join(log_dir, f'map_duster_rgb_{map_id}.png'), 
-												 os.path.join(log_dir, f'map_duster_depth_{map_id}.png'))
+			######################################
+			# NOTE(gogojjh): Save groundtruth and predicted depth images 
+			rgb_image_gt = np.transpose(to_numpy(obs_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
+			depth_image_gt = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
+			# save_rgb_depth_images(rgb_image_gt * 255, depth_image_gt / args.depth_scale,
+			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_gt_rgb_{obs_id}.png'), 
+ 			# 								      os.path.join(log_dir, 'preds_depthmap', f'obs_gt_depth_{obs_id}.png'))
+			rgb_image_est = scene.imgs[1]
+			depth_image_est = to_numpy(scene.get_depthmaps())[1]
+			# save_rgb_depth_images(rgb_image_est * 255, depth_image_est / args.depth_scale, 
+			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_duster_rgb_{obs_id}.png'), 
+			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_duster_depth_{obs_id}.png'))
+			
+			depth_image_ref = np.zeros_like(depth_image_gt)
+			depth_image_target = np.zeros_like(depth_image_est)
+			min_th, max_th = 0.05, 5.5
+			mask = (depth_image_gt > min_th) & (depth_image_gt < max_th)
+			depth_image_ref[mask] = depth_image_gt[mask]
+			depth_image_target[mask] = depth_image_est[mask]
+    	
+			meas_scale = compute_scale_factor(depth_image_ref, depth_image_target)
+			print(f'Scale Factor: {meas_scale:.3f}')			
 
-			rgb_image = to_numpy(obs_node.rgb_image)
-			depth_image = to_numpy(obs_node.depth_image)
-			save_input_images(rgb_image * 255, depth_image / args.depth_scale,
-												os.path.join(log_dir, f'obs_gt_rgb_{obs_id}.png'), 
- 											  os.path.join(log_dir, f'obs_gt_depth_{obs_id}.png'))
-			rgb_image = scene.imgs[1]
-			depth_image = to_numpy(scene.get_depthmaps())[1]
-			save_duster_images(rgb_image * 255, depth_image / args.depth_scale, 
-												 os.path.join(log_dir, f'obs_duster_rgb_{obs_id}.png'), 
-												 os.path.join(log_dir, f'obs_duster_depth_{obs_id}.png'))
+			total_dis_before_scaling = np.linalg.norm(depth_image_ref - depth_image_target, 'fro')
+			mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
+			total_dis_after_scaling = np.linalg.norm((depth_image_ref - meas_scale * depth_image_target), 'fro')
+			mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
+			print(f'Total Disp before Scaling: {total_dis_before_scaling:.3f}, ', 
+						f'Mean Disp before Scaling: {mean_dis_before_scaling:.3f}')
+			print(f'Total Disp after Scaling: {total_dis_after_scaling:.3f}, ', 
+						f'Mean Disp after Scaling: {mean_dis_after_scaling:.3f}')
+			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.3f}')
+
+			depth_image_target_scale = meas_scale * depth_image_target
+			
+			plot_images(depth_image_gt, depth_image_target, title1="Depth1 (Ref)", title2="Depth2 (Ori)", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'obs_depth_{obs_id}.png'))
+			plot_images(depth_image_gt, depth_image_target_scale, title1="Depth1 (Ref)", title2="Depth2 (Scaled)", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'obs_depth_scaling_{obs_id}.png'))
+			plot_images(depth_image_gt, np.abs(depth_image_gt - depth_image_target), title1="Depth (Ref)", title2="Error Map",
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'error_map_{obs_id}.png'))
+			plot_images(depth_image_gt, np.abs(depth_image_gt - depth_image_target_scale), title1="Depth (Ref)", title2="Error Map", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'error_map_scaling_{obs_id}.png'))
 			######################################
 
 			im_poses = scene.get_im_poses()
@@ -124,13 +145,18 @@ def main(args):
 			print('Estimated Poses:\n', est_T)
 
 			# Normalized poses
-			est_T_normalized = np.copy(est_T)
 			if abs(est_T[2, 3]) < 1e-9:
-				scale = 1.0
+				pose_scale = 1.0
 			else:
-				scale = T_map_obs[2, 3] / est_T[2, 3]
-			est_T_normalized[:3, 3] *= scale
-			print(f'Normalized Poses with scale {scale}:\n', est_T_normalized)
+				pose_scale = T_map_obs[2, 3] / est_T[2, 3]
+
+			est_T_normalized = np.copy(est_T)
+			est_T_normalized[:3, 3] *= pose_scale
+			print(f'Normalized Poses with scale {pose_scale}:\n', est_T_normalized)
+
+			est_T_normalized = np.copy(est_T)
+			est_T_normalized[:3, 3] *= meas_scale
+			print(f'Normalized Poses with scale {meas_scale}:\n', est_T_normalized)
 
 			# Compute error
 			dis_trans, dis_angle = compute_relative_dis_TF(est_T_normalized, T_map_obs)
