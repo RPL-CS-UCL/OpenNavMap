@@ -12,9 +12,9 @@ import matplotlib.pyplot as pl
 pl.ion()
 
 from pycpptools.python.utils_math.tools_eigen import compute_relative_dis
+from pycpptools.python.utils_algorithm.utils_shortest_path import dijkstra_shortest_path
 
 from utils.utils_image_matching_method import *
-from utils.utils_shortest_path import dijkstra_shortest_path
 from image_graph import ImageGraphLoader
 
 # This is to be able to use matplotlib also without a GUI
