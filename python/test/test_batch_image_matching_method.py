@@ -20,7 +20,7 @@ import numpy as np
 import matplotlib.pyplot as pl
 pl.ion()
 
-from pycpptools.python.utils_math.tools_eigen import compute_relative_dis, compute_relative_dis_TF, convert_vec_to_matrix
+from pycpptools.src.python.utils_math.tools_eigen import compute_relative_dis, compute_relative_dis_TF, convert_vec_to_matrix
 from matching.utils import to_numpy
 
 from utils.utils_image_matching_method import *

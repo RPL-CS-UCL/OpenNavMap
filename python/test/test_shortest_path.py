@@ -11,8 +11,8 @@ import numpy as np
 import matplotlib.pyplot as pl
 pl.ion()
 
-from pycpptools.python.utils_math.tools_eigen import compute_relative_dis
-from pycpptools.python.utils_algorithm.shortest_path import dijkstra_shortest_path
+from pycpptools.src.python.utils_math.tools_eigen import compute_relative_dis
+from pycpptools.src.python.utils_algorithm.shortest_path import dijkstra_shortest_path
 
 from utils.utils_image_matching_method import *
 from image_graph import ImageGraphLoader
