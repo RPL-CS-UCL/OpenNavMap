@@ -106,7 +106,8 @@ def main(args):
 			
 			depth_image_ref = np.zeros_like(depth_image_gt)
 			depth_image_target = np.zeros_like(depth_image_est)
-			min_th, max_th = 0.05, 5.5
+			# Threshold for depth range to be considered for scaling, depending on the specific RGBD camera
+			min_th, max_th = 0.1, 7.0
 			mask = (depth_image_gt > min_th) & (depth_image_gt < max_th)
 			depth_image_ref[mask] = depth_image_gt[mask]
 			depth_image_target[mask] = depth_image_est[mask]
@@ -114,59 +115,60 @@ def main(args):
 			meas_scale = compute_scale_factor(depth_image_ref, depth_image_target)
 			print(f'Scale Factor: {meas_scale:.3f}')			
 
-			total_dis_before_scaling = np.linalg.norm(depth_image_ref - depth_image_target, 'fro')
+			total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, 1.0))
 			mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
-			total_dis_after_scaling = np.linalg.norm((depth_image_ref - meas_scale * depth_image_target), 'fro')
+			total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale))
 			mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
-			print(f'Total Disp before Scaling: {total_dis_before_scaling:.3f}, ', 
-						f'Mean Disp before Scaling: {mean_dis_before_scaling:.3f}')
-			print(f'Total Disp after Scaling: {total_dis_after_scaling:.3f}, ', 
-						f'Mean Disp after Scaling: {mean_dis_after_scaling:.3f}')
-			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.3f}')
+			print(f'Total Disp before Scaling: {total_dis_before_scaling:.5f}, ', 
+						f'Mean Disp before Scaling: {mean_dis_before_scaling:.5f}')
+			print(f'Total Disp after Scaling: {total_dis_after_scaling:.5f}, ', 
+						f'Mean Disp after Scaling: {mean_dis_after_scaling:.5f}')
+			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
 
 			depth_image_target_scale = meas_scale * depth_image_target
-			
 			plot_images(depth_image_gt, depth_image_target, title1="Depth1 (Ref)", title2="Depth2 (Ori)", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'obs_depth_{obs_id}.png'))
 			plot_images(depth_image_gt, depth_image_target_scale, title1="Depth1 (Ref)", title2="Depth2 (Scaled)", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'obs_depth_scaling_{obs_id}.png'))
-			plot_images(depth_image_gt, np.abs(depth_image_gt - depth_image_target), title1="Depth (Ref)", title2="Error Map",
+			
+			plot_images(depth_image_gt, compute_residual_matrix(depth_image_ref, depth_image_target, 1.0), title1="Depth (Ref)", title2="Error Map",
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'error_map_{obs_id}.png'))
-			plot_images(depth_image_gt, np.abs(depth_image_gt - depth_image_target_scale), title1="Depth (Ref)", title2="Error Map", 
+			plot_images(depth_image_gt, compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale), title1="Depth (Ref)", title2="Error Map", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'error_map_scaling_{obs_id}.png'))
 			######################################
 
 			im_poses = scene.get_im_poses()
 			im_poses = to_numpy(scene.get_im_poses())
 			est_T = im_poses[1]
+
 			# Change the definition of est_T since it is originally defined as T_obs_map
 			if abs(np.sum(np.diag(est_T)) - 4.0) < 1e-5:
 				est_T = np.linalg.inv(im_poses[0])
-			print('Estimated Poses:\n', est_T)
 
-			# Normalized poses
+			# Normalized poses with pose scale
 			if abs(est_T[2, 3]) < 1e-9:
 				pose_scale = 1.0
 			else:
 				pose_scale = T_map_obs[2, 3] / est_T[2, 3]
+			# est_T_normalized = np.copy(est_T)
+			# est_T_normalized[:3, 3] *= pose_scale
+			# print(f'Normalized Poses with Pose scale {pose_scale}:\n', est_T_normalized)
 
-			est_T_normalized = np.copy(est_T)
-			est_T_normalized[:3, 3] *= pose_scale
-			print(f'Normalized Poses with scale {pose_scale}:\n', est_T_normalized)
-
+			# Normalized poses with measurement scale
 			est_T_normalized = np.copy(est_T)
 			est_T_normalized[:3, 3] *= meas_scale
-			print(f'Normalized Poses with scale {meas_scale}:\n', est_T_normalized)
+			print(f'Normalized Poses with Meas scale {meas_scale}:\n', est_T_normalized)
+			print('\n')
 
 			# Compute error
 			dis_trans, dis_angle = compute_relative_dis_TF(est_T_normalized, T_map_obs)
 			rot_e.append(dis_angle)
 			trans_e.append(dis_trans)
 
-			if not args.no_viz:			
+			if not args.no_viz:
 				scene.show(cam_size=0.05)
 
-	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node()}s')
+	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node()}s\n')
 	
 	# Save rotation and translation error
 	save_error(np.array(rot_e), np.array(trans_e), log_dir)
