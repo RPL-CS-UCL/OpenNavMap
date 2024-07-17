@@ -97,21 +97,23 @@ def main(args):
 			scene = matcher.scene
 			
 			######################################
-			# NOTE(gogojjh): Save groundtruth and predicted depth images 
-			# rgb_image_gt = np.transpose(to_numpy(obs_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
-			depth_image_gt = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
-			# save_rgb_depth_images(rgb_image_gt * 255, depth_image_gt / args.depth_scale,
-			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_gt_rgb_{obs_id}.png'), 
- 			# 								      os.path.join(log_dir, 'preds_depthmap', f'obs_gt_depth_{obs_id}.png'))
-			# rgb_image_est = scene.imgs[1]
-			depth_image_est = to_numpy(scene.get_depthmaps())[1]
-			# save_rgb_depth_images(rgb_image_est * 255, depth_image_est / args.depth_scale, 
-			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_duster_rgb_{obs_id}.png'), 
-			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_duster_depth_{obs_id}.png'))
+			# Retrieve rgb and predicted confidence and depth map from duster
+			rgb_image_map = np.transpose(to_numpy(map_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
+			rgb_image_obs = np.transpose(to_numpy(obs_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
+			save_image(np.hstack((rgb_image_map * 255, rgb_image_obs * 255)), 
+								 save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_rgb.png'))
+
+			conf_img_map = to_numpy(scene.im_conf[0])
+			conf_img_obs = to_numpy(scene.im_conf[1])
+			plot_images(conf_img_map, conf_img_obs, title1=f"Conf (Map-{map_id})", title2=f"Conf (Obs-{obs_id})", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_conf.png'))
 			
+			# Compute the scale
+			depth_image_gt = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
+			depth_image_est = to_numpy(scene.get_depthmaps())[1]
+
 			depth_image_ref = np.zeros_like(depth_image_gt)
 			depth_image_target = np.zeros_like(depth_image_est)
-			# Threshold for depth range to be considered for scaling, depending on the specific RGBD camera
 			mask = (depth_image_gt > args.min_depth_pro) & (depth_image_gt < args.max_depth_pro)
 			depth_image_ref[mask] = depth_image_gt[mask]
 			depth_image_target[mask] = depth_image_est[mask]
@@ -130,15 +132,14 @@ def main(args):
 			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
 
 			depth_image_target_scale = meas_scale * depth_image_target
-			plot_images(depth_image_gt, depth_image_target, title1="Depth1 (Ref)", title2="Depth2 (Ori)", 
-									save_path=os.path.join(log_dir, 'preds_depthmap', f'obs_depth_{obs_id}.png'))
-			plot_images(depth_image_gt, depth_image_target_scale, title1="Depth1 (Ref)", title2="Depth2 (Scaled)", 
-									save_path=os.path.join(log_dir, 'preds_depthmap', f'obs_depth_scaling_{obs_id}.png'))
-			
-			plot_images(depth_image_gt, compute_residual_matrix(depth_image_ref, depth_image_target, 1.0), title1="Depth (Ref)", title2="Error Map",
-									save_path=os.path.join(log_dir, 'preds_depthmap', f'error_map_{obs_id}.png'))
-			plot_images(depth_image_gt, compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale), title1="Depth (Ref)", title2="Error Map", 
-									save_path=os.path.join(log_dir, 'preds_depthmap', f'error_map_scaling_{obs_id}.png'))
+			plot_images(depth_image_ref, depth_image_target, title1="Depth1 (Ref)", title2="Depth2 (Ori)", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_depth.png'))
+			plot_images(depth_image_ref, depth_image_target_scale, title1="Depth1 (Ref)", title2="Depth2 (Scaled)", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_depth_scaling.png'))		
+			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, 1.0), title1="Depth (Ref)", title2="Error Map",
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_error_map.png'))
+			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale), title1="Depth (Ref)", title2="Error Map", 
+									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_error_map_scaling.png'))		
 			######################################
 
 			im_poses = scene.get_im_poses()
