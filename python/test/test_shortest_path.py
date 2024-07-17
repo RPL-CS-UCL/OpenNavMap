@@ -14,6 +14,7 @@ pl.ion()
 from pycpptools.python.utils_math.tools_eigen import compute_relative_dis
 
 from utils.utils_image_matching_method import *
+from utils.utils_shortest_path import dijkstra_shortest_path
 from image_graph import ImageGraphLoader
 
 # This is to be able to use matplotlib also without a GUI
@@ -48,10 +49,8 @@ def main(args):
 	"""Perform shortest path searching"""
 	start_time = time.time()
 	start_node = image_graph.get_node(args.start_id)
-	print(start_node)
 	goal_node = image_graph.get_node(args.goal_id)
-	print(goal_node)
-	travel_distance, path = image_graph.shortest_path(start_node, goal_node)
+	travel_distance, path = dijkstra_shortest_path(image_graph, start_node, goal_node)
 	out_str  = f"Time taken: {time.time() - start_time:.3f}s\n"
 	out_str += f"Travel distance of the shortest path: {travel_distance:.3f}m\n"
 	out_str += f"Shortest path: " + " -> ".join([str(node.id) for node in path])
