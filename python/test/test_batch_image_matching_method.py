@@ -1,7 +1,13 @@
 '''
-Usage: python test_batch_image_matching_method.py --matcher duster \
+Usage1: python test_batch_image_matching_method.py --matcher duster \
 --dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
---image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000
+--image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000 \
+--min_depth_pro 0.1 --max_depth_pro 5.5 --depth_scale 0.001
+
+Usage2: python test_batch_image_matching_method.py --matcher duster \
+--dataset_path /Titan/dataset/data_topo_loc/cmu_navigation_matterport3d_17DRP5sb8fy \
+--image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000 \
+--min_depth_pro 0.1 --max_depth_pro 5.5 --depth_scale 0.039
 '''
 import os
 import sys
@@ -34,14 +40,13 @@ def main(args):
 
 	"""Load image data"""
 	path_map = os.path.join(args.dataset_path, 'map')
-	image_graph = ImageGraphLoader.load_data(path_map, image_size, args.depth_scale, normalized=False, num_sample=args.sample_map)
+	image_graph = ImageGraphLoader.load_data(path_map, image_size, depth_scale=args.depth_scale, normalized=False, num_sample=args.sample_map)
 	path_obs = os.path.join(args.dataset_path, 'obs')
-	image_obs = ImageGraphLoader.load_data(path_obs, image_size, args.depth_scale, normalized=False, num_sample=args.sample_obs)
-
-	rot_e, trans_e = [], []
+	image_obs = ImageGraphLoader.load_data(path_obs, image_size, depth_scale=args.depth_scale, normalized=False, num_sample=args.sample_obs)
 
 	"""Perform image matcher"""
 	start_time = time.time()
+	rot_e, trans_e = [], []
 	for obs_id, obs_node in image_obs.nodes.items():
 
 		# Find the closest map node to the observation node.
@@ -93,12 +98,12 @@ def main(args):
 			
 			######################################
 			# NOTE(gogojjh): Save groundtruth and predicted depth images 
-			rgb_image_gt = np.transpose(to_numpy(obs_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
+			# rgb_image_gt = np.transpose(to_numpy(obs_node.rgb_image), (1, 2, 0)) # 3xHXW -> HxWx3
 			depth_image_gt = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
 			# save_rgb_depth_images(rgb_image_gt * 255, depth_image_gt / args.depth_scale,
 			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_gt_rgb_{obs_id}.png'), 
  			# 								      os.path.join(log_dir, 'preds_depthmap', f'obs_gt_depth_{obs_id}.png'))
-			rgb_image_est = scene.imgs[1]
+			# rgb_image_est = scene.imgs[1]
 			depth_image_est = to_numpy(scene.get_depthmaps())[1]
 			# save_rgb_depth_images(rgb_image_est * 255, depth_image_est / args.depth_scale, 
 			# 									    os.path.join(log_dir, 'preds_depthmap', f'obs_duster_rgb_{obs_id}.png'), 
@@ -107,8 +112,7 @@ def main(args):
 			depth_image_ref = np.zeros_like(depth_image_gt)
 			depth_image_target = np.zeros_like(depth_image_est)
 			# Threshold for depth range to be considered for scaling, depending on the specific RGBD camera
-			min_th, max_th = 0.1, 7.0
-			mask = (depth_image_gt > min_th) & (depth_image_gt < max_th)
+			mask = (depth_image_gt > args.min_depth_pro) & (depth_image_gt < args.max_depth_pro)
 			depth_image_ref[mask] = depth_image_gt[mask]
 			depth_image_target[mask] = depth_image_est[mask]
     	
@@ -150,9 +154,9 @@ def main(args):
 				pose_scale = 1.0
 			else:
 				pose_scale = T_map_obs[2, 3] / est_T[2, 3]
-			# est_T_normalized = np.copy(est_T)
-			# est_T_normalized[:3, 3] *= pose_scale
-			# print(f'Normalized Poses with Pose scale {pose_scale}:\n', est_T_normalized)
+			est_T_normalized = np.copy(est_T)
+			est_T_normalized[:3, 3] *= pose_scale
+			print(f'Normalized Poses with Pose scale {pose_scale}:\n', est_T_normalized)
 
 			# Normalized poses with measurement scale
 			est_T_normalized = np.copy(est_T)
