@@ -13,7 +13,7 @@ import matplotlib.pyplot as pl
 pl.ion()
 
 from pycpptools.src.python.utils_math.tools_eigen import compute_relative_dis
-from pycpptools.src.python.utils_algorithm.shortest_path import dijkstra_shortest_path
+from pycpptools.src.python.utils_algorithm.shortest_path import dijk_shortest_path
 
 from utils.utils_image_matching_method import *
 from image_graph import ImageGraphLoader
@@ -51,7 +51,7 @@ def main(args):
 	start_time = time.time()
 	start_node = image_graph.get_node(args.start_id)
 	goal_node = image_graph.get_node(args.goal_id)
-	travel_distance, path = dijkstra_shortest_path(image_graph, start_node, goal_node)
+	travel_distance, path = dijk_shortest_path(image_graph, start_node, goal_node)
 	out_str  = f"Time taken: {time.time() - start_time:.3f}s\n"
 	out_str += f"Travel distance of the shortest path: {travel_distance:.3f}m\n"
 	out_str += f"Shortest path: " + " -> ".join([str(node.id) for node in path])
