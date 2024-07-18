@@ -1,11 +1,10 @@
 '''
-Usage: python test_batch_vpr_method.py \
-	--method=cosplace --backbone=ResNet18 --descriptors_dimension=512 \
-	--num_preds_to_save=3 \
-	--image_size 200 200
-	--device=cuda \
-	--sample_map=3 --sample_obs=1000
-	--dataset_path=/Titan/dataset/data_topo_loc/anymal_ops_mos
+Usage: python test_batch_vpr_method.py --dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
+--method cosplace --backbone ResNet18 --descriptors_dimension 512 \
+--num_preds_to_save 3 \
+--image_size 288 512 \
+--device cuda \
+--sample_map 3 --sample_obs 1000
 '''
 import os
 import sys
@@ -40,7 +39,7 @@ def extract_descriptors(model, image_list, descriptors_dimension, device):
 		logging.info("Extracting descriptors for evaluation/testing")
 		all_descriptors = np.empty((image_list.get_num_node(), descriptors_dimension), dtype="float32")
 		for indices, (id, node) in enumerate(image_list.nodes.items()):
-			descriptor = model(node.image.unsqueeze(0).to(device))
+			descriptor = model(node.rgb_image.unsqueeze(0).to(device))
 			node.set_descriptor(descriptor)
 			all_descriptors[indices, :] = descriptor.cpu().numpy()
 		return all_descriptors
@@ -58,10 +57,12 @@ def main(args):
 	"""Load images"""
 	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), 
 																					 image_size=image_size, 
+																					 depth_scale=0.001,
 																					 normalized=True, 
 																					 num_sample=args.sample_map)
 	image_obs = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'obs'), 
 																				 image_size=image_size, 
+																				 depth_scale=0.001,
 																				 normalized=True, 
 																				 num_sample=args.sample_obs)
 
@@ -90,13 +91,13 @@ def main(args):
 				obs_id = all_obs_id[i]
 				obs_node = image_obs.get_node(obs_id)
 				if obs_node is not None:
-					list_of_images_paths = [obs_node.img_path]
+					list_of_images_paths = [obs_node.rgb_img_path]
 
 					for j in range(len(predictions[i][:args.num_preds_to_save])):
 						if predictions[i][j] < 0: continue
 						map_node = image_graph.get_node(all_map_id[predictions[i][j]])
 						if map_node is not None:
-							list_of_images_paths.append(map_node.img_path)
+							list_of_images_paths.append(map_node.rgb_img_path)
 
 					preds_correct = [None] * len(list_of_images_paths)
 					save_visualization(log_dir, obs_id, list_of_images_paths, preds_correct)

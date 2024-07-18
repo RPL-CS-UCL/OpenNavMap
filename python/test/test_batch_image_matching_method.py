@@ -52,7 +52,10 @@ def main(args):
 		# Find the closest map node to the observation node.
 		all_map_id, all_dis_trans, all_dis_angle = [], [], []
 		for map_id, map_node in image_graph.nodes.items():
-			dis_trans, dis_angle = compute_relative_dis(map_node.t_w_cam, map_node.quat_w_cam, obs_node.t_w_cam, obs_node.quat_w_cam)
+			dis_trans, dis_angle = compute_relative_dis(
+				map_node.trans_gt, map_node.quat_gt, 
+				obs_node.trans_gt, obs_node.quat_gt
+			)
 			if dis_angle > 90.0: continue
 			all_map_id.append(map_id)
 			all_dis_trans.append(dis_trans)
@@ -88,8 +91,8 @@ def main(args):
 		"""Visualize matching results"""
 		if args.matcher == 'duster':
 			# Groundtruth poses
-			T_w_map = convert_vec_to_matrix(map_node.t_w_cam, map_node.quat_w_cam, 'xyzw')
-			T_w_obs = convert_vec_to_matrix(obs_node.t_w_cam, obs_node.quat_w_cam, 'xyzw')
+			T_w_map = convert_vec_to_matrix(map_node.trans_gt, map_node.quat_gt, 'xyzw')
+			T_w_obs = convert_vec_to_matrix(obs_node.trans_gt, obs_node.quat_gt, 'xyzw')
 			T_map_obs = np.linalg.inv(T_w_map) @ T_w_obs
 			print('Groundtruth Poses:\n', T_map_obs)
 			# print('Estimated H:\n', H)
@@ -173,7 +176,7 @@ def main(args):
 			if not args.no_viz:
 				scene.show(cam_size=0.05)
 
-	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node()}s\n')
+	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node():.3f}s\n')
 	
 	# Save rotation and translation error
 	save_error(np.array(rot_e), np.array(trans_e), log_dir)
