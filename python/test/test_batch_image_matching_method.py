@@ -36,7 +36,7 @@ def main(args):
 	log_dir = setup_log_environment(os.path.join(args.dataset_path, 'output_batch_image_matching'), args)
 
 	"""Initialize image matcher"""
-	matcher = initialize_matcher(args.matcher, args.device, args.n_kpts)
+	matcher = initialize_img_matcher(args.matcher, args.device, args.n_kpts)
 
 	"""Load image data"""
 	path_map = os.path.join(args.dataset_path, 'map')
@@ -109,26 +109,23 @@ def main(args):
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_conf.png'))
 			
 			# Compute the scale by aligning two depth images
-			depth_image_gt = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
-			depth_image_est = to_numpy(scene.get_depthmaps())[1]
-			depth_image_ref = np.zeros_like(depth_image_gt)
-			depth_image_target = np.zeros_like(depth_image_est)
-			mask = (depth_image_gt > args.min_depth_pro) & (depth_image_gt < args.max_depth_pro)
-			depth_image_ref[mask] = depth_image_gt[mask]
-			depth_image_target[mask] = depth_image_est[mask]
-    	
+			depth_image_ref = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
+			depth_image_target = to_numpy(scene.get_depthmaps())[1]
+			mask = (depth_image_ref < args.min_depth_pro) | (depth_image_ref > args.max_depth_pro)
+			depth_image_ref[mask] = 0.0
+			depth_image_target[mask] = 0.0
 			meas_scale = compute_scale_factor(depth_image_ref, depth_image_target)
 			print(f'Scale Factor: {meas_scale:.3f}')			
 
-			# total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, 1.0))
-			# mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
-			# total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale))
-			# mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
-			# print(f'Total Disp before Scaling: {total_dis_before_scaling:.5f}, ', 
-			# 			f'Mean Disp before Scaling: {mean_dis_before_scaling:.5f}')
-			# print(f'Total Disp after Scaling: {total_dis_after_scaling:.5f}, ', 
-			# 			f'Mean Disp after Scaling: {mean_dis_after_scaling:.5f}')
-			# print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
+			total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, 1.0))
+			mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
+			total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale))
+			mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
+			print(f'Total Disp before Scaling: {total_dis_before_scaling:.5f}, ', 
+						f'Mean Disp before Scaling: {mean_dis_before_scaling:.5f}')
+			print(f'Total Disp after Scaling: {total_dis_after_scaling:.5f}, ', 
+						f'Mean Disp after Scaling: {mean_dis_after_scaling:.5f}')
+			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
 
 			depth_image_target_scale = meas_scale * depth_image_target
 			plot_images(depth_image_ref, depth_image_target, 

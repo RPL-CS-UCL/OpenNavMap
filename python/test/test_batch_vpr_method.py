@@ -45,17 +45,6 @@ def extract_descriptors(model, image_list, descriptors_dimension, device):
 			all_descriptors[indices, :] = descriptor.cpu().numpy()
 		return all_descriptors
 
-def perform_knn_search(database_descriptors, queries_descriptors, descriptors_dimension, recall_values):
-	"""Perform kNN search and return predictions."""
-	start_time = time.time()
-	faiss_index = faiss.IndexFlatL2(descriptors_dimension)
-	faiss_index.add(database_descriptors)
-	del database_descriptors
-	logging.info("Calculating recalls")
-	_, predictions = faiss_index.search(queries_descriptors, max(recall_values))
-	print('Matching desc costs: {}s'.format((time.time() - start_time) / len(queries_descriptors)))
-	return predictions
-
 def main(args):
 	"""Main function to run the image matching process."""
 	out_dir = Path(os.path.join(args.dataset_path, 'output_batch_vpr_method'))
@@ -64,7 +53,7 @@ def main(args):
 	image_size = args.image_size
 
 	"""Initialize VPR model"""
-	model = initialize_model(args.method, args.backbone, args.descriptors_dimension, args.device)
+	model = initialize_vpr_model(args.method, args.backbone, args.descriptors_dimension, args.device)
 
 	"""Load images"""
 	image_graph = ImageGraphLoader.load_data(os.path.join(args.dataset_path, 'map'), 
@@ -86,7 +75,8 @@ def main(args):
 
 	"""Perform KNN search"""
 	start_time = time.time()
-	predictions = perform_knn_search(database_descriptors, queries_descriptors, args.descriptors_dimension, args.recall_values)
+	predictions = perform_knn_search(database_descriptors, queries_descriptors, 
+																	 args.descriptors_dimension, args.recall_values)
 	print('Matching each desc costs: {:3f}s'.format((time.time() - start_time) / len(predictions)))
 
 	"""Save image descriptors"""

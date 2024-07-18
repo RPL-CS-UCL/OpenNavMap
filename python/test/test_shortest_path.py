@@ -1,5 +1,6 @@
 '''
-Usage1: python test_shortest_path.py --start_id 0 --goal_id 10
+Usage1: python test_shortest_path.py --start_id 0 --goal_id 10 \
+--depth_scale 0.001 --dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos --sample_map 1
 '''
 import os
 import sys
