@@ -76,8 +76,8 @@ def main(args):
 
 	"""Perform KNN search"""
 	start_time = time.time()
-	predictions = perform_knn_search(database_descriptors, queries_descriptors, 
-																	 args.descriptors_dimension, args.recall_values)
+	_, predictions = perform_knn_search(database_descriptors, queries_descriptors, 
+																	    args.descriptors_dimension, args.recall_values)
 	print('Matching each desc costs: {:3f}s'.format((time.time() - start_time) / len(predictions)))
 
 	"""Save image descriptors"""
