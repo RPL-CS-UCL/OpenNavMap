@@ -1,15 +1,17 @@
 '''
 Usage: python test_vpr_methods.py \
-  --method=cosplace --backbone=ResNet18 --descriptors_dimension=512 \
-  --database_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/map/map_rgb \
-  --queries_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/sample_obs/obs_rgb/ \
-  --no_labels --image_size 200 200 \
-  --num_preds_to_save 3 --log_dir anymal_ops_mos
+--method=cosplace --backbone=ResNet18 --descriptors_dimension=512 \
+--database_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/map/map_rgb \
+--queries_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/sample_obs/obs_rgb/ \
+--no_labels --image_size 200 200 \
+--num_preds_to_save 3 --log_dir anymal_ops_mos
 '''
 
+import os
 import sys
-sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation')
-sys.path.append('/Titan/code/robohike_ws/src/VPR-methods-evaluation/third_party/deep-image-retrieval')
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../VPR-methods-evaluation'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../VPR-methods-evaluation/third_party/deep-image-retrieval'))
 
 import faiss
 import torch

@@ -28,16 +28,6 @@ from image_node import ImageNode
 if not hasattr(sys, "ps1"):
 	matplotlib.use("Agg")
 
-# def extract_descriptors(model, image_list, descriptors_dimension, device):
-# 	with torch.inference_mode():
-# 		logging.info("Extracting descriptors for evaluation/testing")
-# 		all_descriptors = np.empty((image_list.get_num_node(), descriptors_dimension), dtype="float32")
-# 		for indices, (id, node) in enumerate(image_list.nodes.items()):
-# 			descriptor = model(node.rgb_image.unsqueeze(0).to(device))
-# 			node.set_descriptor(descriptor)
-# 			all_descriptors[indices, :] = descriptor.cpu().numpy()
-# 		return all_descriptors
-
 def main(args):
 	"""Main function to run the image matching process."""
 	out_dir = Path(os.path.join(args.dataset_path, 'output_batch_vpr_method'))
@@ -54,6 +44,7 @@ def main(args):
 																					 normalized=True)
 
 	# Extract VPR descriptors for all nodes in the map
+	for map_id, map_node in image_graph.
 	db_descriptors_id = image_graph.get_all_id()
 	db_descriptors = np.array([map_node.get_descriptor() for _, map_node in image_graph.nodes.items()], dtype="float32")
 	print(f"IDs: {db_descriptors_id} extracted {db_descriptors.shape} VPR descriptors.")
