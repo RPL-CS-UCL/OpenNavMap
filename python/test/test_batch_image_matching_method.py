@@ -1,12 +1,12 @@
 '''
 Usage1: python test_batch_image_matching_method.py --matcher duster \
 --dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
---image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000 \
+--image_size 288 512 --device cuda \
 --min_depth_pro 0.1 --max_depth_pro 5.5 --depth_scale 0.001
 
 Usage2: python test_batch_image_matching_method.py --matcher duster \
 --dataset_path /Titan/dataset/data_topo_loc/cmu_navigation_matterport3d_17DRP5sb8fy \
---image_size 288 512 --device cuda --sample_map 1 --sample_obs 1000 \
+--image_size 288 512 --device cuda \
 --min_depth_pro 0.1 --max_depth_pro 5.5 --depth_scale 0.039
 '''
 import os
@@ -24,7 +24,9 @@ from pycpptools.src.python.utils_math.tools_eigen import compute_relative_dis, c
 from matching.utils import to_numpy
 
 from utils.utils_image_matching_method import *
+from utils.utils_image import load_rgb_image, load_depth_image
 from image_graph import ImageGraphLoader
+from image_node import ImageNode
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):
@@ -39,15 +41,29 @@ def main(args):
 	matcher = initialize_img_matcher(args.matcher, args.device, args.n_kpts)
 
 	"""Load image data"""
-	path_map = os.path.join(args.dataset_path, 'map')
-	image_graph = ImageGraphLoader.load_data(path_map, image_size, depth_scale=args.depth_scale, normalized=False, num_sample=args.sample_map)
-	path_obs = os.path.join(args.dataset_path, 'obs')
-	image_obs = ImageGraphLoader.load_data(path_obs, image_size, depth_scale=args.depth_scale, normalized=False, num_sample=args.sample_obs)
+	map_camera_type = 'map_zed'
+	obs_camera_type = 'obs_zed' # obs, obs_habitat, obs_kinect
+
+	path_map = os.path.join(args.dataset_path, map_camera_type)
+	image_graph = ImageGraphLoader.load_data(path_map, image_size, depth_scale=args.depth_scale, normalized=False)
+	obs_poses_gt = np.loadtxt(os.path.join(args.dataset_path, obs_camera_type, 'camera_pose_gt.txt'))
 
 	"""Perform image matcher"""
-	start_time = time.time()
 	rot_e, trans_e = [], []
-	for obs_id, obs_node in image_obs.nodes.items():
+	for obs_id in range(0, len(obs_poses_gt), 15):
+		if obs_id > 10:
+			break
+		start_time = time.time()
+
+		print(f"obs_id: {obs_id}")
+		rgb_img_path = os.path.join(args.dataset_path, f'{obs_camera_type}/rgb', f'{obs_id:06d}.png')
+		rgb_img = load_rgb_image(rgb_img_path, args.image_size, normalized=False)
+		depth_img_path = os.path.join(args.dataset_path, f'{obs_camera_type}/depth', f'{obs_id:06d}.png')
+		depth_img = load_depth_image(depth_img_path, args.image_size, depth_scale=args.depth_scale)
+		obs_node = ImageNode(obs_id, rgb_img, depth_img, None, 0,
+													np.zeros(3), np.array([0, 0, 0, 1]),
+													rgb_img_path, depth_img_path)
+		obs_node.set_pose_gt(obs_poses_gt[obs_id, 1:4], obs_poses_gt[obs_id, 4:])
 
 		# Find the closest map node to the observation node.
 		all_map_id, all_dis_trans, all_dis_angle = [], [], []
@@ -112,46 +128,42 @@ def main(args):
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_conf.png'))
 			
 			# Compute the scale by aligning two depth images
-			depth_image_ref = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
-			depth_image_target = to_numpy(scene.get_depthmaps())[1]
-			mask = (depth_image_ref < args.min_depth_pro) | (depth_image_ref > args.max_depth_pro)
-			depth_image_ref[mask] = 0.0
-			depth_image_target[mask] = 0.0
-			meas_scale = compute_scale_factor(depth_image_ref, depth_image_target)
+			depth_image_meas = np.squeeze(np.transpose(to_numpy(obs_node.depth_image), (1, 2, 0)), axis=2) # 1xHXW -> HxWx1
+			depth_image_est = to_numpy(scene.get_depthmaps())[1]
+			mask = (depth_image_meas < args.min_depth_pro) | (depth_image_meas > args.max_depth_pro)
+			depth_image_meas[mask] = 0.0
+			depth_image_est[mask] = 0.0
+			meas_scale = compute_scale_factor(depth_image_meas, depth_image_est)
 			print(f'Scale Factor: {meas_scale:.3f}')			
 
-			total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, 1.0))
-			mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_ref)
-			total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale))
-			mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_ref)
+			total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_meas, depth_image_est, 1.0))
+			mean_dis_before_scaling = total_dis_before_scaling / np.size(depth_image_meas)
+			total_dis_after_scaling = np.sum(compute_residual_matrix(depth_image_meas, depth_image_est, meas_scale))
+			mean_dis_after_scaling = total_dis_after_scaling / np.size(depth_image_meas)
 			print(f'Total Disp before Scaling: {total_dis_before_scaling:.5f}, ', 
 						f'Mean Disp before Scaling: {mean_dis_before_scaling:.5f}')
 			print(f'Total Disp after Scaling: {total_dis_after_scaling:.5f}, ', 
 						f'Mean Disp after Scaling: {mean_dis_after_scaling:.5f}')
 			print(f'Reduce Ratio: {mean_dis_before_scaling / mean_dis_after_scaling:.5f}')
 
-			depth_image_target_scale = meas_scale * depth_image_target
-			plot_images(depth_image_ref, depth_image_target, 
+			depth_image_target_scale = meas_scale * depth_image_est
+			plot_images(depth_image_meas, depth_image_est, 
 									title1=f"Depth-GT (Obs-{obs_id})", title2=f"Depth-Ori (Obs-{obs_id})", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_depth.png'))
-			plot_images(depth_image_ref, depth_image_target_scale, 
+			plot_images(depth_image_meas, depth_image_target_scale, 
 									title1=f"Depth-GT (Obs-{obs_id})", title2=f"Depth-Scaled (Obs-{obs_id})", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_depth_scaling.png'))		
-			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, 1.0), 
+			plot_images(depth_image_meas, compute_residual_matrix(depth_image_meas, depth_image_est, 1.0), 
 									title1=f"Depth-GT (Obs-{obs_id})", title2="Error Map",
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_error_map.png'))
-			plot_images(depth_image_ref, compute_residual_matrix(depth_image_ref, depth_image_target, meas_scale), 
+			plot_images(depth_image_meas, compute_residual_matrix(depth_image_meas, depth_image_est, meas_scale), 
 									title1=f"Depth-GT (Obs-{obs_id})", title2="Error Map", 
 									save_path=os.path.join(log_dir, 'preds_depthmap', f'{obs_id}_error_map_scaling.png'))		
 			######################################
 
 			im_poses = scene.get_im_poses()
 			im_poses = to_numpy(scene.get_im_poses())
-			est_T = im_poses[1]
-
-			# Change the definition of est_T since it is originally defined as T_obs_map
-			if abs(np.sum(np.diag(est_T)) - 4.0) < 1e-5:
-				est_T = np.linalg.inv(im_poses[0])
+			est_T = np.linalg.inv(im_poses[0]) if abs(np.sum(np.diag(im_poses[1])) - 4.0) < 1e-5 else im_poses[1]
 
 			# Normalized poses with pose scale
 			if abs(est_T[2, 3]) < 1e-9:
@@ -176,7 +188,7 @@ def main(args):
 			if not args.no_viz:
 				scene.show(cam_size=0.05)
 
-	print(f'Matching costs {(time.time() - start_time) / image_obs.get_num_node():.3f}s\n')
+		print(f'Matching costs {time.time() - start_time:.3f}s\n')
 	
 	# Save rotation and translation error
 	save_error(np.array(rot_e), np.array(trans_e), log_dir)

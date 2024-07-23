@@ -27,11 +27,11 @@ def main(args):
 	image_size = args.image_size
 
 	"""Load image data"""
-	path_map = os.path.join(args.dataset_path, 'map')
+	map_camera_type ='map_zed'
+	path_map = os.path.join(args.dataset_path, map_camera_type)
 	image_graph = ImageGraphLoader.load_data(path_map, image_size, 
 																					depth_scale=args.depth_scale, 
-																					normalized=False, 
-																					num_sample=args.sample_map)
+																					normalized=False)
 	print('Total number of nodes with IDs: ', image_graph.get_num_node(), image_graph.get_all_id())
 
 	"""Create edges between nodes in the graph"""
@@ -42,10 +42,10 @@ def main(args):
 		map_node_next = image_graph.get_node(map_id)
 		if (map_node_prev is not None) and (map_node_next is not None):
 			# use the relative translation distance as the edge weight
-			weight, _ = compute_relative_dis(map_node_prev.t_w_cam, map_node_next.quat_w_cam, 
-																 		   map_node_next.t_w_cam, map_node_next.quat_w_cam,
+			weight, _ = compute_relative_dis(map_node_prev.trans, map_node_next.quat, 
+																 		   map_node_next.trans, map_node_next.quat,
 																		   mode='xyzw')
-			image_graph.add_edge(map_node_prev, map_node_next, weight)
+			image_graph.add_edge_undirected(map_node_prev, map_node_next, weight)
 
 	"""Perform shortest path searching"""
 	start_time = time.time()
