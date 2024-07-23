@@ -41,8 +41,8 @@ def main(args):
 	matcher = initialize_img_matcher(args.matcher, args.device, args.n_kpts)
 
 	"""Load image data"""
-	map_camera_type = 'map_zed'
-	obs_camera_type = 'obs_zed' # obs, obs_habitat, obs_kinect
+	map_camera_type = 'map_kinect'
+	obs_camera_type = 'obs_kinect' # obs, obs_habitat, obs_kinect
 
 	path_map = os.path.join(args.dataset_path, map_camera_type)
 	image_graph = ImageGraphLoader.load_data(path_map, image_size, depth_scale=args.depth_scale, normalized=False)
@@ -50,11 +50,7 @@ def main(args):
 
 	"""Perform image matcher"""
 	rot_e, trans_e = [], []
-	for obs_id in range(0, len(obs_poses_gt), 15):
-		if obs_id > 10:
-			break
-		start_time = time.time()
-
+	for obs_id in range(0, len(obs_poses_gt), 10):
 		print(f"obs_id: {obs_id}")
 		rgb_img_path = os.path.join(args.dataset_path, f'{obs_camera_type}/rgb', f'{obs_id:06d}.png')
 		rgb_img = load_rgb_image(rgb_img_path, args.image_size, normalized=False)
@@ -82,6 +78,7 @@ def main(args):
 
 		# Matching image pairs
 		try:
+			start_time = time.time()
 			out_str = f"Paths: map_id ({map_id}), obs_id ({obs_id}). "
 			result = matcher(map_node.rgb_image, obs_node.rgb_image)
 			num_inliers, H, mkpts0, mkpts1 = (
@@ -90,6 +87,7 @@ def main(args):
 					result["inliers0"],
 					result["inliers1"],
 			)
+			print(f'Matching costs {time.time() - start_time:.3f}s\n')
 			assert num_inliers > 100
 			
 			"""Save matching results"""
@@ -133,7 +131,7 @@ def main(args):
 			mask = (depth_image_meas < args.min_depth_pro) | (depth_image_meas > args.max_depth_pro)
 			depth_image_meas[mask] = 0.0
 			depth_image_est[mask] = 0.0
-			meas_scale = compute_scale_factor(depth_image_meas, depth_image_est)
+			meas_scale = compute_scale_factor(depth_image_meas, depth_image_est, delta=0.5)
 			print(f'Scale Factor: {meas_scale:.3f}')			
 
 			total_dis_before_scaling = np.sum(compute_residual_matrix(depth_image_meas, depth_image_est, 1.0))
@@ -188,8 +186,6 @@ def main(args):
 			if not args.no_viz:
 				scene.show(cam_size=0.05)
 
-		print(f'Matching costs {time.time() - start_time:.3f}s\n')
-	
 	# Save rotation and translation error
 	save_error(np.array(rot_e), np.array(trans_e), log_dir)
 
