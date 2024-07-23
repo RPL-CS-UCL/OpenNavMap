@@ -2,12 +2,14 @@
 Usage1: python test_batch_image_matching_method.py --matcher duster \
 --dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
 --image_size 288 512 --device cuda \
---min_depth_pro 0.1 --max_depth_pro 5.5 --depth_scale 0.001
+--min_depth_pro 0.1 --max_depth_pro 5.5 \
+--depth_scale 0.001
 
 Usage2: python test_batch_image_matching_method.py --matcher duster \
 --dataset_path /Titan/dataset/data_topo_loc/cmu_navigation_matterport3d_17DRP5sb8fy \
 --image_size 288 512 --device cuda \
---min_depth_pro 0.1 --max_depth_pro 5.5 --depth_scale 0.039
+--min_depth_pro 0.1 --max_depth_pro 5.5 \
+--depth_scale 0.039
 '''
 import os
 import sys
@@ -41,8 +43,8 @@ def main(args):
 	matcher = initialize_img_matcher(args.matcher, args.device, args.n_kpts)
 
 	"""Load image data"""
-	map_camera_type = 'map_kinect'
-	obs_camera_type = 'obs_kinect' # obs, obs_habitat, obs_kinect
+	map_camera_type = 'map_zed_5_45'
+	obs_camera_type = 'obs_zed' # obs, obs_habitat, obs_kinect
 
 	path_map = os.path.join(args.dataset_path, map_camera_type)
 	image_graph = ImageGraphLoader.load_data(path_map, image_size, depth_scale=args.depth_scale, normalized=False)
