@@ -1,17 +1,27 @@
-'''
+"""
 Usage: python test_vpr_methods.py \
 --method=cosplace --backbone=ResNet18 --descriptors_dimension=512 \
 --database_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/map/map_rgb \
 --queries_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/sample_obs/obs_rgb/ \
 --no_labels --image_size 200 200 \
 --num_preds_to_save 3 --log_dir anymal_ops_mos
-'''
+"""
 
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../VPR-methods-evaluation'))
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../VPR-methods-evaluation/third_party/deep-image-retrieval'))
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../"))
+sys.path.append(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "../../VPR-methods-evaluation"
+    )
+)
+sys.path.append(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "../../VPR-methods-evaluation/third_party/deep-image-retrieval",
+    )
+)
 
 import faiss
 import torch
@@ -30,29 +40,39 @@ import visualizations
 from test_dataset import TestDataset
 import time
 
+
 def setup_environment(args):
     """Setup logging and directories."""
     start_time = datetime.now()
-    log_dir = Path("logs") / args.log_dir / start_time.strftime('%Y-%m-%d_%H-%M-%S')
+    log_dir = Path("logs") / args.log_dir / start_time.strftime("%Y-%m-%d_%H-%M-%S")
     commons.setup_logging(log_dir, stdout="info")
     logging.info(" ".join(sys.argv))
     logging.info(f"Arguments: {args}")
-    logging.info(f"Testing with {args.method} with a {args.backbone} backbone and descriptors dimension {args.descriptors_dimension}")
+    logging.info(
+        f"Testing with {args.method} with a {args.backbone} backbone and descriptors dimension {args.descriptors_dimension}"
+    )
     logging.info(f"The outputs are being saved in {log_dir}")
     return log_dir
+
 
 def initialize_model(args):
     """Initialize and return the model."""
     model = vpr_models.get_model(args.method, args.backbone, args.descriptors_dimension)
     return model.eval().to(args.device)
 
+
 def create_datasets(args):
     """Create and return the test dataset."""
-    test_ds = TestDataset(args.database_folder, args.queries_folder,
-                          positive_dist_threshold=args.positive_dist_threshold,
-                          image_size=args.image_size, use_labels=args.use_labels)
+    test_ds = TestDataset(
+        args.database_folder,
+        args.queries_folder,
+        positive_dist_threshold=args.positive_dist_threshold,
+        image_size=args.image_size,
+        use_labels=args.use_labels,
+    )
     logging.info(f"Testing on {test_ds}")
     return test_ds
+
 
 def extract_descriptors(model, test_ds, args):
     """Extract and return all descriptors from the test dataset."""
@@ -61,29 +81,46 @@ def extract_descriptors(model, test_ds, args):
         # Extract database descriptors
         logging.debug("Extracting database descriptors for evaluation/testing")
         database_subset_ds = Subset(test_ds, list(range(test_ds.num_database)))
-        database_dataloader = DataLoader(dataset=database_subset_ds, num_workers=args.num_workers,
-                                         batch_size=args.batch_size)
-        all_descriptors = np.empty((len(test_ds), args.descriptors_dimension), dtype="float32")
+        database_dataloader = DataLoader(
+            dataset=database_subset_ds,
+            num_workers=args.num_workers,
+            batch_size=args.batch_size,
+        )
+        all_descriptors = np.empty(
+            (len(test_ds), args.descriptors_dimension), dtype="float32"
+        )
         for images, indices in tqdm(database_dataloader):
             descriptors = model(images.to(args.device))
             descriptors = descriptors.cpu().numpy()
             all_descriptors[indices.numpy(), :] = descriptors
 
         # Extract query descriptors
-        logging.debug("Extracting queries descriptors for evaluation/testing using batch size 1")
-        queries_subset_ds = Subset(test_ds,
-                                   list(range(test_ds.num_database, test_ds.num_database + test_ds.num_queries)))
-        queries_dataloader = DataLoader(dataset=queries_subset_ds, num_workers=args.num_workers,
-                                        batch_size=1)
+        logging.debug(
+            "Extracting queries descriptors for evaluation/testing using batch size 1"
+        )
+        queries_subset_ds = Subset(
+            test_ds,
+            list(
+                range(test_ds.num_database, test_ds.num_database + test_ds.num_queries)
+            ),
+        )
+        queries_dataloader = DataLoader(
+            dataset=queries_subset_ds, num_workers=args.num_workers, batch_size=1
+        )
         for images, indices in tqdm(queries_dataloader):
             descriptors = model(images.to(args.device))
             descriptors = descriptors.cpu().numpy()
             all_descriptors[indices.numpy(), :] = descriptors
-    
-    print('Extract desc costs: {:3f}s'.format((time.time() - start_time) / len(all_descriptors)))
-    queries_descriptors = all_descriptors[test_ds.num_database:]
-    database_descriptors = all_descriptors[:test_ds.num_database]
+
+    print(
+        "Extract desc costs: {:3f}s".format(
+            (time.time() - start_time) / len(all_descriptors)
+        )
+    )
+    queries_descriptors = all_descriptors[test_ds.num_database :]
+    database_descriptors = all_descriptors[: test_ds.num_database]
     return queries_descriptors, database_descriptors
+
 
 def save_descriptors(log_dir, queries_descriptors, database_descriptors, args):
     """Save descriptors to files."""
@@ -91,6 +128,7 @@ def save_descriptors(log_dir, queries_descriptors, database_descriptors, args):
         logging.info(f"Saving the descriptors in {log_dir}")
         np.save(log_dir / "queries_descriptors.npy", queries_descriptors)
         np.save(log_dir / "database_descriptors.npy", database_descriptors)
+
 
 def perform_knn_search(database_descriptors, queries_descriptors, args):
     """Perform kNN search and return predictions."""
@@ -100,8 +138,13 @@ def perform_knn_search(database_descriptors, queries_descriptors, args):
     del database_descriptors
     logging.debug("Calculating recalls")
     _, predictions = faiss_index.search(queries_descriptors, max(args.recall_values))
-    print('Matching desc costs: {}s'.format((time.time() - start_time) / len(queries_descriptors)))
+    print(
+        "Matching desc costs: {}s".format(
+            (time.time() - start_time) / len(queries_descriptors)
+        )
+    )
     return predictions
+
 
 def calculate_recalls(predictions, test_ds, args):
     """Calculate and log recall values."""
@@ -113,19 +156,28 @@ def calculate_recalls(predictions, test_ds, args):
                 if np.any(np.in1d(preds[:n], positives_per_query[query_index])):
                     recalls[i:] += 1
                     break
-        
+
         # Divide by num_queries and multiply by 100, so the recalls are in percentages
         recalls = recalls / test_ds.num_queries * 100
-        recalls_str = ", ".join([f"R@{val}: {rec:.1f}" for val, rec in zip(args.recall_values, recalls)])
+        recalls_str = ", ".join(
+            [f"R@{val}: {rec:.1f}" for val, rec in zip(args.recall_values, recalls)]
+        )
         logging.info(recalls_str)
+
 
 def save_predictions(predictions, test_ds, log_dir, args):
     """Save visualizations of predictions."""
     if args.num_preds_to_save != 0:
         logging.info("Saving final predictions")
         # For each query save num_preds_to_save predictions
-        visualizations.save_preds(predictions[:, :args.num_preds_to_save], test_ds,
-                                  log_dir, args.save_only_wrong_preds, args.use_labels)
+        visualizations.save_preds(
+            predictions[:, : args.num_preds_to_save],
+            test_ds,
+            log_dir,
+            args.save_only_wrong_preds,
+            args.use_labels,
+        )
+
 
 def main():
     args = parser.parse_arguments()
@@ -133,14 +185,17 @@ def main():
     model = initialize_model(args)
     test_ds = create_datasets(args)
 
-    queries_descriptors, database_descriptors = extract_descriptors(model, test_ds, args)
+    queries_descriptors, database_descriptors = extract_descriptors(
+        model, test_ds, args
+    )
     save_descriptors(log_dir, queries_descriptors, database_descriptors, args)
-    print('Number of database_descriptors: ', len(database_descriptors))
-    print('Number of queries_descriptors: ', len(queries_descriptors))
+    print("Number of database_descriptors: ", len(database_descriptors))
+    print("Number of queries_descriptors: ", len(queries_descriptors))
 
     predictions = perform_knn_search(database_descriptors, queries_descriptors, args)
     calculate_recalls(predictions, test_ds, args)
     save_predictions(predictions, test_ds, log_dir, args)
+
 
 if __name__ == "__main__":
     main()
