@@ -1,5 +1,6 @@
 import open3d as o3d
 import numpy as np
+import time
 
 def draw_registration_result(source, target, transformation):
     source_temp = source.clone()
@@ -45,10 +46,10 @@ init_source_to_target = np.asarray([[0.862, 0.011, -0.507, 0.5],
                                     [0.0, 0.0, 0.0, 1.0]])
 
 # Select the `Estimation Method`, and `Robust Kernel` (for outlier-rejection).
-estimation = treg.TransformationEstimationPointToPlane()
+estimation = o3d.pipelines.registration.TransformationEstimationPointToPlane()
 
 # Convergence-Criteria for Vanilla ICP
-criteria = treg.ICPConvergenceCriteria(relative_fitness=0.000001,
+criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=0.000001,
                                        relative_rmse=0.000001,
                                        max_iteration=50)
 # Down-sampling voxel-size.
@@ -57,9 +58,15 @@ voxel_size = 0.025
 # Save iteration wise `fitness`, `inlier_rmse`, etc. to analyse and tune result.
 save_loss_log = True
 
-s = time.time()
+callback_after_iteration = lambda loss_log_map : print("Iteration Index: {}, Scale Index: {}, Scale Iteration Index: {}, Fitness: {}, Inlier RMSE: {},".format(
+    loss_log_map["iteration_index"].item(),
+    loss_log_map["scale_index"].item(),
+    loss_log_map["scale_iteration_index"].item(),
+    loss_log_map["fitness"].item(),
+    loss_log_map["inlier_rmse"].item()))
 
-registration_icp = treg.icp(source, target, max_correspondence_distance,
+s = time.time()
+registration_icp = o3d.pipelines.registration.icp(source, target, max_correspondence_distance,
                             init_source_to_target, estimation, criteria,
                             voxel_size, callback_after_iteration)
 
