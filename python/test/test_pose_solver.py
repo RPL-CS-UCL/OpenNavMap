@@ -87,6 +87,7 @@ class TestPoseSolver():
 			quat = np.array([-0.002553716, 0.223818718, -0.008624582, 0.99675829]) 
 			trans = np.array([-1.315558359, 0.430753200, -1.943453622])
 			T10 = pytool_math.tools_eigen.convert_vec_to_matrix(trans, quat, 'xyzw')
+
 			depth_img0 = np.random.rand(height, width) * 10.0
 			depth_points = depth_image_to_point_cloud(depth_img0, K, (width, height))
 			depth_points_transformed = transform_point_cloud(depth_points, T10)
@@ -107,10 +108,10 @@ class TestPoseSolver():
 			mkpts0 = mkpts0[valid_mask]
 			print(mkpts0.shape, mkpts1.shape)
 
-			depth_img0_noisy = depth_img0 + (np.random.randn(height, width) - 0.5) * 2.0
-			depth_img1_noisy = depth_img1 + (np.random.randn(height, width) - 0.5) * 2.0
-			mkpts0_noisy = mkpts0 + (np.random.randn(mkpts0.shape[0], 2) - 0.5) * 2.0
-			mkpts1_noisy = mkpts1 + (np.random.randn(mkpts1.shape[0], 2) - 0.5) * 2.0
+			depth_img0_noisy = depth_img0 + (np.random.randn(height, width) - 0.5) * 0.0
+			depth_img1_noisy = depth_img1 + (np.random.randn(height, width) - 0.5) * 0.0
+			mkpts0_noisy = mkpts0 + (np.random.randn(mkpts0.shape[0], 2) - 0.5) * 0.0
+			mkpts1_noisy = mkpts1 + (np.random.randn(mkpts1.shape[0], 2) - 0.5) * 0.0
 
 			for str_solver in available_solvers:
 				if str_solver == 'procrustes': continue
