@@ -93,7 +93,7 @@ def main(args):
             args.dataset_path, "obs/depth", f"{obs_id:06d}.png"
         )
         depth_img = load_depth_image(
-            depth_img_path, args.image_size, depth_scale=args.depth_scale
+            depth_img_path, depth_scale=args.depth_scale
         )
         with torch.no_grad():
             desc = vpr_model(rgb_img.unsqueeze(0).to(args.device)).cpu().numpy()

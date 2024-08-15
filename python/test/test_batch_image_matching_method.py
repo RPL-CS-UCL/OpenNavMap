@@ -78,7 +78,7 @@ def main(args):
             args.dataset_path, f"{obs_camera_type}/depth", f"{obs_id:06d}.png"
         )
         depth_img = load_depth_image(
-            depth_img_path, args.image_size, depth_scale=args.depth_scale
+            depth_img_path, depth_scale=args.depth_scale
         )
         obs_node = ImageNode(
             obs_id,
