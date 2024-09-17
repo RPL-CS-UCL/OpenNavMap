@@ -29,9 +29,7 @@ def main(args):
 	"""Load image data"""
 	map_camera_type ='map_zed'
 	path_map = os.path.join(args.dataset_path, map_camera_type)
-	image_graph = ImageGraphLoader.load_data(path_map, image_size, 
-																					depth_scale=args.depth_scale, 
-																					normalized=False)
+	image_graph = ImageGraphLoader.load_data(path_map, image_size, depth_scale=args.depth_scale, normalized=False)
 	print('Total number of nodes with IDs: ', image_graph.get_num_node(), image_graph.get_all_id())
 
 	"""Create edges between nodes in the graph"""
