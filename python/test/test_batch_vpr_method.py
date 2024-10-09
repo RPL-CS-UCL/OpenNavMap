@@ -1,5 +1,5 @@
 """
-Usage: python test_batch_vpr_method.py --dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
+Usage: python test_batch_vpr_method.py --dataset_path /Titan/dataset/data_litevloc/anymal_ops_mos \
 --method cosplace --backbone ResNet18 --descriptors_dimension 512 \
 --num_preds_to_save 3 \
 --image_size 288 512 \

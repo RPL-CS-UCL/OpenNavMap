@@ -1,12 +1,12 @@
 """
 Usage1: python test_batch_image_matching_method.py --matcher duster \
---dataset_path /Titan/dataset/data_topo_loc/anymal_ops_mos \
+--dataset_path /Titan/dataset/data_litevloc/anymal_ops_mos \
 --image_size 288 512 --device cuda \
 --min_depth_pro 0.1 --max_depth_pro 5.5 \
 --depth_scale 0.001
 
 Usage2: python test_batch_image_matching_method.py --matcher duster \
---dataset_path /Titan/dataset/data_topo_loc/cmu_navigation_matterport3d_17DRP5sb8fy \
+--dataset_path /Titan/dataset/data_litevloc/cmu_navigation_matterport3d_17DRP5sb8fy \
 --image_size 288 512 --device cuda \
 --min_depth_pro 0.1 --max_depth_pro 5.5 \
 --depth_scale 0.039

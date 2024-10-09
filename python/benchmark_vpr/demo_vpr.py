@@ -1,8 +1,8 @@
 """
 Usage: python test_vpr_methods.py \
 --method=cosplace --backbone=ResNet18 --descriptors_dimension=512 \
---database_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/map/map_rgb \
---queries_folder=/Titan/dataset/data_topo_loc/anymal_ops_mos/sample_obs/obs_rgb/ \
+--database_folder=/Titan/dataset/data_litevloc/anymal_ops_mos/map/map_rgb \
+--queries_folder=/Titan/dataset/data_litevloc/anymal_ops_mos/sample_obs/obs_rgb/ \
 --no_labels --image_size 200 200 \
 --num_preds_to_save 3 --log_dir anymal_ops_mos
 """
