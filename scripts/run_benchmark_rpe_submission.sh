@@ -19,5 +19,5 @@ export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
 
 # Run the Python script
 python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODELS \
-  --out_dir $OUT_DIR --n_query 3 --top_k 5 \
+  --out_dir $OUT_DIR --n_query 1 --top_k 15 \
   --split test --debug

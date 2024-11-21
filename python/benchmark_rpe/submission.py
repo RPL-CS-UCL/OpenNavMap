@@ -22,7 +22,7 @@ from estimator import available_models, get_estimator
 
 from pycpptools.src.python.utils_sensor.utils import correct_intrinsic_scale
 
-from python.benchmark_rpe.rpe_default import cfg
+from rpe_default import cfg
 from datamodules import DataModule
 
 @dataclass

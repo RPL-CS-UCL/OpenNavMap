@@ -21,7 +21,7 @@ for model in "${models[@]}"
 do
   echo "Evaluate pose_estimation methods: $model"
   python $PROJECT_PATH/python/benchmark_rpe/evaluation.py \
-    --submission_path $DATASET_PATH/results_rpe/$model/submission.zip \
+    --submission_path $DATASET_PATH/results_rpe/$model/submission_15.zip \
     --dataset_path $DATASET_PATH \
     --split test \
     --log error
