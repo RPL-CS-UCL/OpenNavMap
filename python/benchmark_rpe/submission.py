@@ -22,7 +22,7 @@ from estimator import available_models, get_estimator
 
 from pycpptools.src.python.utils_sensor.utils import correct_intrinsic_scale
 
-from ape_default import cfg
+from python.benchmark_rpe.rpe_default import cfg
 from datamodules import DataModule
 
 @dataclass
@@ -44,14 +44,14 @@ class Pose:
             self.t, formatter=formatter, max_line_width=max_line_width
         )[1:-1]
         str_img0_names = " ".join(img0_name for img0_name in self.list_img0_name)
-        return f"{self.top_K} {self.img1_name} {str_img0_names} {q_str} {t_str} {self.loss:.3f}"
+        return f"{self.top_K} {str_img0_names} {self.img1_name} {q_str} {t_str} {self.loss:.3f}"
 
 def predict(loader, estimator, str_estimator, cfg):
     results_dict = defaultdict(list)
     running_time = []
     save_indice = 0
     for data in tqdm(loader):
-        # try:
+        try:
             scene_root = Path(data['scene_root'][0])
 
             list_img0_name = [name[0] for name in data['list_image0_path']]
@@ -85,13 +85,15 @@ def predict(loader, estimator, str_estimator, cfg):
             # Rwc (numpy.ndarray): Estimated rotation matrix from world (reference frame) to camera
             # twc (numpy.ndarray): Estimated translation vector. Shape: [3, 1] that translate depth_img1 to depth_img0.
             im_pose, loss = est_result["im_pose"], est_result["loss"]
-            Twc = np.eye(4); Twc[:3, :3] = im_pose[:3, :3]; Twc[:3, 3] = im_pose[:3, 3]
-            Tcw = np.linalg.inv(Twc); Rcw = Tcw[:3, :3]; tcw = Tcw[:3,  3].reshape(3, 1)
-
+            if im_pose is None: 
+                raise ValueError(f"{str_estimator} - Estimated pose is None.")
+            elif np.isnan(im_pose).any():
+                raise ValueError("Estimated pose is NaN or infinite.")
+            
             """Save Results"""
             scene_id = data['scene_id'][0]
-            if np.isnan(im_pose).any():
-                raise ValueError("Estimated pose is NaN or infinite.")
+            Twc = np.eye(4); Twc[:3, :3] = im_pose[:3, :3]; Twc[:3, 3] = im_pose[:3, 3]
+            Tcw = np.linalg.inv(Twc); Rcw = Tcw[:3, :3]; tcw = Tcw[:3,  3].reshape(3, 1)
 
             # populate results_dict
             top_K = len(list_img0_name)
@@ -105,28 +107,18 @@ def predict(loader, estimator, str_estimator, cfg):
 
             if args.debug:
                 print(Fore.GREEN + f'Estimated Pose: {tcw.T}' + Style.RESET_ALL)
-                estimator.save_results()
-                if args.viz: estimator.show_reconstruction(cam_size=cfg.DATASET.VIZ_CAM_SIZE)
                 out_est_dir = Path(os.path.join(args.out_dir, f"{str_estimator}"))
                 out_est_dir.mkdir(parents=True, exist_ok=True)
                 Path(out_est_dir / "preds").mkdir(parents=True, exist_ok=True)
-                # text = f"{len(mkpts1)} matches: {scene}-{query_img.split('/')[1]}" # "N matches: s00000-frame_000000.jpg"
-                # save_visualization(rgb_img0, rgb_img1, mkpts0, mkpts1, out_match_dir, save_indice, n_viz=30, line_width=0.6, text=text)
+
+                estimator.save_results()
+                if args.viz: estimator.show_reconstruction(cam_size=cfg.DATASET.VIZ_CAM_SIZE)
                 save_indice += 1
-        # except Exception as e:
-        #     scene = data['scene_id'][0]
-        #     top_K = data['top_K'].detach().cpu().item()
-        #     list_ref_img_name = [name[0] for name in data['pair_names'][0]]
-        #     tar_img_name = data['pair_names'][1][0]
-        #     estimated_pose = Pose(top_K=top_K,
-        #                           list_ref_image_name=list_ref_img_name, 
-        #                           tar_image_name=tar_img_name,
-        #                           q=np.array([None, None, None, None]).reshape(-1),
-        #                           t=np.array([None, None, None, None]).reshape(-1),
-        #                           loss=0)
-        #     results_dict[scene].append(estimated_pose)
-        #     tqdm.write(f"Error with {str_estimator}: {e}")
-        #     tqdm.write(f"May occur due to no overlapping regions or insufficient matching at {scene}/{tar_img_name}.")
+        except Exception as e:
+            scene = data['scene_id'][0]
+            img1_name = data['image1_path'][0]
+            tqdm.write(Fore.RED + f"Error with {str_estimator}: {e}" + Style.RESET_ALL)
+            tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{img1_name}." + Style.RESET_ALL)
 
     avg_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
     return results_dict, avg_runtime
@@ -134,7 +126,8 @@ def predict(loader, estimator, str_estimator, cfg):
 def save_submission(results_dict: dict, output_path: Path):
     with ZipFile(output_path, "w") as zip:
         for scene, poses in results_dict.items():
-            poses_str = "\n".join((str(pose) for pose in poses))
+            poses_str = "#N img0_name1 img0_name2 ... img0_nameN img1_name qw qx qy qz tx ty tz loss\n"
+            poses_str += "\n".join((str(pose) for pose in poses))
             zip.writestr(f"pose_{scene}.txt", poses_str.encode("utf-8"))
 
 def eval(args):
@@ -176,7 +169,7 @@ def eval(args):
             # Save predictions to txt per scene within zip
             log_dir = Path(output_root / f"{model}")
             log_dir.mkdir(parents=True, exist_ok=True)
-            save_submission(results_dict, log_dir / "submission.zip")
+            save_submission(results_dict, log_dir / f"submission_{args.top_k}.zip")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
