@@ -18,11 +18,15 @@ rosbag record -O /Titan/dataset/data_litevloc/anymal_lab_upstair_20240722_0/vloc
 
 import os
 import sys
+import torch
+import cv2
 import pathlib
 import numpy as np
-import torch
 import time
-import cv2
+import copy
+import logging
+import gtsam
+
 import rospy
 from std_msgs.msg import Header
 from nav_msgs.msg import Odometry, Path
@@ -31,22 +35,28 @@ from geometry_msgs.msg import PoseArray
 from visualization_msgs.msg import MarkerArray
 import tf2_ros
 import matplotlib
-import logging
+import matplotlib.pyplot as plt
 
-import rospkg
-rospkg = rospkg.RosPack()
-pack_path = rospkg.get_path('litevloc')
+# import rospkg
+# rospkg = rospkg.RosPack()
+# pack_path = rospkg.get_path('litevloc')
 # sys.path.append(os.path.join(pack_path, '../image_matching_models'))
 # sys.path.append(os.path.join(pack_path, '../image_matching_models'))
 
-from utils.utils_pose_estimation_method import *
+from estimator.utils import to_tensor, to_numpy
+
+from utils.utils_vpr_method import perform_knn_search
+from utils.utils_map_merging import *
 from utils.utils_image import load_rgb_image, load_depth_image
 from image_graph import ImageGraphLoader as GraphLoader
 from image_node import ImageNode
 
 import pycpptools.src.python.utils_math as pytool_math
+from pycpptools.src.python.utils_math.tools_eigen import convert_vec_gtsam_pose3, convert_matrix_to_vec
 import pycpptools.src.python.utils_ros as pytool_ros
 import pycpptools.src.python.utils_sensor as pytool_sensor
+
+from gtsam_pose_graph import PoseGraph
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
@@ -83,28 +93,115 @@ class MergePipeline:
 
 	def read_map_from_file(self):
 		num_submap = self.args.num_submap
-		for submap_id in range(num_submap):
+		submap_id = 0
+		for i in range(num_submap):
 			submap_path = os.path.join(self.args.dataset_path, f'out_map{submap_id}')
 			image_graph = GraphLoader.load_data(
 				submap_path,
 				self.args.image_size,
 				depth_scale=0.0,
-				load_rgb=False,
+				load_rgb=True,
 				load_depth=False,
 				normalized=False
 			)
 			# Extract VPR descriptors for all nodes in the map
-			db_descriptors = np.array([map_node.get_descriptor() for _, map_node in image_graph.nodes.items()], dtype="float32")
-			print(f"Extracted {db_descriptors.shape} VPR descriptors from the {submap_id} submap.")
-			db_poses = np.empty((image_graph.get_num_node(), 7), dtype="float32")
-			for indices, (_, map_node) in enumerate(image_graph.nodes.items()):
-				db_poses[indices, :3] = map_node.trans
-				db_poses[indices, 3:] = map_node.quat
-			submap_dict = {'id': submap_id, 'graph': image_graph, 'db_descriptors': db_descriptors, 'db_poses': db_poses}
+			# db_descriptors = np.array([map_node.get_descriptor() for _, map_node in image_graph.nodes.items()], dtype="float32")
+			# print(f"Extracted {db_descriptors.shape} VPR descriptors from the {submap_id} submap.")
+			# db_poses = np.empty((image_graph.get_num_node(), 7), dtype="float32")
+			# for indices, (_, map_node) in enumerate(image_graph.nodes.items()):
+			# 	db_poses[indices, :3] = map_node.trans
+			# 	db_poses[indices, 3:] = map_node.quat
+			# submap_dict = {'id': submap_id, 'graph': image_graph, 'db_descriptors': db_descriptors, 'db_poses': db_poses}
+			self.submaps.append((submap_id, image_graph))
 			logging.info(f"Loaded {image_graph} from {submap_path}")
+			submap_id += 1
 
-			self.submaps.append(submap_dict)
 		print(f"Loaded {len(self.submaps)} submaps.")
+
+	def process_submap(self):
+		assert len(self.submaps) > 0, "No submaps loaded."
+		print(f"Processing {len(self.submaps)} submaps.")
+		# Using deep copy to avoid modifying the original submaps
+		ref_submap_id = 0
+		ref_submap = copy.deepcopy(self.submaps[ref_submap_id][1])
+		# Merge each submap to the final map
+		for i in range(1, len(self.submaps)):
+			# Load global descriptors and poses from the reference map 
+			db_descriptors = np.array([node.get_descriptor() for _, node in ref_submap.nodes.items()], dtype="float32")
+			db_poses = np.empty((ref_submap.get_num_node(), 7), dtype="float32")
+			for indices, (_, node) in enumerate(ref_submap.nodes.items()):
+				db_poses[indices, :3] = node.trans
+				db_poses[indices, 3:] = node.quat
+			# Load global descriptors and poses from the current target submap
+			cur_submap_id, cur_submap = self.submaps[i]
+			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
+			query_poses = np.empty((cur_submap.get_num_node(), 7), dtype="float32")
+			for indices, (_, node) in enumerate(cur_submap.nodes.items()):
+				query_poses[indices, :3] = node.trans
+				query_poses[indices, 3:] = node.quat
+
+			print(db_descriptors.shape, query_descriptors.shape)
+			# Perform kNN search
+			dist, preds = perform_knn_search(db_descriptors, query_descriptors, db_descriptors.shape[1], recall_values=[5])
+			print(f"Performing kNN search for submap {cur_submap_id} with {len(preds)} predictions.")
+			print(preds)
+			save_vis_coarse_loc(self.log_dir, ref_submap, ref_submap_id, cur_submap, cur_submap_id, preds)
+
+			# Create connected edges
+			edges_nodeA_to_nodeB = []
+			for query_node_id in range(preds.shape[0]):
+				query_node = cur_submap.get_node(query_node_id)
+				db_node_id = preds[query_node_id][0]
+				db_node = ref_submap.get_node(db_node_id)
+				edges_nodeA_to_nodeB.append((db_node, query_node, np.eye(4)))
+			###### DEBUG(gogojjh):
+			for edge in edges_nodeA_to_nodeB:
+				print(f"Graph0: {edge[0].id} <-> Graph1: {edge[1].id}")
+			######
+			pose_graph = self.create_pose_graph_from_submaps(ref_submap, cur_submap, edges_nodeA_to_nodeB)
+			g2o_file_path = os.path.join(self.log_dir, "preds/pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_file_path)
+					
+			# perform optimization
+			# pose_graph.perform_optimization()
+			ref_submap.merge(cur_submap, edges_nodeA_to_nodeB)
+			print(ref_submap)
+
+	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB):
+		# Convert the base graph to a gtsam pose graph
+		pose_graph = PoseGraph()
+		prior_sigma = np.array([np.deg2rad(1.), np.deg2rad(1.), np.deg2rad(1.), 0.01, 0.01, 0.01])
+		odom_sigma = np.array([np.deg2rad(1.), np.deg2rad(1.), np.deg2rad(1.), 0.01, 0.01, 0.01])
+		# Create a pose graph from submapA by adding internal edges of submapA
+		for node in submapA.nodes.values():
+			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
+			pose_graph.add_init_estimate(node.id, curr_pose3)
+			# Add prior factor
+			if node.id == 0: pose_graph.add_prior_factor(node.id, curr_pose3, prior_sigma)
+			# Add odometry factor
+			for edge in node.edges:
+				next_node = edge[0]
+				next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+				pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
+		# Expand the pose graph from submapB by adding internal edges of submapA
+		id_offset = max(submapA.get_all_id()) + 1
+		for node in submapB.nodes.values():
+			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
+			pose_graph.add_init_estimate(node.id + id_offset, curr_pose3)
+			# Add odometry factor
+			for edge in node.edges:
+				next_node = edge[0]
+				next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+				pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
+		# Expand the pose graph from adding external edges from the submapA to the submapB
+		for edge in edges_nodeA_to_nodeB:
+			nodeA, nodeB = edge[0], edge[1]
+			I_pose3 = convert_vec_gtsam_pose3(np.zeros(3), np.array([0, 0, 0, 1]))
+			trans, qxyzw = convert_matrix_to_vec(edge[2])
+			next_pose3 = convert_vec_gtsam_pose3(trans, qxyzw)
+			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, odom_sigma)
+
+		return pose_graph					
 
 	# def perform_image_matching(self, matcher, map_node, obs_node):
 	# 	try:
@@ -337,6 +434,8 @@ if __name__ == '__main__':
 	rospy.loginfo('Initialize Pose Estimator')
 	merger.init_pose_estimator()
 	merger.read_map_from_file()
+
+	merger.process_submap()
 
 	# rospy.init_node('loc_pipeline_node', anonymous=True)
 	# loc_pipeline.initalize_ros()
