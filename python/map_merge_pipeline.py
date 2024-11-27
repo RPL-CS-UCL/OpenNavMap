@@ -114,6 +114,8 @@ class MergePipeline:
 		print(f"Processing {len(self.submaps)} submaps.")
 		# Using deep copy to avoid modifying the original submaps
 		ref_submap_id, ref_submap = 0, copy.deepcopy(self.submaps[0][1])
+		ref_submap.map_root = self.log_dir
+
 		# Merge each submap to the final map
 		for cur_submap_id, cur_submap in self.submaps[1:]:
 			##### Perform Coarse Localization #####
@@ -132,22 +134,23 @@ class MergePipeline:
 			# Perform kNN search
 			dist, preds = perform_knn_search(db_descriptors, query_descriptors, db_descriptors.shape[1], recall_values=[5])
 			# Create connected edges
-			edges_nodeA_to_nodeB = []
+			edges_nodeA_to_nodeB_coarse = []
 			for query_node_id in range(preds.shape[0]):
 				query_node = cur_submap.get_node(query_node_id)
 				db_node_id = preds[query_node_id][0]
 				db_node = ref_submap.get_node(db_node_id)
-				edges_nodeA_to_nodeB.append((db_node, query_node, np.eye(4)))
+				edges_nodeA_to_nodeB_coarse.append((db_node, query_node, np.eye(4)))
 			###### DEBUG(gogojjh):
-			for edge in edges_nodeA_to_nodeB: print(f"Graph0: {edge[0].id} <-> Graph1: {edge[1].id}")
+			print("Coarse Localization Results:")
 			print(f"Size of DB and Query Descriptions: {db_descriptors.shape}, {query_descriptors.shape}")
 			print(f"Performing kNN search for submap {cur_submap_id} with {len(preds)} predictions.\n", preds)
+			for edge in edges_nodeA_to_nodeB_coarse: print(f"DB: {edge[0].rgb_img_name} <-> Query: {edge[1].rgb_img_name}")
 			save_vis_coarse_loc(self.log_dir, ref_submap, ref_submap_id, cur_submap, cur_submap_id, preds)
-			save_pg_coarse_loc(self.log_dir, ref_submap, ref_submap_id, cur_submap, cur_submap_id, edges_nodeA_to_nodeB)
 			######
 
 			##### Perform Fine Localization #####
-			for edge_nodeA_to_nodeB in edges_nodeA_to_nodeB:
+			edges_nodeA_to_nodeB_refine = [] # [(nodeA, nodeB, T_A2B)]
+			for edge_nodeA_to_nodeB in edges_nodeA_to_nodeB_coarse:
 				nodeA, nodeB = edge_nodeA_to_nodeB[0], edge_nodeA_to_nodeB[1]
 				if len(nodeA.edges) == 0: continue # Skip if the nodeA has no edges
 				nodeA_list = [nodeA, nodeA.edges[0][0]]
@@ -163,38 +166,64 @@ class MergePipeline:
 					'known_intrinsics': True,
 					'resize': 512,
 				}
-				start_time = time.time()
-				result = self.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
-				print('Reference:\n', list_img0_name)
-				print('Target:\n', img1_name)
-				print(f"Processing time: {time.time() - start_time:.2f}s")
-				print('Estimated pose: ', result['im_pose'][:3, 3:4].T) # Pose from world to camera
-				# print('Loss:', result['loss'])
-				
-				Twc0 = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
-				Twc1 = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
-				T_c0_c1 = np.linalg.inv(Twc0) @ Twc1
-				# TODO(gogojjh):
-				print('GT pose: ', T_c0_c1[:3, 3].T)
+				print(f"Reference: {', '.join(name for name in list_img0_name)}")
+				print(f"Target: {img1_name}")
+				try:
+					start_time = time.time()
+					result = self.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
+					# print(f"Processing time: {time.time() - start_time:.2f}s")
+					
+					Twc0_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
+					Twc1_est = result['im_pose']
+					T_c0_c1_est = np.linalg.inv(Twc0_est) @ Twc1_est
+					print('Estimated pose: ', T_c0_c1_est[:3, 3:4].T)
 
-				# self.pose_estimator.show_reconstruction()
-				input()
+					Twc0_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
+					Twc1_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
+					T_c0_c1_gt = np.linalg.inv(Twc0_gt) @ Twc1_gt
+					print('GT pose: ', T_c0_c1_gt[:3, 3:4].T)
+
+					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis_TF(T_c0_c1_est, T_c0_c1_gt)
+					print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
+					# print('Optimization Loss:', result['loss'])
+					# TODO(gogojjh): use the information of the estimator to check
+					if dis_tsl < 0.75 and dis_angle < 20: edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_c0_c1_est))
+					# TODO(gogojjh): fix this bug
+					# self.pose_estimator.show_reconstruction()
+					# input()
+				except Exception as e:
+					print(f"Error in pose estimation: {e}")
+					continue
+				print()
+			###### DEBUG(gogojjh):
+			print("Fine Localization Results:")			
+			for edge in edges_nodeA_to_nodeB_refine: print(f"DB: {edge[0].rgb_img_name}, {edge[0].edges[0][0].rgb_img_name} <-> Query: {edge[1].rgb_img_name}")
+			save_vis_pose_graph(self.log_dir, ref_submap, ref_submap_id, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine)
+			######
 
 			##### Perform Pose Graph Optimization #####
-			pose_graph = self.create_pose_graph_from_submaps(ref_submap, cur_submap, edges_nodeA_to_nodeB)
-			g2o_file_path = os.path.join(self.log_dir, "preds/pose_graph.g2o")
+			pose_graph = self.create_pose_graph_from_submaps(ref_submap, cur_submap, edges_nodeA_to_nodeB_refine)
+			g2o_file_path = os.path.join(self.log_dir, "preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_file_path)
 			# pose_graph.perform_optimization()
 
-			##### Merge the Pose Graph #####
-			ref_submap.merge(cur_submap, edges_nodeA_to_nodeB)
-			print(ref_submap)
+			##### Merge the Pose Graph and Update Poses of Each Node #####
+			# TODO(gogojjh): Think about how to merge the pose graph
+			edges_nodeA_nodeB_weight = []
+			for edge in edges_nodeA_to_nodeB_refine:
+				weight = np.linalg.norm(edge[2][:3, 3])
+				edges_nodeA_nodeB_weight.append([edge[0], edge[1], weight])
+			ref_submap.merge(cur_submap, edges_nodeA_nodeB_weight)
+			print(f"Merge Map Info: ", ref_submap)
+
+		ref_submap.save_to_file()
 
 	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB):
 		# Convert the base graph to a gtsam pose graph
 		pose_graph = PoseGraph()
 		prior_sigma = np.array([np.deg2rad(1.), np.deg2rad(1.), np.deg2rad(1.), 0.01, 0.01, 0.01])
 		odom_sigma = np.array([np.deg2rad(1.), np.deg2rad(1.), np.deg2rad(1.), 0.01, 0.01, 0.01])
+
 		# Create a pose graph from submapA by adding internal edges of submapA
 		for node in submapA.nodes.values():
 			curr_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(node.trans, node.quat)
@@ -206,6 +235,7 @@ class MergePipeline:
 				next_node = edge[0]
 				next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 				pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
+
 		# Expand the pose graph from submapB by adding internal edges of submapA
 		id_offset = max(submapA.get_all_id()) + 1
 		for node in submapB.nodes.values():
@@ -216,12 +246,13 @@ class MergePipeline:
 				next_node = edge[0]
 				next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 				pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
+
 		# Expand the pose graph from adding external edges from the submapA to the submapB
 		for edge in edges_nodeA_to_nodeB:
 			nodeA, nodeB = edge[0], edge[1]
 			I_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(np.zeros(3), np.array([0, 0, 0, 1]))
-			trans, qxyzw = pytool_math.tools_eigen.convert_matrix_to_vec(edge[2])
-			next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(trans, qxyzw)
+			trans, quat = pytool_math.tools_eigen.convert_matrix_to_vec(edge[2], 'xyzw')
+			next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(trans, quat)
 			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, odom_sigma)
 
 		return pose_graph					
