@@ -33,13 +33,13 @@ import tf2_ros
 import matplotlib
 import logging
 
-import rospkg
-rospkg = rospkg.RosPack()
-pack_path = rospkg.get_path('litevloc')
+# import rospkg
+# rospkg = rospkg.RosPack()
+# pack_path = rospkg.get_path('litevloc')
 # sys.path.append(os.path.join(pack_path, '../image_matching_models'))
 # sys.path.append(os.path.join(pack_path, '../image_matching_models'))
 
-from utils.utils_pose_estimation_method import *
+from utils.utils_map_merging_pipeline import *
 from utils.utils_image import load_rgb_image, load_depth_image
 from image_graph import ImageGraphLoader as GraphLoader
 from image_node import ImageNode
@@ -325,7 +325,8 @@ def perform_map_merging(merger: MergePipeline, args):
 
 if __name__ == '__main__':
 	args = parse_arguments()
-	out_dir = pathlib.Path(os.path.join(args.dataset_path, 'output_map_merging'))
+	str_suffix = '_'.join([i for i in args.num_submap])
+	out_dir = pathlib.Path(os.path.join(args.dataset_path, 'output_map_' + str_suffix))
 	out_dir.mkdir(exist_ok=True, parents=True)
 	log_dir = setup_log_environment(out_dir, args)
 
