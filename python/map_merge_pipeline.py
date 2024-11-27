@@ -164,16 +164,20 @@ class MergePipeline:
 					'resize': 512,
 				}
 				start_time = time.time()
+				result = self.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
 				print('Reference:\n', list_img0_name)
 				print('Target:\n', img1_name)
-				print('Reference poses:\n')
-				for pose in list_img0_poses: print(pose[:3, 3])
-				result = self.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
 				print(f"Processing time: {time.time() - start_time:.2f}s")
-				print('Focal length: ', result['focal'][0])
 				print('Estimated pose: ', result['im_pose'][:3, 3:4].T) # Pose from world to camera
-				print('Loss:', result['loss'])
-				# self.pose_estimator.show_reconstruction()				
+				# print('Loss:', result['loss'])
+				
+				Twc0 = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
+				Twc1 = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
+				T_c0_c1 = np.linalg.inv(Twc0) @ Twc1
+				# TODO(gogojjh):
+				print('GT pose: ', T_c0_c1[:3, 3].T)
+
+				# self.pose_estimator.show_reconstruction()
 				input()
 
 			##### Perform Pose Graph Optimization #####
