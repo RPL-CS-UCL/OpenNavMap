@@ -111,11 +111,11 @@ class MergePipeline:
 
 		print(f"Loaded {len(self.submaps)} submaps.")
 
-	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB):
+	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB, std_rot_deg=1.0, std_tsl=0.01):
 		# Convert the base graph to a gtsam pose graph
 		pose_graph = PoseGraph()
-		prior_sigma = np.array([np.deg2rad(1.), np.deg2rad(1.), np.deg2rad(1.), 0.01, 0.01, 0.01])
-		odom_sigma = np.array([np.deg2rad(1.), np.deg2rad(1.), np.deg2rad(1.), 0.01, 0.01, 0.01])
+		prior_sigma = np.array([std_rot_deg, std_rot_deg, std_rot_deg, std_tsl, std_tsl, std_tsl])
+		odom_sigma = np.array([std_rot_deg, std_rot_deg, std_rot_deg, std_tsl, std_tsl, std_tsl])
 
 		# Create a pose graph from submapA by adding internal edges of submapA
 		for node in submapA.nodes.values():
