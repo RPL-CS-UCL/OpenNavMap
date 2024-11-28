@@ -210,7 +210,6 @@ class MergePipeline:
 				# pose_graph.perform_optimization()
 
 				##### Merge the Pose Graph and Update Poses of Each Node #####
-				# TODO(gogojjh): Think about how to merge the pose graph
 				edges_nodeA_nodeB_weight = []
 				for edge in edges_nodeA_to_nodeB_refine:
 					weight = np.linalg.norm(edge[2][:3, 3])
