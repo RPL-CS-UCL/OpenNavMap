@@ -114,8 +114,8 @@ class MergePipeline:
 	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB, std_rot_deg=1.0, std_tsl=0.01):
 		# Convert the base graph to a gtsam pose graph
 		pose_graph = PoseGraph()
-		prior_sigma = np.array([std_rot_deg, std_rot_deg, std_rot_deg, std_tsl, std_tsl, std_tsl])
-		odom_sigma = np.array([std_rot_deg, std_rot_deg, std_rot_deg, std_tsl, std_tsl, std_tsl])
+		prior_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
+		odom_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
 
 		# Create a pose graph from submapA by adding internal edges of submapA
 		for node in submapA.nodes.values():
@@ -246,8 +246,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 					'known_intrinsics': True,
 					'resize': 512,
 				}
-				print(f"Reference: {', '.join(name for name in list_img0_name)}")
-				print(f"Target: {img1_name}")
 				try:
 					# start_time = time.time()
 					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
@@ -267,7 +265,10 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
 					# print('Optimization Loss:', result['loss'])
 					# TODO(gogojjh): use the information of the estimator to check
-					if dis_tsl < 0.75 and dis_angle < 20: edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_c0_c1_est))
+					if dis_tsl < 0.75 and dis_angle < 20: 
+						print(f"Reference: {', '.join(name for name in list_img0_name)}")
+						print(f"Target: {img1_name}")
+						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_c0_c1_est))
 					# TODO(gogojjh): fix this bug
 					# merger.pose_estimator.show_reconstruction()
 					# input()
