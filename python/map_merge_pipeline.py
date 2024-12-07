@@ -171,13 +171,15 @@ class MergePipeline:
 		for node in submapB.nodes.values():
 			node.id += id_offset
 
-			rgb_img = Image.open(os.path.join(submapB.map_root, node.rgb_img_name))
-			node.rgb_img_name = f"seq/{node.id:06d}.color.jpg"
-			rgb_img.save(os.path.join(submapA.map_root, node.rgb_img_name))
+			if os.path.exists(os.path.join(submapB.map_root, node.rgb_img_name)):
+				rgb_img = Image.open(os.path.join(submapB.map_root, node.rgb_img_name))
+				node.rgb_img_name = f"seq/{node.id:06d}.color.jpg"
+				rgb_img.save(os.path.join(submapA.map_root, node.rgb_img_name))
 
-			depth_img = Image.open(os.path.join(submapB.map_root, node.depth_img_name))
-			node.depth_img_name = f"seq/{node.id:06d}.depth.png"
-			depth_img.save(os.path.join(submapA.map_root, node.depth_img_name))
+			if os.path.exists(os.path.join(submapB.map_root, node.depth_img_name)):
+				depth_img = Image.open(os.path.join(submapB.map_root, node.depth_img_name))
+				node.depth_img_name = f"seq/{node.id:06d}.depth.png"
+				depth_img.save(os.path.join(submapA.map_root, node.depth_img_name))
 
 			submapA.add_node(node)
 		for edge in edges_nodeA_nodeB_weight:
@@ -300,6 +302,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 	final_map.save_to_file()
 
 if __name__ == '__main__':
+	import warnings
+	warnings.filterwarnings("ignore", category=FutureWarning)
+
 	args = parse_arguments()
 	str_suffix = '_'.join([f'{i}' for i in range(args.num_submap)])
 	out_dir = os.path.join(args.dataset_path, 'out_map_' + str_suffix)
