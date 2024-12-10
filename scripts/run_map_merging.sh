@@ -9,6 +9,14 @@ python ../../pycpptools/pycpptools/src/python/utils_dataset/map_multisession/gen
   --start_indice 0 \
   --step 30
 
+rosrun litevloc extract_vpr_descriptors.py \
+  --dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
+  --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
+  --num_preds_to_save 3 \
+  --image_size 512 288 \
+  --device cuda \
+  --save_descriptors
+
 # Merge the maps
 rosrun litevloc map_merge_pipeline.py \
   --dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/map_multisession_eval/s17DRP5sb8fy \
