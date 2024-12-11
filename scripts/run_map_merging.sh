@@ -10,7 +10,7 @@ python ../../pycpptools/pycpptools/src/python/utils_dataset/map_multisession/gen
   --step 30
 
 rosrun litevloc extract_vpr_descriptors.py \
-  --dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
+  --dataset_path /Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map7 \
   --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
   --num_preds_to_save 3 \
   --image_size 512 288 \
