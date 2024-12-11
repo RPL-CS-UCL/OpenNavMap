@@ -86,7 +86,7 @@ def create_random_pairs(submaps, num_pairs):
         
         dis_trans, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
             ref_node.trans_gt, ref_node.quat_gt, tar_node.trans_gt, tar_node.quat_gt)
-        if dis_trans > 3.0 and dis_trans < 10.0 and dis_angle < 30.0:
+        if dis_trans > 3.0 and dis_trans < 10.0 and dis_angle < 150.0:
             random_pairs.append((ref_submap_idx, ref_node, tar_submap_idx, tar_node))
 
     return random_pairs

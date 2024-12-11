@@ -94,8 +94,8 @@ class MergePipeline:
 
 	def read_map_from_file(self):
 		num_submap = self.args.num_submap
-		submap_id = 0
 		for i in range(num_submap):
+			submap_id = len(self.submaps)
 			submap_path = os.path.join(self.args.dataset_path, f'out_map{submap_id}')
 			image_graph = GraphLoader.load_data(
 				submap_path,
@@ -107,7 +107,6 @@ class MergePipeline:
 			)
 			self.submaps.append((submap_id, image_graph))
 			logging.info(f"Loaded {image_graph} from {submap_path}")
-			submap_id += 1
 
 		print(f"Loaded {len(self.submaps)} submaps.")
 
@@ -251,6 +250,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				try:
 					# start_time = time.time()
 					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
+					edge_scores = merger.pose_estimator.get_edge_score()
 					# print(f"Processing time: {time.time() - start_time:.2f}s")
 					
 					Twc0_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
