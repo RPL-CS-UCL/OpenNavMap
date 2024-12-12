@@ -3,7 +3,7 @@
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
-from utils.topological_filter import PlaceRecognitionTopologicalFilter
+from python.utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
 import numpy as np
 import argparse
 
@@ -42,7 +42,7 @@ def test_pr_raw(db_map, query_map):
 def test_pr_topological_filter(db_map, query_map):
     db_descriptors = np.array([node.get_descriptor() for _, node in db_map.nodes.items()], dtype="float32")   
     # Initialize the Bayesian filter
-    topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, window_lower=-3, window_upper=6, recall_values=5)
+    topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, window_lower=-1, window_upper=1, recall_values=5)
     preds = []
     for node in query_map.nodes.values():
         query_desc = node.get_descriptor()

@@ -36,6 +36,7 @@ from visualization_msgs.msg import MarkerArray
 import tf2_ros
 import matplotlib
 import matplotlib.pyplot as plt
+from PIL import Image
 
 # import rospkg
 # rospkg = rospkg.RosPack()
@@ -51,7 +52,7 @@ from utils.utils_image import load_rgb_image, load_depth_image
 from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
-from PIL import Image
+from python.utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
 
 import pycpptools.src.python.utils_math as pytool_math
 import pycpptools.src.python.utils_ros as pytool_ros
@@ -196,7 +197,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 	# Initialize the final submap
 	final_map = ImageGraph(merger.log_dir)
-	# Merge each submap to the final map, only care about the first two submaps
+	# Incrementally merge each submap to the final map, only care about the first two submaps
 	for cur_submap_id, cur_submap in merger.submaps:
 		if final_map.get_num_node() > 0:
 			##### Perform Coarse Localization #####
@@ -206,14 +207,28 @@ def perform_submap_merging(merger: MergePipeline, args):
 			for indices, (_, node) in enumerate(final_map.nodes.items()):
 				db_poses[indices, :3] = node.trans
 				db_poses[indices, 3:] = node.quat
+			# Initialize the Topological Filter
+			topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, db_poses, prop_radius=10.0, recall_values=5)
+			topo_filter.initialize_model()
 			# Load global descriptors and poses from the current target submap
+			preds = []
+			for node in cur_submap.nodes.values():
+				query_desc = node.get_descriptor()
+				recall_preds, pred, prob = topo_filter.match(query_desc)
+				preds.append(recall_preds)
+				
 			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
-			query_poses = np.empty((cur_submap.get_num_node(), 7), dtype="float32")
-			for indices, (_, node) in enumerate(cur_submap.nodes.items()):
-				query_poses[indices, :3] = node.trans
-				query_poses[indices, 3:] = node.quat
+			
+			##########################################
+			# NOTE(gogojjh): old code
+			# query_poses = np.empty((cur_submap.get_num_node(), 7), dtype="float32")
+			# for indices, (_, node) in enumerate(cur_submap.nodes.items()):
+			# 	query_poses[indices, :3] = node.trans
+			# 	query_poses[indices, 3:] = node.quat
 			# Perform kNN search
-			dist, preds = perform_knn_search(db_descriptors, query_descriptors, db_descriptors.shape[1], recall_values=[5])
+			# dist, preds = perform_knn_search(db_descriptors, query_descriptors, db_descriptors.shape[1], recall_values=[5])
+			##########################################
+
 			# Create connected edges
 			edges_nodeA_to_nodeB_coarse = []
 			for query_node_id in range(preds.shape[0]):
@@ -227,6 +242,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			print(f"Performing kNN search for submap {cur_submap_id} with {len(preds)} predictions.\n", preds)
 			for edge in edges_nodeA_to_nodeB_coarse: print(f"DB: {edge[0].rgb_img_name} <-> Query: {edge[1].rgb_img_name}")
 			save_vis_coarse_loc(merger.log_dir, final_map, cur_submap, cur_submap_id, preds)
+			input()
 			######
 
 			##### Perform Fine Localization #####
