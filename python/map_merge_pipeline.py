@@ -229,7 +229,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 			print(f"Accuracy: {succ / len(cur_submap.nodes):.3f}")
 
 			# NOTE(gogojjh): topological filter
-			# Initialize the Topological Filter
 			print('Topological Filter')
 			topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, db_poses[:, :3], recall_values=5)
 			topo_filter.initialize_model()
