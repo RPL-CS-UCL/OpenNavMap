@@ -52,7 +52,7 @@ from utils.utils_image import load_rgb_image, load_depth_image
 from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
-from python.utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
+from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
 
 import pycpptools.src.python.utils_math as pytool_math
 import pycpptools.src.python.utils_ros as pytool_ros
@@ -207,18 +207,54 @@ def perform_submap_merging(merger: MergePipeline, args):
 			for indices, (_, node) in enumerate(final_map.nodes.items()):
 				db_poses[indices, :3] = node.trans
 				db_poses[indices, 3:] = node.quat
-			# Initialize the Topological Filter
-			topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, db_poses, prop_radius=10.0, recall_values=5)
-			topo_filter.initialize_model()
-			# Load global descriptors and poses from the current target submap
+
+			######################################
+			# NOTE(gogojjh): single matching
+			print('Single Matching')
+			from utils.vpr_single_matching import PlaceRecognitionSingleMatching
+			single_matcher = PlaceRecognitionSingleMatching(db_descriptors, db_poses[:, :3], recall_values=5)
+			single_matcher.initialize_model()
+			# Load global descriptors of each node from current target submap, and incrementally update the belief
 			preds = []
+			succ = 0
 			for node in cur_submap.nodes.values():
 				query_desc = node.get_descriptor()
-				recall_preds, pred, prob = topo_filter.match(query_desc)
+				recall_preds, pred, prob = single_matcher.match(query_desc.reshape(1, -1))
 				preds.append(recall_preds)
-				
-			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
+				# print(recall_preds)
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+					final_map.get_node(pred).trans_gt, final_map.get_node(pred).quat_gt, node.trans_gt, node.quat_gt)
+				if dis_tsl < 10.0 and dis_angle < 90.0:
+					succ += 1				
+			print(f"Accuracy: {succ / len(cur_submap.nodes):.3f}")
+
+			# NOTE(gogojjh): topological filter
+			# Initialize the Topological Filter
+			print('Topological Filter')
+			topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, db_poses[:, :3], recall_values=5)
+			topo_filter.initialize_model()
+			# Load global descriptors of each node from current target submap, and incrementally update the belief
+			preds = []
+			succ = 0
+			for node in cur_submap.nodes.values():
+				query_desc = node.get_descriptor()
+				recall_preds, pred, prob = topo_filter.match(final_map, query_desc.reshape(1, -1))
+				preds.append(recall_preds)
+				print(recall_preds)
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+					final_map.get_node(pred).trans_gt, final_map.get_node(pred).quat_gt, node.trans_gt, node.quat_gt)
+				if dis_tsl < 10.0 and dis_angle < 90.0:
+					succ += 1		
+			print(f"Accuracy: {succ / len(cur_submap.nodes):.3f}")
+			exit()
+			######################################
 			
+			# TODO(gogojjh): add local matching to filter out the false positives
+			# if edge_score > edge_score_threshold:
+				# Create connected edges
+			
+			# TODO(gogojjh): add the virtual edge if the submap has no connection with the final map
+
 			##########################################
 			# NOTE(gogojjh): old code
 			# query_poses = np.empty((cur_submap.get_num_node(), 7), dtype="float32")
@@ -238,6 +274,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				edges_nodeA_to_nodeB_coarse.append((db_node, query_node, np.eye(4)))
 			###### DEBUG(gogojjh):
 			print("Coarse Localization Results:")
+			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
 			print(f"Size of DB and Query Descriptions: {db_descriptors.shape}, {query_descriptors.shape}")
 			print(f"Performing kNN search for submap {cur_submap_id} with {len(preds)} predictions.\n", preds)
 			for edge in edges_nodeA_to_nodeB_coarse: print(f"DB: {edge[0].rgb_img_name} <-> Query: {edge[1].rgb_img_name}")
