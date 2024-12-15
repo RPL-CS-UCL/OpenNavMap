@@ -230,9 +230,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 				query_desc = query_node.get_descriptor()
 				recall_preds, pred, prob = merger.vpr_match_model.match(final_map, query_desc.reshape(1, -1))
 				# Create connected edges for the coarse localization
-				edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
-				# TODO(gogojjh): save belief distribution function
-				# save_vis_belief(merger.log_dir, merger.vpr_match_model.belief)
+				EDGE_PROB_THRE = 0.5
+				if prob > EDGE_PROB_THRE:
+					edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
 				preds.append(recall_preds)
 				query_result_info[query_node.id, 0] = prob
 
@@ -300,9 +300,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(Fore.GREEN + f"Target: {img1_name}")
 					##############################
 
-					EDGE_SCORE_THRE = 5.0 # threshold for filter: out-of-range image, wrong coarse localization
-					if max_edge_core_nodeA_nodeA_next > 2 * EDGE_SCORE_THRE and max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
-						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, 0.0))
+					EDGE_SCORE_THRE = 10.0 # threshold for filter: out-of-range image, wrong coarse localization
+					if max_edge_core_nodeA_nodeA_next > 1.5 * EDGE_SCORE_THRE and max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
+						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
 						print(Fore.GREEN + f"Good Estimation")
 						query_result_info[nodeB.id, 2] = 1.0
 					# merger.pose_estimator.show_reconstruction()
@@ -311,7 +311,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 				except Exception as e:
 					print(f"Error in pose estimation: {e}")
 					continue
-				# if nodeB.id > 15: break
 
 			###### DEBUG(gogojjh):
 			print(Fore.GREEN + f"Fine Localization Results with the Submap {cur_submap_id} with Edge {len(edges_nodeA_to_nodeB_refine)}")
