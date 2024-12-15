@@ -53,12 +53,16 @@ from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
 from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
+from utils.vpr_single_matching import PlaceRecognitionSingleMatching
 
 import pycpptools.src.python.utils_math as pytool_math
 import pycpptools.src.python.utils_ros as pytool_ros
 import pycpptools.src.python.utils_sensor as pytool_sensor
 
 from gtsam_pose_graph import PoseGraph
+
+from colorama import Fore, init
+init(autoreset=True)
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
@@ -70,6 +74,13 @@ class MergePipeline:
 		self.frame_id_map = 'map'
 
 		self.submaps = []
+
+		if args.vpr_match_model == 'single_match':
+			self.vpr_match_model = PlaceRecognitionSingleMatching()
+		elif args.vpr_match_model == 'topo_filter':
+			self.vpr_match_model = PlaceRecognitionTopologicalFilter()
+		else:
+			raise ValueError(f"Invalid VPR Match Model: {args.vpr_match_model}")
 
 	# def init_vpr_model(self):
 	# 	self.vpr_model = initialize_vpr_model(self.args.vpr_method, self.args.vpr_backbone, self.args.vpr_descriptors_dimension, self.args.device)
@@ -170,25 +181,24 @@ class MergePipeline:
 		id_offset = 0 if not submapA.get_all_id() else max(submapA.get_all_id()) + 1
 		for node in submapB.nodes.values():
 			node.id += id_offset
-
 			if os.path.exists(os.path.join(submapB.map_root, node.rgb_img_name)):
-				rgb_img = Image.open(os.path.join(submapB.map_root, node.rgb_img_name))
+				rgb_img_path = os.path.join(submapB.map_root, node.rgb_img_name)
 				node.rgb_img_name = f"seq/{node.id:06d}.color.jpg"
-				rgb_img.save(os.path.join(submapA.map_root, node.rgb_img_name))
-
+				new_rgb_img_path = os.path.join(submapA.map_root, node.rgb_img_name)
+				os.system(f'cp {rgb_img_path} {new_rgb_img_path}')
 			if os.path.exists(os.path.join(submapB.map_root, node.depth_img_name)):
-				depth_img = Image.open(os.path.join(submapB.map_root, node.depth_img_name))
+				depth_img_path = os.path.join(submapB.map_root, node.depth_img_name)
 				node.depth_img_name = f"seq/{node.id:06d}.depth.png"
-				depth_img.save(os.path.join(submapA.map_root, node.depth_img_name))
-
+				new_depth_img_path = os.path.join(submapA.map_root, node.depth_img_name)
+				os.system(f'cp {depth_img_path} {new_depth_img_path}')
 			submapA.add_node(node)
+
 		for edge in edges_nodeA_nodeB_weight:
 			nodeA, nodeB, weight = edge[0], edge[1], edge[2]
 			submapA.add_edge_undirected(nodeA, nodeB, weight)
 
 		print(f"Final Map Info: {submapA}")
-		for node in submapA.nodes.values():
-			print(f"Node: {node.id}, {node.rgb_img_name}")
+		for node in submapA.nodes.values(): print(f"Node: {node.id}, {node.rgb_img_name}")
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
@@ -207,135 +217,109 @@ def perform_submap_merging(merger: MergePipeline, args):
 			for indices, (_, node) in enumerate(final_map.nodes.items()):
 				db_poses[indices, :3] = node.trans
 				db_poses[indices, 3:] = node.quat
+			merger.vpr_match_model.initialize_model(db_descriptors, db_poses[:, :3], recall_values=5)
 
-			######################################
-			# NOTE(gogojjh): single matching
-			print('Single Matching')
-			from utils.vpr_single_matching import PlaceRecognitionSingleMatching
-			single_matcher = PlaceRecognitionSingleMatching(db_descriptors, db_poses[:, :3], recall_values=5)
-			single_matcher.initialize_model()
-			# Load global descriptors of each node from current target submap, and incrementally update the belief
-			preds = []
-			succ = 0
-			for node in cur_submap.nodes.values():
-				query_desc = node.get_descriptor()
-				recall_preds, pred, prob = single_matcher.match(query_desc.reshape(1, -1))
-				preds.append(recall_preds)
-				# print(recall_preds)
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-					final_map.get_node(pred).trans_gt, final_map.get_node(pred).quat_gt, node.trans_gt, node.quat_gt)
-				if dis_tsl < 10.0 and dis_angle < 90.0:
-					succ += 1				
-			print(f"Accuracy: {succ / len(cur_submap.nodes):.3f}")
-
-			# NOTE(gogojjh): topological filter
-			print('Topological Filter')
-			topo_filter = PlaceRecognitionTopologicalFilter(db_descriptors, db_poses[:, :3], recall_values=5)
-			topo_filter.initialize_model()
-			# Load global descriptors of each node from current target submap, and incrementally update the belief
-			preds = []
-			succ = 0
-			for node in cur_submap.nodes.values():
-				query_desc = node.get_descriptor()
-				recall_preds, pred, prob = topo_filter.match(final_map, query_desc.reshape(1, -1))
-				preds.append(recall_preds)
-				print(recall_preds)
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-					final_map.get_node(pred).trans_gt, final_map.get_node(pred).quat_gt, node.trans_gt, node.quat_gt)
-				if dis_tsl < 10.0 and dis_angle < 90.0:
-					succ += 1		
-			print(f"Accuracy: {succ / len(cur_submap.nodes):.3f}")
-			exit()
-			######################################
-			
-			# TODO(gogojjh): add local matching to filter out the false positives
-			# if edge_score > edge_score_threshold:
-				# Create connected edges
-			
-			# TODO(gogojjh): add the virtual edge if the submap has no connection with the final map
-
-			##########################################
-			# NOTE(gogojjh): old code
-			# query_poses = np.empty((cur_submap.get_num_node(), 7), dtype="float32")
-			# for indices, (_, node) in enumerate(cur_submap.nodes.items()):
-			# 	query_poses[indices, :3] = node.trans
-			# 	query_poses[indices, 3:] = node.quat
-			# Perform kNN search
-			# dist, preds = perform_knn_search(db_descriptors, query_descriptors, db_descriptors.shape[1], recall_values=[5])
-			##########################################
-
-			# Create connected edges
-			edges_nodeA_to_nodeB_coarse = []
-			for query_node_id in range(preds.shape[0]):
-				query_node = cur_submap.get_node(query_node_id)
-				db_node_id = preds[query_node_id][0]
-				db_node = final_map.get_node(db_node_id)
-				edges_nodeA_to_nodeB_coarse.append((db_node, query_node, np.eye(4)))
+			##############################
 			###### DEBUG(gogojjh):
-			print("Coarse Localization Results:")
-			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
-			print(f"Size of DB and Query Descriptions: {db_descriptors.shape}, {query_descriptors.shape}")
-			print(f"Performing kNN search for submap {cur_submap_id} with {len(preds)} predictions.\n", preds)
-			for edge in edges_nodeA_to_nodeB_coarse: print(f"DB: {edge[0].rgb_img_name} <-> Query: {edge[1].rgb_img_name}")
-			save_vis_coarse_loc(merger.log_dir, final_map, cur_submap, cur_submap_id, preds)
-			input()
-			######
+			query_result_info = np.zeros((cur_submap.get_num_node(), 3), dtype="float32")
+			preds = []
+			##############################
+			edges_nodeA_to_nodeB_coarse = [] # [(db_node, query_node, np.eye(4), prob)]
+			for query_node in cur_submap.nodes.values():
+				# Incrementally update the belief of the full posterior
+				query_desc = query_node.get_descriptor()
+				recall_preds, pred, prob = merger.vpr_match_model.match(final_map, query_desc.reshape(1, -1))
+				# Create connected edges for the coarse localization
+				edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
+				# TODO(gogojjh): save belief distribution function
+				# save_vis_belief(merger.log_dir, merger.vpr_match_model.belief)
+				preds.append(recall_preds)
+				query_result_info[query_node.id, 0] = prob
+
+			##############################
+			###### DEBUG(gogojjh):
+			succ_cnt = 0
+			for edge in edges_nodeA_to_nodeB_coarse: 
+				db_node, query_node = edge[0], edge[1]
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+					db_node.trans_gt, db_node.quat_gt, query_node.trans_gt, query_node.quat_gt)								
+				succ_cnt += (dis_tsl < 10.0 and dis_angle < 90.0)
+			print(f"Coarse Loc Results with the Submap {cur_submap_id}")
+			print(f"Coarse Loc Success Rate: {succ_cnt}/{len(edges_nodeA_to_nodeB_coarse)} - {succ_cnt/len(edges_nodeA_to_nodeB_coarse):.2f}")
+			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
+			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
+			##############################
 
 			##### Perform Fine Localization #####
-			edges_nodeA_to_nodeB_refine = [] # [(nodeA, nodeB, T_A2B)]
+			est_opts = {
+				'known_extrinsics': True,
+				'known_intrinsics': True,
+				'resize': 512,
+			}
+			edges_nodeA_to_nodeB_refine = [] # [(db_node, query_node, T_A2B)]
 			for edge_nodeA_to_nodeB in edges_nodeA_to_nodeB_coarse:
 				nodeA, nodeB = edge_nodeA_to_nodeB[0], edge_nodeA_to_nodeB[1]
-				if len(nodeA.edges) == 0: continue # Skip if the nodeA has no edges
-				nodeA_list = [nodeA, nodeA.edges[0][0]]
-				# Generate paths of images and intrinsics					
-				list_img0_name = [f"{final_map.map_root.split('/')[-1]}/{node.rgb_img_name}" for node in nodeA_list]
-				img1_name = f"{cur_submap.map_root.split('/')[-1]}/{nodeB.rgb_img_name}"
-				list_img0_poses = [torch.from_numpy(pytool_math.tools_eigen.convert_vec_to_matrix(node.trans, node.quat, 'xyzw')) for node in nodeA_list]
-				list_img0_intr = [{'K': torch.from_numpy(node.raw_K), 'im_size': torch.from_numpy(node.raw_img_size)} for node in nodeA_list]
-				img1_intr = {'K': torch.from_numpy(nodeB.raw_K), 'im_size': torch.from_numpy(nodeB.raw_img_size)}
-				scene_root = pathlib.Path(final_map.map_root + '/../')
-				est_opts = {
-					'known_extrinsics': True,
-					'known_intrinsics': True,
-					'resize': 512,
-				}
+				# Skip if the nodeA has no edges, which means it cannot recover the metric pose
+				if len(nodeA.edges) == 0: continue 
 				try:
-					# start_time = time.time()
+					# Generate paths of images and intrinsics					
+					nodeA_list = [nodeA, nodeA.edges[0][0]]
+
+					list_img0_name = [f"{final_map.map_root.split('/')[-1]}/{node.rgb_img_name}" for node in nodeA_list]
+					img1_name = f"{cur_submap.map_root.split('/')[-1]}/{nodeB.rgb_img_name}"
+					list_img0_poses = [torch.from_numpy(pytool_math.tools_eigen.convert_vec_to_matrix(node.trans, node.quat, 'xyzw')) 
+									   for node in nodeA_list]
+					list_img0_intr = [{'K': torch.from_numpy(node.raw_K), 'im_size': torch.from_numpy(node.raw_img_size)} for node in nodeA_list]
+					img1_intr = {'K': torch.from_numpy(nodeB.raw_K), 'im_size': torch.from_numpy(nodeB.raw_img_size)}
+					scene_root = pathlib.Path(final_map.map_root + '/../')
+
+					# Perform pose estimation
+					start_time = time.time()
 					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
-					edge_scores = merger.pose_estimator.get_edge_score()
-					# print(f"Processing time: {time.time() - start_time:.2f}s")
-					
-					Twc0_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
-					Twc1_est = result['im_pose']
-					T_c0_c1_est = np.linalg.inv(Twc0_est) @ Twc1_est
-					print('Estimated pose: ', T_c0_c1_est[:3, 3:4].T)
+					edge_scores = merger.pose_estimator.get_edge_score(option='mean')
+					max_edge_core_nodeA_nodeA_next = max(edge_scores['0_1'], edge_scores['1_0'])
+					max_edge_score_nodeA_nodeB = max((value for key, value in edge_scores.items() if '2' in key), default=0)
+					T_nodeA_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
+					T_query_est = result['im_pose']
+					T_rel_est = np.linalg.inv(T_nodeA_est) @ T_query_est
 
-					Twc0_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
-					Twc1_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
-					T_c0_c1_gt = np.linalg.inv(Twc0_gt) @ Twc1_gt
-					print('GT pose: ', T_c0_c1_gt[:3, 3:4].T)
-
-					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis_TF(T_c0_c1_est, T_c0_c1_gt)
+					##############################
+					##### DEBUG(gogojjh):
+					print(f"Processing time: {time.time() - start_time:.2f}s")
+					print(edge_scores)
+					query_result_info[nodeB.id, 1] = max_edge_score_nodeA_nodeB
+					print(Fore.GREEN + f"Max score for query: {max_edge_score_nodeA_nodeB:.3f}")
+					T_nodeA_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
+					T_query_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
+					T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
+					print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
+					print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
+					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis_TF(T_rel_est, T_rel_gt)
 					print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
-					# print('Optimization Loss:', result['loss'])
-					# TODO(gogojjh): use the information of the estimator to check
-					if dis_tsl < 0.75 and dis_angle < 20: 
-						print(f"Reference: {', '.join(name for name in list_img0_name)}")
-						print(f"Target: {img1_name}")
-						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_c0_c1_est))
-					# TODO(gogojjh): fix this bug
+					print(Fore.GREEN + f"Reference: {', '.join(name for name in list_img0_name)}")
+					print(Fore.GREEN + f"Target: {img1_name}")
+					##############################
+
+					EDGE_SCORE_THRE = 5.0 # threshold for filter: out-of-range image, wrong coarse localization
+					if max_edge_core_nodeA_nodeA_next > 2 * EDGE_SCORE_THRE and max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
+						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, 0.0))
+						print(Fore.GREEN + f"Good Estimation")
+						query_result_info[nodeB.id, 2] = 1.0
 					# merger.pose_estimator.show_reconstruction()
 					# input()
+					print()
 				except Exception as e:
 					print(f"Error in pose estimation: {e}")
 					continue
-				print()
+				# if nodeB.id > 15: break
+
 			###### DEBUG(gogojjh):
-			print("Fine Localization Results:")			
-			for edge in edges_nodeA_to_nodeB_refine: 
-				print(f"DB: {edge[0].rgb_img_name}, {edge[0].edges[0][0].rgb_img_name} <-> Query: {edge[1].rgb_img_name}")
+			print(Fore.GREEN + f"Fine Localization Results with the Submap {cur_submap_id} with Edge {len(edges_nodeA_to_nodeB_refine)}")
 			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine)
-			######
+			save_query_result(merger.log_dir, query_result_info, cur_submap_id)
+			print(query_result_info)
+			# exit()
+			##################
 
 			##### Perform Pose Graph Optimization #####
 			pose_graph = merger.create_pose_graph_from_submaps(final_map, cur_submap, edges_nodeA_to_nodeB_refine)

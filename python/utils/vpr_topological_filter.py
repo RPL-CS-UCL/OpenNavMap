@@ -12,9 +12,13 @@ class PlaceRecognitionTopologicalFilter:
     '''
     Adapted from https://github.com/mingu6/ProbFiltersVPR/blob/master/src/models/TopologicalFilter.py
     '''
-    def __init__(self, db_descriptors, db_poses, delta=5, recall_values=5):
+    def __init__(self):
+        pass
+
+    def initialize_model(self, db_descriptors, db_poses, delta=5, recall_values=5):
         """
         Initialize the VPRTopologicalFilter object.
+        Initialize the belief distribution - uniform distribution
 
         Args:
             db_descriptors (numpy.ndarray): The map descriptors.
@@ -35,6 +39,8 @@ class PlaceRecognitionTopologicalFilter:
 
         self.pose_faiss_index = faiss.IndexFlatL2(3)
         self.pose_faiss_index.add(db_poses)
+        
+        self.belief = np.ones(self.db_descriptors.shape[0]) / self.db_descriptors.shape[0]
 
     def get_back_prop_node(self, node) -> list:
         """
@@ -52,12 +58,6 @@ class PlaceRecognitionTopologicalFilter:
         for edge in node.edges:
             preds.append(edge[0].id)
         return preds[0]
-
-    def initialize_model(self):
-        '''
-        Initialize the belief distribution - uniform distribution
-        '''
-        self.belief = np.ones(self.db_descriptors.shape[0]) / self.db_descriptors.shape[0]
 
     def comp_dist_descriptor(self, descriptor: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
         ##### Option 1: cosine similarity
