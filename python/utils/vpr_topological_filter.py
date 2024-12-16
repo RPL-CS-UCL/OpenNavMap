@@ -43,21 +43,13 @@ class PlaceRecognitionTopologicalFilter:
         self.belief = np.ones(self.db_descriptors.shape[0]) / self.db_descriptors.shape[0]
 
     def get_back_prop_node(self, node) -> list:
-        """
-        Retrieves the nearest node in the graph that can be propagated from the given query pose.
-
-        Parameters:
-            query_pose (numpy.ndarray): The query pose for which to find the nearest node.
-
-        Returns:
-            list: A list containing the distance to the nearest node and the index of the nearest node.
-
-        """
-        # _, dis, preds = self.pose_faiss_index.range_search(query_pose, self.prop_radius)
-        preds = []
+        preds = [node.id]
         for edge in node.edges:
             preds.append(edge[0].id)
-        return preds[0]
+            for sub_edge in edge[0].edges:
+                preds.append(sub_edge[0].id)
+        preds = list(set(preds))
+        return preds
 
     def comp_dist_descriptor(self, descriptor: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
         ##### Option 1: cosine similarity

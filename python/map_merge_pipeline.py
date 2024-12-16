@@ -200,7 +200,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			for indices, (_, node) in enumerate(final_map.nodes.items()):
 				db_poses[indices, :3] = node.trans
 				db_poses[indices, 3:] = node.quat
-			merger.vpr_match_model.initialize_model(db_descriptors, db_poses[:, :3], recall_values=5)
+			merger.vpr_match_model.initialize_model(db_descriptors, db_poses[:, :3], recall_values=3)
 
 			##############################
 			###### DEBUG(gogojjh):
@@ -213,11 +213,12 @@ def perform_submap_merging(merger: MergePipeline, args):
 				query_desc = query_node.get_descriptor()
 				recall_preds, pred, prob = merger.vpr_match_model.match(final_map, query_desc.reshape(1, -1))
 				# Create connected edges for the coarse localization
-				EDGE_PROB_THRE = 0.5
+				EDGE_PROB_THRE = 0.2
 				if prob > EDGE_PROB_THRE:
 					edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
 				preds.append(recall_preds)
 				query_result_info[query_node.id, 0] = prob
+				print(query_node.id, recall_preds, prob)
 
 			##############################
 			###### DEBUG(gogojjh):
@@ -279,7 +280,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 					##############################
 
 					EDGE_SCORE_THRE = 20.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
-					if max_edge_core_nodeA_nodeA_next > 1.5 * EDGE_SCORE_THRE and max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
+					if max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
 						print(Fore.RED + f"Good Refinement")
 						query_result_info[nodeB.id, 2] = 1.0
