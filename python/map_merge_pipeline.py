@@ -72,7 +72,6 @@ class MergePipeline:
 		self.args = args
 		self.log_dir = log_dir
 		self.frame_id_map = 'map'
-
 		self.submaps = []
 
 		if args.vpr_match_model == 'single_match':
@@ -81,10 +80,6 @@ class MergePipeline:
 			self.vpr_match_model = PlaceRecognitionTopologicalFilter()
 		else:
 			raise ValueError(f"Invalid VPR Match Model: {args.vpr_match_model}")
-
-	# def init_vpr_model(self):
-	# 	self.vpr_model = initialize_vpr_model(self.args.vpr_method, self.args.vpr_backbone, self.args.vpr_descriptors_dimension, self.args.device)
-	# 	logging.info(f"VPR Model: {self.args.vpr_method}")
 
 	def init_pose_estimator(self):
 		self.pose_estimator = initialize_pose_estimator(self.args.pose_estimation_method, self.args.device)
@@ -105,10 +100,8 @@ class MergePipeline:
 		pass
 
 	def read_map_from_file(self):
-		num_submap = self.args.num_submap
-		for i in range(num_submap):
+		for submap_path in self.args.input_submap_path:
 			submap_id = len(self.submaps)
-			submap_path = os.path.join(self.args.dataset_path, f'out_map{submap_id}')
 			image_graph = GraphLoader.load_data(
 				submap_path,
 				self.args.image_size,
@@ -118,9 +111,7 @@ class MergePipeline:
 				normalized=False
 			)
 			self.submaps.append((submap_id, image_graph))
-			logging.info(f"Loaded {image_graph} from {submap_path}")
-
-		print(f"Loaded {len(self.submaps)} submaps.")
+			print(f"Loaded {submap_id}th {image_graph} from {submap_path}")
 
 	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB, std_rot_deg=1.0, std_tsl=0.01):
 		# Convert the base graph to a gtsam pose graph
@@ -162,35 +153,22 @@ class MergePipeline:
 		return pose_graph					
 
 	def merge_and_update_submaps(self, submapA, submapB, edges_nodeA_nodeB_weight):
-		"""
-		Merges two submaps and updates the node IDs, image names, and adds edges.
-		This operation will change values of submapB
-
-		Args:
-			submapA (Submap): The first submap to merge.
-			submapB (Submap): The second submap to merge.
-			edges_nodeA_nodeB_weight (list): A list of tuples representing the edges between nodes in submapA and submapB.
-				Each tuple contains three elements: nodeA, nodeB, and weight.
-
-		Returns:
-			None
-
-		Raises:
-			None
-		"""
 		id_offset = 0 if not submapA.get_all_id() else max(submapA.get_all_id()) + 1
 		for node in submapB.nodes.values():
 			node.id += id_offset
+
 			if os.path.exists(os.path.join(submapB.map_root, node.rgb_img_name)):
 				rgb_img_path = os.path.join(submapB.map_root, node.rgb_img_name)
 				node.rgb_img_name = f"seq/{node.id:06d}.color.jpg"
 				new_rgb_img_path = os.path.join(submapA.map_root, node.rgb_img_name)
 				os.system(f'cp {rgb_img_path} {new_rgb_img_path}')
+
 			if os.path.exists(os.path.join(submapB.map_root, node.depth_img_name)):
 				depth_img_path = os.path.join(submapB.map_root, node.depth_img_name)
 				node.depth_img_name = f"seq/{node.id:06d}.depth.png"
 				new_depth_img_path = os.path.join(submapA.map_root, node.depth_img_name)
 				os.system(f'cp {depth_img_path} {new_depth_img_path}')
+
 			submapA.add_node(node)
 
 		for edge in edges_nodeA_nodeB_weight:
@@ -198,13 +176,12 @@ class MergePipeline:
 			submapA.add_edge_undirected(nodeA, nodeB, weight)
 
 		print(f"Final Map Info: {submapA}")
-		for node in submapA.nodes.values(): print(f"Node: {node.id}, {node.rgb_img_name}")
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
 	assert len(merger.submaps) > 0, "No submaps loaded."
 	print(f"Processing {len(merger.submaps)} submaps.")
-
+	
 	# Initialize the final submap
 	final_map = ImageGraph(merger.log_dir)
 	# Incrementally merge each submap to the final map, only care about the first two submaps
@@ -230,7 +207,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				query_desc = query_node.get_descriptor()
 				recall_preds, pred, prob = merger.vpr_match_model.match(final_map, query_desc.reshape(1, -1))
 				# Create connected edges for the coarse localization
-				EDGE_PROB_THRE = 0.5
+				EDGE_PROB_THRE = 0.2
 				if prob > EDGE_PROB_THRE:
 					edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
 				preds.append(recall_preds)
@@ -241,11 +218,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			succ_cnt = 0
 			for edge in edges_nodeA_to_nodeB_coarse: 
 				db_node, query_node = edge[0], edge[1]
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-					db_node.trans_gt, db_node.quat_gt, query_node.trans_gt, query_node.quat_gt)								
-				succ_cnt += (dis_tsl < 10.0 and dis_angle < 90.0)
 			print(f"Coarse Loc Results with the Submap {cur_submap_id}")
-			print(f"Coarse Loc Success Rate: {succ_cnt}/{len(edges_nodeA_to_nodeB_coarse)} - {succ_cnt/len(edges_nodeA_to_nodeB_coarse):.2f}")
 			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
 			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
 			##############################
@@ -264,7 +237,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 				try:
 					# Generate paths of images and intrinsics					
 					nodeA_list = [nodeA, nodeA.edges[0][0]]
-
 					list_img0_name = [f"{final_map.map_root.split('/')[-1]}/{node.rgb_img_name}" for node in nodeA_list]
 					img1_name = f"{cur_submap.map_root.split('/')[-1]}/{nodeB.rgb_img_name}"
 					list_img0_poses = [torch.from_numpy(pytool_math.tools_eigen.convert_vec_to_matrix(node.trans, node.quat, 'xyzw')) 
@@ -285,9 +257,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 					##############################
 					##### DEBUG(gogojjh):
+					query_result_info[nodeB.id, 1] = max_edge_score_nodeA_nodeB
 					print(f"Processing time: {time.time() - start_time:.2f}s")
 					print(edge_scores)
-					query_result_info[nodeB.id, 1] = max_edge_score_nodeA_nodeB
 					print(Fore.GREEN + f"Max score for query: {max_edge_score_nodeA_nodeB:.3f}")
 					T_nodeA_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
 					T_query_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
@@ -300,24 +272,23 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(Fore.GREEN + f"Target: {img1_name}")
 					##############################
 
-					EDGE_SCORE_THRE = 10.0 # threshold for filter: out-of-range image, wrong coarse localization
+					EDGE_SCORE_THRE = 10.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
 					if max_edge_core_nodeA_nodeA_next > 1.5 * EDGE_SCORE_THRE and max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
-						print(Fore.GREEN + f"Good Estimation")
+						print(Fore.RED + f"Good Refinement")
 						query_result_info[nodeB.id, 2] = 1.0
 					# merger.pose_estimator.show_reconstruction()
 					# input()
-					print()
 				except Exception as e:
 					print(f"Error in pose estimation: {e}")
 					continue
+				print()
 
+			##################
 			###### DEBUG(gogojjh):
 			print(Fore.GREEN + f"Fine Localization Results with the Submap {cur_submap_id} with Edge {len(edges_nodeA_to_nodeB_refine)}")
-			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine)
+			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine, suffix='refine')
 			save_query_result(merger.log_dir, query_result_info, cur_submap_id)
-			print(query_result_info)
-			# exit()
 			##################
 
 			##### Perform Pose Graph Optimization #####
@@ -334,6 +305,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			merger.merge_and_update_submaps(final_map, cur_submap, edges_nodeA_nodeB_weight)
 		else:
 			merger.merge_and_update_submaps(final_map, cur_submap, [])
+	
 	final_map.save_to_file()
 
 if __name__ == '__main__':
@@ -341,15 +313,10 @@ if __name__ == '__main__':
 	warnings.filterwarnings("ignore", category=FutureWarning)
 
 	args = parse_arguments()
-	str_suffix = '_'.join([f'{i}' for i in range(args.num_submap)])
-	out_dir = os.path.join(args.dataset_path, 'out_map_' + str_suffix)
-	log_dir = setup_log_environment(out_dir, args)
+	log_dir = setup_log_environment(args.output_map_path, args)
 
 	# Initialize the map merging pipeline
 	merger = MergePipeline(args, log_dir)
-	# NOTE(gogojjh): no need for VPR
-	# rospy.loginfo('Initialize VPR Method')
-	# merger.init_vpr_model()
 	rospy.loginfo('Initialize Pose Estimator')
 	merger.init_pose_estimator()
 	merger.read_map_from_file()
