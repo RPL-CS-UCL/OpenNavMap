@@ -213,7 +213,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				query_desc = query_node.get_descriptor()
 				recall_preds, pred, prob = merger.vpr_match_model.match(final_map, query_desc.reshape(1, -1))
 				# Create connected edges for the coarse localization
-				EDGE_PROB_THRE = 0.2
+				EDGE_PROB_THRE = 0.5
 				if prob > EDGE_PROB_THRE:
 					edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
 				preds.append(recall_preds)
