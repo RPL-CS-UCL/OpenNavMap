@@ -113,11 +113,13 @@ class MergePipeline:
 			self.submaps.append((submap_id, image_graph))
 			print(f"Loaded {submap_id}th {image_graph} from {submap_path}")
 
+	# TODO(gogojjh): Adjust the noise model
 	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB, std_rot_deg=1.0, std_tsl=0.01):
 		# Convert the base graph to a gtsam pose graph
 		pose_graph = PoseGraph()
 		prior_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
 		odom_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
+		loop_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
 
 		# Create a pose graph from submapA by adding internal edges of submapA
 		for node in submapA.nodes.values():
@@ -128,8 +130,10 @@ class MergePipeline:
 			# Add odometry factor
 			for edge in node.edges:
 				next_node = edge[0]
-				next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
-				pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
+				# Avoid duplicate factors
+				if node.id < next_node.id:
+					next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+					pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
 
 		# Expand the pose graph from submapB by adding internal edges of submapA
 		id_offset = max(submapA.get_all_id()) + 1
@@ -139,16 +143,18 @@ class MergePipeline:
 			# Add odometry factor
 			for edge in node.edges:
 				next_node = edge[0]
-				next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
-				pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
+				# Avoid duplicate factors
+				if node.id < next_node.id:				
+					next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+					pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
 
-		# Expand the pose graph from adding external edges from the submapA to the submapB
+		# Add the loop factor
 		for edge in edges_nodeA_to_nodeB:
 			nodeA, nodeB = edge[0], edge[1]
 			I_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(np.zeros(3), np.array([0, 0, 0, 1]))
 			trans, quat = pytool_math.tools_eigen.convert_matrix_to_vec(edge[2], 'xyzw')
 			next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(trans, quat)
-			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, odom_sigma)
+			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, loop_sigma)
 
 		return pose_graph					
 
@@ -272,7 +278,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(Fore.GREEN + f"Target: {img1_name}")
 					##############################
 
-					EDGE_SCORE_THRE = 10.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
+					EDGE_SCORE_THRE = 20.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
 					if max_edge_core_nodeA_nodeA_next > 1.5 * EDGE_SCORE_THRE and max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
 						print(Fore.RED + f"Good Refinement")
