@@ -39,14 +39,15 @@ class PlaceRecognitionTopologicalFilter:
 
         self.belief = np.ones(self.db_descriptors.shape[0]) / self.db_descriptors.shape[0]
 
+    # DEBUG(ggoojjh): the current implementation depends on the topological map, where nodes are not connected from the tail to head
     def get_back_prop_node(self, node) -> list:
         preds = {node.id}
         for edge in node.edges:
             if node.id > edge[0].id:
                 preds.add(edge[0].id)
-            for sub_edge in edge[0].edges:
-                if edge[0].id > sub_edge[0].id:
-                    preds.add(sub_edge[0].id)
+            # for sub_edge in edge[0].edges:
+            #     if edge[0].id > sub_edge[0].id:
+            #         preds.add(sub_edge[0].id)
         preds = list(set(preds))
         return preds
 
@@ -87,10 +88,10 @@ class PlaceRecognitionTopologicalFilter:
 
         # Prediction step
         belief_pred = np.zeros_like(self.belief)
-        for i in range(len(belief_pred)):
-            node = db_map.get_node(i)
+        for node_id in range(len(belief_pred)):
+            node = db_map.get_node(node_id)
             back_prop_node_id = self.get_back_prop_node(node)
-            belief_pred[i] = np.sum(self.belief[back_prop_node_id])
+            belief_pred[node_id] = np.sum(self.belief[back_prop_node_id])
         obs_lhood = self.obs_lhood(query_desc)
         # Measurement step
         self.belief = obs_lhood * belief_pred
