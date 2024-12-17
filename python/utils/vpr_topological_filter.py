@@ -40,17 +40,19 @@ class PlaceRecognitionTopologicalFilter:
         self.belief = np.ones(self.db_descriptors.shape[0]) / self.db_descriptors.shape[0]
 
     def get_back_prop_node(self, node) -> list:
-        preds = [node.id]
+        preds = {node.id}
         for edge in node.edges:
-            preds.append(edge[0].id)
+            if node.id > edge[0].id:
+                preds.add(edge[0].id)
             for sub_edge in edge[0].edges:
-                preds.append(sub_edge[0].id)
+                if edge[0].id > sub_edge[0].id:
+                    preds.add(sub_edge[0].id)
         preds = list(set(preds))
         return preds
 
     def comp_dist_descriptor(self, descriptor: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
         ##### Option 1: cosine similarity
-        # dists = np.sqrt(2 - 2 * np.dot(self.db_descriptors, descriptor))
+        # dists = np.sqrt(2 - 2 * np.dot(self.db_descriptors, descriptor.reshape(-1)))
         ##### Option 2: euclidean distance
         dists = np.linalg.norm(self.db_descriptors - descriptor, axis=1)
         return dists
