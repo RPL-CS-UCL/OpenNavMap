@@ -1,21 +1,5 @@
 #! /usr/bin/env python
 
-"""
-Usage: 
-python loc_pipeline.py \
---dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/out_17DRP5sb8fy/out_map \
---image_size 512 288 --device=cuda \
---vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256 --save_descriptors --num_preds_to_save 3 \
---img_matcher master --save_img_matcher \
---pose_solver pnp --config_pose_solver config/dataset/matterport3d.yaml \
---viz \
---global_pos_threshold 20.0 --min_inliers_threshold 300
-
-Usage: 
-rosbag record -O /Titan/dataset/data_litevloc/anymal_lab_upstair_20240722_0/vloc.bag \
-/vloc/odometry /vloc/path /vloc/path_gt /vloc/image_map_obs
-"""
-
 import os
 import sys
 import torch
@@ -108,7 +92,8 @@ class MergePipeline:
 				depth_scale=0.0,
 				load_rgb=True,
 				load_depth=False,
-				normalized=False
+				normalized=False,
+				edge_type='odometry'
 			)
 			self.submaps.append((submap_id, image_graph))
 			print(f"Loaded {submap_id}th {image_graph} from {submap_path}")

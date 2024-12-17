@@ -37,9 +37,6 @@ class PlaceRecognitionTopologicalFilter:
         self.lambda1 = None
         self.belief = None
 
-        self.pose_faiss_index = faiss.IndexFlatL2(3)
-        self.pose_faiss_index.add(db_poses)
-        
         self.belief = np.ones(self.db_descriptors.shape[0]) / self.db_descriptors.shape[0]
 
     def get_back_prop_node(self, node) -> list:
