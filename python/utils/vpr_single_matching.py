@@ -17,7 +17,7 @@ class PlaceRecognitionSingleMatching:
         self.db_faiss_index = faiss.IndexFlatL2(db_descriptors.shape[1])
         self.db_faiss_index.add(db_descriptors)
 
-    def match(self, db_map, query_desc: np.ndarray):
+    def match(self, query_desc: np.ndarray):
         _, recall_preds = self.db_faiss_index.search(query_desc, self.recall_values)
         return recall_preds[0], recall_preds[0][0], 1.0
 
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     preds = []
     for node in tqdm(query_map.nodes.values()):
         query_desc = node.get_descriptor()
-        recall_preds, pred, score = model.match(db_map, query_desc.reshape(1, -1))
+        recall_preds, pred, score = model.match(query_desc.reshape(1, -1))
         preds.append(recall_preds)
 
     succ = 0
