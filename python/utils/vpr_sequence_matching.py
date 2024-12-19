@@ -9,10 +9,10 @@ from matplotlib import pyplot as plt
 
 class PlaceRecognitionSeqMatching:
 	def __init__(self):
-		self.wContrast = 10
+		self.wContrast = 15
 		self.enhance = False  # False for learning-based VPR methods
 
-		self.seqLen = 15      # Length for the sequence matching
+		self.seqLen = 10      # Length for the sequence matching
 		self.vMin = 0.25         
 		self.vMax = 2.0       # vMax * seqLen. <= db_descriptors.shape[0] - 1
 		self.numVel = 20      # Number of velocities to enumerate
@@ -40,26 +40,26 @@ class PlaceRecognitionSeqMatching:
 		self.N, self.L = D.shape
 
 		template_scores, template_velocities = self._score_ref_templates(D)
-		recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
+		recall_preds, pred, score, db_ind_seq_match = self._locate_best_match(template_scores, template_velocities, backward)
 
 		################################
-		ind = np.argmin(template_scores)
-		plt.figure(figsize=(8, 8))
-		plt.imshow(D, cmap='viridis', aspect='auto')
-		x = np.arange(D.shape[1])
-		y = np.floor(np.linspace(ind, ind + template_velocities[ind] * (self.seqLen - 1), self.seqLen)).astype(int)
-		y[y >= self.N] = self.N - 1
-		plt.plot(x, y, 'r')
-		plt.colorbar(label='Difference')
-		plt.xlabel('Query Descriptor Index')
-		plt.ylabel('Database Descriptor Index')
-		plt.title('Difference Matrix')
-		diff_matrix_path = f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/diff_matrix_euc_{node_id}_{backward}.png"
-		plt.savefig(diff_matrix_path)
-		plt.close()
+		# ind = np.argmin(template_scores)
+		# plt.figure(figsize=(8, 8))
+		# plt.imshow(D, cmap='viridis', aspect='auto')
+		# x = np.arange(D.shape[1])
+		# y = np.floor(np.linspace(ind, ind + template_velocities[ind] * (self.seqLen - 1), self.seqLen)).astype(int)
+		# y[y >= self.N] = self.N - 1
+		# plt.plot(x, y, 'r')
+		# plt.colorbar(label='Difference')
+		# plt.xlabel('Query Descriptor Index')
+		# plt.ylabel('Database Descriptor Index')
+		# plt.title('Difference Matrix')
+		# diff_matrix_path = f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/diff_matrix_euc_{node_id}_{backward}.png"
+		# plt.savefig(diff_matrix_path)
+		# plt.close()
 		################################
 
-		return recall_preds, pred, score
+		return recall_preds, pred, score, db_ind_seq_match
 
 	def _compute_diff_matrix(self, query_descriptors) -> np.ndarray:
 		"""
@@ -143,11 +143,15 @@ class PlaceRecognitionSeqMatching:
 			recall_preds = [min(self.N - 1, \
 								np.floor(i + template_velocities[i] * (self.seqLen - 1)).astype(int)) \
 								for i in indices]
+			db_ind_seq_match = np.linspace(iOpt, np.floor(iOpt + iOptV * (self.seqLen - 1)), self.seqLen).astype(int)
+			db_ind_seq_match[db_ind_seq_match >= self.N] = self.N - 1		
 		else:
 			pred = iOpt
 			recall_preds = np.argsort(template_scores)[:self.recall_values]
+			db_ind_seq_match = np.linspace(iOpt, np.floor(iOpt + iOptV * (self.seqLen - 1)), self.seqLen).astype(int)[::-1]
+			db_ind_seq_match[db_ind_seq_match >= self.N] = self.N - 1		
 
-		return recall_preds, pred, mu
+		return recall_preds, pred, mu, db_ind_seq_match
 
 if __name__ == "__main__":
 	import os
@@ -183,33 +187,71 @@ if __name__ == "__main__":
 	)
 	# Performance test
 	db_descriptors = np.array([node.get_descriptor() for _, node in db_map.nodes.items()], dtype="float32")
+	db_poses = np.zeros((db_map.get_num_node(), 7), dtype="float32")
+	for indices, (_, node) in enumerate(db_map.nodes.items()):
+		db_poses[indices, :3] = node.trans
+		db_poses[indices, 3:] = node.quat
 	model = PlaceRecognitionSeqMatching()
 	model.initialize_model(db_descriptors)
 	single_img_model = PlaceRecognitionSingleMatching()    
 	single_img_model.initialize_model(db_descriptors)
 
+	# query_descriptors = np.array([node.get_descriptor() for _, node in query_map.nodes.items()], dtype="float32")
+	# preds, seq_order, forward_scores, backward_scores = [], [], [], []
+	# for node in tqdm(query_map.nodes.values()):
+	# 	if node.id - model.seqLen + 1 >= 0:
+	# 		query_descs = query_descriptors[node.id-model.seqLen+1:node.id+1]
+	# 		recall_preds_forward, pred_forward, score_forward, db_ind_seq_match = model.match(query_descs, node.id, backward=False)
+	# 		recall_preds_backward, pred_backward, score_backward, db_ind_seq_match = model.match(query_descs[::-1, :], node.id, backward=True)
+	# 		forward_scores.append(score_forward)
+	# 		backward_scores.append(score_backward)
+	# 		if score_forward < score_backward:
+	# 			seq_order.append('f')
+	# 			preds.append(recall_preds_forward)
+	# 		else:
+	# 			seq_order.append('b')
+	# 			preds.append(recall_preds_backward)
+	# 	else:
+	# 		seq_order.append('s')
+	# 		recall_preds, pred, score = single_img_model.match(node.get_descriptor().reshape(1, -1))
+	# 		preds.append(recall_preds)
+	# 		forward_scores.append(score)
+	# 		backward_scores.append(score)
+
 	query_descriptors = np.array([node.get_descriptor() for _, node in query_map.nodes.items()], dtype="float32")
-	preds, seq_order, forward_scores, backward_scores = [], [], [], []
+	query_poses = np.zeros((query_map.get_num_node(), 7), dtype="float32")
+	for indices, (_, node) in enumerate(query_map.nodes.items()):
+		query_poses[indices, :3] = node.trans
+		query_poses[indices, 3:] = node.quat
+
+	preds, scores = [], []
+	rmse_list = []
 	for node in tqdm(query_map.nodes.values()):
-		# if node.id != 10: continue
 		if node.id - model.seqLen + 1 >= 0:
 			query_descs = query_descriptors[node.id-model.seqLen+1:node.id+1]
-			recall_preds_forward, pred_forward, score_forward = model.match(query_descs, node.id, backward=False)
-			recall_preds_backward, pred_backward, score_backward = model.match(query_descs[::-1, :], node.id, backward=True)
-			forward_scores.append(score_forward)
-			backward_scores.append(score_backward)
-			if score_forward < score_backward:
-				seq_order.append('f')
-				preds.append(recall_preds_forward)
-			else:
-				seq_order.append('b')
-				preds.append(recall_preds_backward)
+			recall_preds, pred, score, db_ind_seq_match = model.match(query_descs, node.id, backward=False)
+
+			##### Check matching result by trajectory aignment
+			from utils_trajectory import align_trajectory, plot_aligned_traj
+			from evo.core.trajectory import PosePath3D
+			traj_ref = PosePath3D(positions_xyz=db_poses[db_ind_seq_match, :3], 
+								  orientations_quat_wxyz=np.roll(db_poses[db_ind_seq_match, 3:], 1))
+			traj_est = PosePath3D(positions_xyz=query_poses[node.id-model.seqLen+1:node.id+1, :3], 
+								  orientations_quat_wxyz=np.roll(query_poses[node.id-model.seqLen+1:node.id+1, 3:], 1))
+			traj_ref, traj_est_aligned, ape_metric = align_trajectory(traj_ref, traj_est)
+			ape_statistics = ape_metric.get_all_statistics()    
+			rmse_list.append(ape_statistics['rmse'])
+			# plot_aligned_traj(traj_ref, traj_est_aligned, ape_metric)
+			# exit()
+			##### 
+
+			preds.append(recall_preds)
+			scores.append(score)
 		else:
-			seq_order.append('s')
 			recall_preds, pred, score = single_img_model.match(node.get_descriptor().reshape(1, -1))
 			preds.append(recall_preds)
-			forward_scores.append(score)
-			backward_scores.append(score)
+			scores.append(score)
+			rmse_list.append(0.0)
 
 	succ = 0
 	for i, node in enumerate(query_map.nodes.values()):
@@ -218,26 +260,19 @@ if __name__ == "__main__":
 			node.trans_gt, node.quat_gt, ref_map_node.trans_gt, ref_map_node.quat_gt)
 		if dis_tsl < 10.0:
 			succ += 1
-			print(f"Correct prediction: Query {node.id} - DB: {preds[i][0]} - {seq_order[i]} - {forward_scores[i]:.3f} - {backward_scores[i]:.3f}")
+			print(f"Correct prediction: Query {node.id} - DB: {preds[i][0]} - {scores[i]:.3f} - {rmse_list[i]:.3f}")
 		else:
-			print(f"Wrong prediction: Query {node.id} - DB: {preds[i][0]} - {seq_order[i]} - {forward_scores[i]:.3f} - {backward_scores[i]:.3f}")
+			print(f"Wrong prediction: Query {node.id} - DB: {preds[i][0]} - {scores[i]:.3f} - {rmse_list[i]:.3f}")
 	print(f"Success Rate: {succ / len(query_map.nodes)}")
 
 	fig, ax = plt.subplots(figsize=(10, 10))
 	for i, node in enumerate(query_map.nodes.values()):
 		ref_map_node = db_map.get_node(preds[i][0])
 		ax.plot(node.trans_gt[0], node.trans_gt[1], 'ko', markersize=5)
-		ax.text(node.trans_gt[0], node.trans_gt[1], f'Q{node.id}', fontsize=8, color='k')
-		ax.plot(ref_map_node.trans_gt[0] + 10, ref_map_node.trans_gt[1] + 10, 'go', markersize=5)
-		ax.text(ref_map_node.trans_gt[0] + 10, ref_map_node.trans_gt[1] + 10, f'DB{ref_map_node.id}', fontsize=8, color='k')
 		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
 			node.trans_gt, node.quat_gt, ref_map_node.trans_gt, ref_map_node.quat_gt)
 		if dis_tsl < 10.0:
-			ax.plot([node.trans_gt[0], ref_map_node.trans_gt[0] + 10], 
-					[node.trans_gt[1], ref_map_node.trans_gt[1] + 10], 'g-', linewidth=1)
-		else:
-			ax.plot([node.trans_gt[0], ref_map_node.trans_gt[0] + 10], 
-					[node.trans_gt[1], ref_map_node.trans_gt[1] + 10], 'r-', linewidth=1)
+			ax.plot(node.trans_gt[0], node.trans_gt[1], 'ro', markersize=5)
 	ax.grid(ls='--', color='0.7')
 	plt.axis('equal')
 	plt.xlabel('X-axis')

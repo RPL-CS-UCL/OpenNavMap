@@ -181,7 +181,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			##### Perform Coarse Localization #####
 			# Load global descriptors and poses from the reference map 
 			db_descriptors = np.array([node.get_descriptor() for _, node in final_map.nodes.items()], dtype="float32")
-			db_poses = np.empty((final_map.get_num_node(), 7), dtype="float32")
+			db_poses = np.zeros((final_map.get_num_node(), 7), dtype="float32")
 			for indices, (_, node) in enumerate(final_map.nodes.items()):
 				db_poses[indices, :3] = node.trans
 				db_poses[indices, 3:] = node.quat
