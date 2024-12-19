@@ -191,79 +191,100 @@ if __name__ == "__main__":
 	for indices, (_, node) in enumerate(db_map.nodes.items()):
 		db_poses[indices, :3] = node.trans
 		db_poses[indices, 3:] = node.quat
-	model = PlaceRecognitionSeqMatching()
-	model.initialize_model(db_descriptors)
-	single_img_model = PlaceRecognitionSingleMatching()    
-	single_img_model.initialize_model(db_descriptors)
-
-	# query_descriptors = np.array([node.get_descriptor() for _, node in query_map.nodes.items()], dtype="float32")
-	# preds, seq_order, forward_scores, backward_scores = [], [], [], []
-	# for node in tqdm(query_map.nodes.values()):
-	# 	if node.id - model.seqLen + 1 >= 0:
-	# 		query_descs = query_descriptors[node.id-model.seqLen+1:node.id+1]
-	# 		recall_preds_forward, pred_forward, score_forward, db_ind_seq_match = model.match(query_descs, node.id, backward=False)
-	# 		recall_preds_backward, pred_backward, score_backward, db_ind_seq_match = model.match(query_descs[::-1, :], node.id, backward=True)
-	# 		forward_scores.append(score_forward)
-	# 		backward_scores.append(score_backward)
-	# 		if score_forward < score_backward:
-	# 			seq_order.append('f')
-	# 			preds.append(recall_preds_forward)
-	# 		else:
-	# 			seq_order.append('b')
-	# 			preds.append(recall_preds_backward)
-	# 	else:
-	# 		seq_order.append('s')
-	# 		recall_preds, pred, score = single_img_model.match(node.get_descriptor().reshape(1, -1))
-	# 		preds.append(recall_preds)
-	# 		forward_scores.append(score)
-	# 		backward_scores.append(score)
-
 	query_descriptors = np.array([node.get_descriptor() for _, node in query_map.nodes.items()], dtype="float32")
 	query_poses = np.zeros((query_map.get_num_node(), 7), dtype="float32")
 	for indices, (_, node) in enumerate(query_map.nodes.items()):
 		query_poses[indices, :3] = node.trans
 		query_poses[indices, 3:] = node.quat
-
+	# Create sequence matching model
+	model = PlaceRecognitionSeqMatching()
+	model.initialize_model(db_descriptors)
+	single_img_model = PlaceRecognitionSingleMatching()    
+	single_img_model.initialize_model(db_descriptors)
+	# Perform sequence matching
 	preds, scores = [], []
+	connected_edges = []
 	rmse_list = []
 	for node in tqdm(query_map.nodes.values()):
+		# if node.id != 32: continue
 		if node.id - model.seqLen + 1 >= 0:
 			query_descs = query_descriptors[node.id-model.seqLen+1:node.id+1]
 			recall_preds, pred, score, db_ind_seq_match = model.match(query_descs, node.id, backward=False)
 
 			##### Check matching result by trajectory aignment
-			from utils_trajectory import align_trajectory, plot_aligned_traj
-			from evo.core.trajectory import PosePath3D
-			traj_ref = PosePath3D(positions_xyz=db_poses[db_ind_seq_match, :3], 
-								  orientations_quat_wxyz=np.roll(db_poses[db_ind_seq_match, 3:], 1))
-			traj_est = PosePath3D(positions_xyz=query_poses[node.id-model.seqLen+1:node.id+1, :3], 
-								  orientations_quat_wxyz=np.roll(query_poses[node.id-model.seqLen+1:node.id+1, 3:], 1))
-			traj_ref, traj_est_aligned, ape_metric = align_trajectory(traj_ref, traj_est)
-			ape_statistics = ape_metric.get_all_statistics()    
-			rmse_list.append(ape_statistics['rmse'])
+			# from utils_trajectory import align_trajectory, plot_aligned_traj
+			# from evo.core.trajectory import PosePath3D
+			# traj_ref = PosePath3D(positions_xyz=db_poses[db_ind_seq_match, :3], 
+			# 					  orientations_quat_wxyz=np.roll(db_poses[db_ind_seq_match, 3:], 1))
+			# traj_est = PosePath3D(positions_xyz=query_poses[node.id-model.seqLen+1:node.id+1, :3], 
+			# 					  orientations_quat_wxyz=np.roll(query_poses[node.id-model.seqLen+1:node.id+1, 3:], 1))
+			# traj_ref, traj_est_aligned, ape_metric = align_trajectory(traj_ref, traj_est)
+			# ape_statistics = ape_metric.get_all_statistics()
+			# rmse_list.append(ape_statistics['rmse'])
 			# plot_aligned_traj(traj_ref, traj_est_aligned, ape_metric)
 			# exit()
 			##### 
-
 			preds.append(recall_preds)
 			scores.append(score)
+			connected_edges.append((db_map.get_node(pred), node))
 		else:
 			recall_preds, pred, score = single_img_model.match(node.get_descriptor().reshape(1, -1))
 			preds.append(recall_preds)
 			scores.append(score)
-			rmse_list.append(0.0)
+			connected_edges.append((db_map.get_node(pred), node))
+
+	# Doing Ransac
+	# Create Trajectory
+	from evo.core.trajectory import PosePath3D
+	from utils_trajectory import align_trajectory, plot_aligned_traj
+	RANSAC_ITERATIONS = 100
+	min_error = float('inf')
+	best_edges = []
+	import random
+	for _ in range(RANSAC_ITERATIONS):
+		selected_edges = random.sample(connected_edges, max(1, len(connected_edges) // 10))
+		db_indices = [edge[0].id for edge in selected_edges]
+		query_indices = [edge[1].id for edge in selected_edges]
+
+		traj_ref = PosePath3D(positions_xyz=db_poses[db_indices, :3], 
+							  orientations_quat_wxyz=np.roll(db_poses[db_indices, 3:], 1))
+		traj_est = PosePath3D(positions_xyz=query_poses[query_indices, :3], 
+							  orientations_quat_wxyz=np.roll(query_poses[query_indices, 3:], 1))
+		traj_ref, traj_est_aligned, ape_metric = align_trajectory(traj_ref, traj_est)
+		ape_statistics = ape_metric.get_all_statistics()
+		if ape_statistics['rmse'] < min_error:
+			min_error = ape_statistics['rmse']
+			best_edges = selected_edges
+
+	print(f"Best RMSE: {min_error}")
+	for edge in best_edges:
+		print(f"Edge: query {edge[1].id} - DB: {edge[0].id}")
 
 	succ = 0
-	for i, node in enumerate(query_map.nodes.values()):
-		ref_map_node = db_map.get_node(preds[i][0])
+	for edge in best_edges:
+		query_node = edge[0]
+		ref_map_node = edge[1]
 		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-			node.trans_gt, node.quat_gt, ref_map_node.trans_gt, ref_map_node.quat_gt)
+			query_node.trans_gt, query_node.quat_gt, ref_map_node.trans_gt, ref_map_node.quat_gt)
 		if dis_tsl < 10.0:
 			succ += 1
-			print(f"Correct prediction: Query {node.id} - DB: {preds[i][0]} - {scores[i]:.3f} - {rmse_list[i]:.3f}")
+			print(f"Correct prediction: Query {query_node.id} - DB: {ref_map_node.id}")
 		else:
-			print(f"Wrong prediction: Query {node.id} - DB: {preds[i][0]} - {scores[i]:.3f} - {rmse_list[i]:.3f}")
-	print(f"Success Rate: {succ / len(query_map.nodes)}")
+			print(f"Wrong prediction: Query {query_node.id} - DB: {ref_map_node.id}")
+	print(f"Success Rate: {succ / len(best_edges)}")
+	################3
+
+	# succ = 0
+	# for i, node in enumerate(query_map.nodes.values()):
+	# 	ref_map_node = db_map.get_node(preds[i][0])
+	# 	dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+	# 		node.trans_gt, node.quat_gt, ref_map_node.trans_gt, ref_map_node.quat_gt)
+	# 	if dis_tsl < 10.0:
+	# 		succ += 1
+	# 		print(f"Correct prediction: Query {node.id} - DB: {preds[i][0]} - {scores[i]:.3f} - {rmse_list[i]:.3f}")
+	# 	else:
+	# 		print(f"Wrong prediction: Query {node.id} - DB: {preds[i][0]} - {scores[i]:.3f} - {rmse_list[i]:.3f}")
+	# print(f"Success Rate: {succ / len(query_map.nodes)}")
 
 	fig, ax = plt.subplots(figsize=(10, 10))
 	for i, node in enumerate(query_map.nodes.values()):
