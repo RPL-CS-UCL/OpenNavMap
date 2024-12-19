@@ -248,40 +248,14 @@ if __name__ == "__main__":
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
 	# RANSAC-based unreliable edges extraction
-	RMSE_THRESHOLD = 10.0
+	RMSE_THRESHOLD = 2.5
 	model.RANSAC_ITERATIONS = 100
-	for k in range(1):
+	for k in range(30):
 		best_min_rmse, best_indices, best_align_R_t_s = \
 			model.ransac_check_match(db_poses, query_poses, connected_indices)
-		print(best_align_R_t_s[0])
-		print(best_align_R_t_s[1])
-		print(best_align_R_t_s[2])
-
-		print(f"RANSAC Runtime: {time.time() - start_time:.3f}s")
-		print(f"Best RMSE: {best_min_rmse:.3f}")
-		print(f"Candidates Size: {len(connected_indices)}")
-		print(f"Best Indices Size: {len(best_indices)}")
+		print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Indices Size: {len(best_indices)}")
 		if best_min_rmse >= RMSE_THRESHOLD: 
 			continue
-
-		# Augment edges for relative localization
-		edge_set = {f"{edge[0]}_{edge[1]}" for edge in best_indices}
-		# augment_indices = random.sample(connected_indices, max(1, len(connected_indices) // 5))
-		augment_indices = connected_indices
-		print(f"Aug Indices Size: {len(augment_indices)}")
-		for edge in augment_indices:
-			edge_id = f"{edge[0]}_{edge[1]}"
-			if edge_id not in edge_set:
-				db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
-				error = np.linalg.norm(
-					best_align_R_t_s[0] @ query_node.trans.reshape(3, 1) +
-					best_align_R_t_s[1] - db_node.trans.reshape(3, 1)
-				)
-				print(error)
-				if error < RMSE_THRESHOLD:
-					best_indices.append(edge)
-					edge_set.add(edge_id)
-		print(f"After Aug Indices Size: {len(best_indices)}")
 
 		succ = 0
 		for edge in best_indices:
@@ -290,23 +264,24 @@ if __name__ == "__main__":
 				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
 			if dis_tsl < 10.0:
 				succ += 1
-				print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
+				# print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
 			else:
-				print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
-		print(f"Success Rate: {succ / len(best_indices):.3f} {len(best_indices)}\n")
+				# print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
+				pass
+		print(f"Success Rate: {succ / len(best_indices):.3f} {len(best_indices)}")
 		################
 
-		fig, ax = plt.subplots(figsize=(10, 10))
-		for edge in best_indices:
-			db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
-			ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ko', markersize=5)
-			dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
-			if dis_tsl < 10.0:
-				ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ro', markersize=5)
-		ax.grid(ls='--', color='0.7')
-		plt.axis('equal')
-		plt.xlabel('X-axis')
-		plt.ylabel('Y-axis')
-		plt.title(f"Success Rate: {succ / len(query_map.nodes)}")
-		plt.savefig(f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/result_PR_{k}.png")
+		# fig, ax = plt.subplots(figsize=(10, 10))
+		# for edge in best_indices:
+		# 	db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
+		# 	ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ko', markersize=5)
+		# 	dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+		# 		query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
+		# 	if dis_tsl < 10.0:
+		# 		ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ro', markersize=5)
+		# ax.grid(ls='--', color='0.7')
+		# plt.axis('equal')
+		# plt.xlabel('X-axis')
+		# plt.ylabel('Y-axis')
+		# plt.title(f"Success Rate: {succ / len(query_map.nodes)}")
+		# plt.savefig(f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/result_PR_{k}.png")
