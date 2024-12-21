@@ -11,7 +11,7 @@ import copy
 
 class PlaceRecognitionSeqMatching:
 	def __init__(self):
-		self.RANSAC_ITERATIONS = 1000
+		self.RANSAC_ITERATIONS = 100
 
 		self.wContrast = 15
 		self.enhance = False  # False for learning-based VPR methods
@@ -71,23 +71,18 @@ class PlaceRecognitionSeqMatching:
 			sampled_indices = random.sample(connected_indices, max(1, len(connected_indices) // 10))
 			db_indices = [edge[0] for edge in sampled_indices]
 			query_indices = [edge[1] for edge in sampled_indices]
-			
-			traj_ref = PosePath3D(
-				positions_xyz=db_poses[db_indices, :3],
-				orientations_quat_wxyz=np.roll(db_poses[db_indices, 3:], -1)
-			)
-			traj_est = PosePath3D(
-				positions_xyz=query_poses[query_indices, :3],
-				orientations_quat_wxyz=np.roll(query_poses[query_indices, 3:], -1)
-			)
+			traj_ref = PosePath3D(positions_xyz=db_poses[db_indices, :3],
+								  orientations_quat_wxyz=np.roll(db_poses[db_indices, 3:], -1))
+			traj_est = PosePath3D(positions_xyz=query_poses[query_indices, :3],
+								  orientations_quat_wxyz=np.roll(query_poses[query_indices, 3:], -1))
 			traj_ref, traj_est_aligned, ape_metric, align_R_t_s = align_trajectory(traj_ref, traj_est)
 			rmse = ape_metric.get_all_statistics()['rmse']
 			if rmse < best_min_rmse:
-				best_min_rmse = copy.deepcopy(rmse)
-				best_indices = copy.deepcopy(sampled_indices)
-				best_align_R_t_s = copy.deepcopy(align_R_t_s)
+				best_min_rmse = rmse
+				best_indices = sampled_indices
+				best_align_R_t_s = align_R_t_s
 		
-		return best_min_rmse, best_indices, align_R_t_s 
+		return best_min_rmse, best_indices, best_align_R_t_s
 
 	def _compute_diff_matrix(self, query_descriptors) -> np.ndarray:
 		"""
@@ -220,13 +215,13 @@ if __name__ == "__main__":
 	db_descriptors = np.array([node.get_descriptor() for _, node in db_map.nodes.items()], dtype="float32")
 	db_poses = np.zeros((db_map.get_num_node(), 7), dtype="float32")
 	for indices, (_, node) in enumerate(db_map.nodes.items()):
-		db_poses[indices, :3] = node.trans_gt
-		db_poses[indices, 3:] = node.quat_gt
+		db_poses[indices, :3] = node.trans
+		db_poses[indices, 3:] = node.quat
 	query_descriptors = np.array([node.get_descriptor() for _, node in query_map.nodes.items()], dtype="float32")
 	query_poses = np.zeros((query_map.get_num_node(), 7), dtype="float32")
 	for indices, (_, node) in enumerate(query_map.nodes.items()):
-		query_poses[indices, :3] = node.trans_gt
-		query_poses[indices, 3:] = node.quat_gt
+		query_poses[indices, :3] = node.trans
+		query_poses[indices, 3:] = node.quat
 
 	# Create sequence matching model
 	model = PlaceRecognitionSeqMatching()
@@ -248,14 +243,29 @@ if __name__ == "__main__":
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
 	# RANSAC-based unreliable edges extraction
-	RMSE_THRESHOLD = 2.5
-	model.RANSAC_ITERATIONS = 100
-	for k in range(30):
+	RMSE_THRESHOLD = 3.0
+	for k in range(1):
 		best_min_rmse, best_indices, best_align_R_t_s = \
 			model.ransac_check_match(db_poses, query_poses, connected_indices)
 		print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Indices Size: {len(best_indices)}")
-		if best_min_rmse >= RMSE_THRESHOLD: 
-			continue
+		if best_min_rmse >= RMSE_THRESHOLD: continue
+
+		edge_str = {f"{edge[0]}_{edge[1]}" for edge in best_indices}
+		augment_indices = random.sample(connected_indices, max(1, len(connected_indices) // 2))
+		R, t, s = best_align_R_t_s[0], best_align_R_t_s[1], best_align_R_t_s[2]
+
+		dis_all = []
+		for edge in augment_indices:
+			if f"{edge[0]}_{edge[1]}" in edge_str: continue
+			db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
+			dis = np.linalg.norm(R @ query_node.trans + t - db_node.trans)
+			if dis >= best_min_rmse: continue
+			dis_all.append(dis)
+			best_indices.append(edge)
+			edge_str.add(f"{edge[0]}_{edge[1]}")
+		if len(dis_all) > 0:
+			print(f"Distance Mean {np.mean(dis_all):.3f} and STD {np.std(dis_all):.3f}")
+		print(f"All edges: {len(connected_indices)} - Augmented edges: {len(best_indices)} - Best edges: {len(best_indices)}")
 
 		succ = 0
 		for edge in best_indices:
