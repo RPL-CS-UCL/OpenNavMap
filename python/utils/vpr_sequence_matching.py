@@ -1,13 +1,16 @@
 #! /usr/bin/env python
 
 import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
+
 import argparse
 import numpy as np
-from matplotlib import pyplot as plt
-from evo.core.trajectory import PosePath3D
-from utils_trajectory import align_trajectory
 import random
 import copy
+from matplotlib import pyplot as plt
+from evo.core.trajectory import PosePath3D
+from utils.utils_trajectory import align_trajectory
 
 class PlaceRecognitionSeqMatching:
 	def __init__(self):
@@ -22,10 +25,14 @@ class PlaceRecognitionSeqMatching:
 		self.numVel = 20      # Number of velocities to enumerate
 
 		self.matchWindow = 20 # window size for selecting the best score < number of template
+
+		# self.delta = 5
 	
 	def initialize_model(self, db_descriptors, recall_values=5):
 		self.db_descriptors = db_descriptors
 		self.recall_values = recall_values
+		# descriptor_quantiles = np.quantile(dists, [0.025, 0.975])
+		# self.lambda1 = np.log(self.delta) / (descriptor_quantiles[1] - descriptor_quantiles[0])
 
 	def match(self, query_descriptors, node_id, backward=False):
 		"""
@@ -34,8 +41,14 @@ class PlaceRecognitionSeqMatching:
 				pred: int, best match
 				score: float, score of the best match
 				backward: bool, True for backward sequence matching
-		"""       
-		assert query_descriptors.shape[0] == self.seqLen, f"Query descriptors must have length {self.seqLen}"
+		"""   
+		if query_descriptors.shape[0] < self.seqLen:
+			query_desc = query_descriptors[-1, :]
+			dists = self._compute_dist_desc(query_desc)
+			recall_preds = np.argsort(dists)[:self.recall_values]
+			pred = recall_preds[0]
+			score = dists[pred]
+			return recall_preds, pred, score
 
 		D = self._compute_diff_matrix(query_descriptors)
 		if self.enhance: D = self._enhance_contrast(D)
@@ -58,17 +71,18 @@ class PlaceRecognitionSeqMatching:
 		# plt.xlabel('Query Descriptor Index')
 		# plt.ylabel('Database Descriptor Index')
 		# plt.title('Difference Matrix')
-		# diff_matrix_path = f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/diff_matrix_euc_{node_id}_{backward}.png"
+		# diff_matrix_path = f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map1/preds/diff_matrix_euc_{node_id}_{backward}.png"
 		# plt.savefig(diff_matrix_path)
 		# plt.close()
 		################################
 
 		return recall_preds, pred, score
 
+
 	def ransac_check_match(self, db_poses, query_poses, connected_indices):
 		best_min_rmse, best_indices, best_align_R_t_s = float('inf'), [], None
 		for _ in range(self.RANSAC_ITERATIONS):
-			sampled_indices = random.sample(connected_indices, max(1, len(connected_indices) // 10))
+			sampled_indices = random.sample(connected_indices, min(max(10, len(connected_indices) // 10), len(connected_indices)))
 			db_indices = [edge[0] for edge in sampled_indices]
 			query_indices = [edge[1] for edge in sampled_indices]
 			traj_ref = PosePath3D(positions_xyz=db_poses[db_indices, :3],
@@ -83,6 +97,13 @@ class PlaceRecognitionSeqMatching:
 				best_align_R_t_s = align_R_t_s
 		
 		return best_min_rmse, best_indices, best_align_R_t_s
+	
+	def _compute_dist_desc(self, descriptor) -> np.ndarray:
+		##### Option 1: cosine similarity
+		# dists = np.sqrt(2 - 2 * np.dot(self.db_descriptors, descriptor.reshape(-1)))
+		##### Option 2: euclidean distance
+		dists = np.linalg.norm(self.db_descriptors - descriptor, axis=1)
+		return dists
 
 	def _compute_diff_matrix(self, query_descriptors) -> np.ndarray:
 		"""
@@ -233,65 +254,62 @@ if __name__ == "__main__":
 	connected_indices = []
 	start_time = time.time()
 	for node in tqdm(query_map.nodes.values()):
-		if node.id - model.seqLen + 1 >= 0:
-			query_descs = query_descriptors[node.id-model.seqLen+1:node.id+1]
-			recall_preds, pred, score = model.match(query_descs, node.id, backward=False)
-			connected_indices.append((pred, node.id, score))
-		else:
-			recall_preds, pred, score = single_img_model.match(node.get_descriptor().reshape(1, -1))
-			connected_indices.append((pred, node.id, score))
+		query_descs = query_descriptors[max(0, node.id-model.seqLen+1) : node.id+1]
+		recall_preds, pred, score = model.match(query_descs, node.id, backward=False)
+		if score > 0.9: continue
+		connected_indices.append((pred, node.id, score))
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
-	# RANSAC-based unreliable edges extraction
+	# RANSAC-based reliable edges extraction
 	RMSE_THRESHOLD = 3.0
+	best_min_rmse, best_indices, best_align_R_t_s = None, None, None
 	for k in range(1):
 		best_min_rmse, best_indices, best_align_R_t_s = \
 			model.ransac_check_match(db_poses, query_poses, connected_indices)
 		print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Indices Size: {len(best_indices)}")
-		if best_min_rmse >= RMSE_THRESHOLD: continue
+		if best_min_rmse <= RMSE_THRESHOLD: break
+		best_min_rmse, best_indices, best_align_R_t_s = None, None, None
+	if best_min_rmse is None: exit()
 
-		edge_str = {f"{edge[0]}_{edge[1]}" for edge in best_indices}
-		augment_indices = random.sample(connected_indices, max(1, len(connected_indices) // 2))
-		R, t, s = best_align_R_t_s[0], best_align_R_t_s[1], best_align_R_t_s[2]
+	edge_str = {f"{edge[0]}_{edge[1]}" for edge in best_indices}
+	augment_indices = random.sample(connected_indices, min(max(10, len(connected_indices)), len(connected_indices)))
+	R, t, s = best_align_R_t_s[0], best_align_R_t_s[1], best_align_R_t_s[2]
+	for edge in augment_indices:
+		if f"{edge[0]}_{edge[1]}" in edge_str: continue
+		db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
+		dis = np.linalg.norm(R @ query_node.trans + t - db_node.trans)
+		if dis >= best_min_rmse: continue
+		best_indices.append(edge)
+		edge_str.add(f"{edge[0]}_{edge[1]}")
 
-		dis_all = []
-		for edge in augment_indices:
-			if f"{edge[0]}_{edge[1]}" in edge_str: continue
-			db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
-			dis = np.linalg.norm(R @ query_node.trans + t - db_node.trans)
-			if dis >= best_min_rmse: continue
-			dis_all.append(dis)
-			best_indices.append(edge)
-			edge_str.add(f"{edge[0]}_{edge[1]}")
-		if len(dis_all) > 0:
-			print(f"Distance Mean {np.mean(dis_all):.3f} and STD {np.std(dis_all):.3f}")
-		print(f"All edges: {len(connected_indices)} - Augmented edges: {len(best_indices)} - Best edges: {len(best_indices)}")
+	print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Indices Size (after aug): {len(best_indices)}")
+	print(f"All edges: {len(connected_indices)} - Augmented edges: {len(best_indices)} - Best edges: {len(best_indices)}")
 
-		succ = 0
-		for edge in best_indices:
-			db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
-			dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
-			if dis_tsl < 10.0:
-				succ += 1
-				# print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
-			else:
-				# print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
-				pass
-		print(f"Success Rate: {succ / len(best_indices):.3f} {len(best_indices)}")
-		################
+	succ = 0
+	for edge in best_indices:
+		db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
+		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+			query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
+		if dis_tsl < 10.0:
+			succ += 1
+			# print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
+		else:
+			# print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
+			pass
+	print(f"Success Rate: {succ / len(best_indices):.3f} {len(best_indices)}")
+	################
 
-		# fig, ax = plt.subplots(figsize=(10, 10))
-		# for edge in best_indices:
-		# 	db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
-		# 	ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ko', markersize=5)
-		# 	dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-		# 		query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
-		# 	if dis_tsl < 10.0:
-		# 		ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ro', markersize=5)
-		# ax.grid(ls='--', color='0.7')
-		# plt.axis('equal')
-		# plt.xlabel('X-axis')
-		# plt.ylabel('Y-axis')
-		# plt.title(f"Success Rate: {succ / len(query_map.nodes)}")
-		# plt.savefig(f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/result_PR_{k}.png")
+	# fig, ax = plt.subplots(figsize=(10, 10))
+	# for edge in best_indices:
+	# 	db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
+	# 	ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ko', markersize=5)
+	# 	dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+	# 		query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
+	# 	if dis_tsl < 10.0:
+	# 		ax.plot(query_node.trans_gt[0], query_node.trans_gt[1], 'ro', markersize=5)
+	# ax.grid(ls='--', color='0.7')
+	# plt.axis('equal')
+	# plt.xlabel('X-axis')
+	# plt.ylabel('Y-axis')
+	# plt.title(f"Success Rate: {succ / len(query_map.nodes)}")
+	# plt.savefig(f"/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000/out_map4/preds/result_PR_{k}.png")

@@ -10,6 +10,7 @@ import time
 import copy
 import logging
 import gtsam
+import random
 
 import rospy
 from std_msgs.msg import Header
@@ -21,6 +22,7 @@ import tf2_ros
 import matplotlib
 import matplotlib.pyplot as plt
 from PIL import Image
+from tqdm import tqdm
 
 # import rospkg
 # rospkg = rospkg.RosPack()
@@ -38,6 +40,7 @@ from image_graph import ImageGraph
 from image_node import ImageNode
 from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
 from utils.vpr_single_matching import PlaceRecognitionSingleMatching
+from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
 
 import pycpptools.src.python.utils_math as pytool_math
 import pycpptools.src.python.utils_ros as pytool_ros
@@ -51,6 +54,9 @@ init(autoreset=True)
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
+RMSE_THRESHOLD = 3.0
+VPR_MATCH_THRESHOLD = 0.9
+
 class MergePipeline:
 	def __init__(self, args, log_dir):
 		self.args = args
@@ -62,6 +68,8 @@ class MergePipeline:
 			self.vpr_match_model = PlaceRecognitionSingleMatching()
 		elif args.vpr_match_model == 'topo_filter':
 			self.vpr_match_model = PlaceRecognitionTopologicalFilter()
+		elif args.vpr_match_model == 'sequence_match':
+			self.vpr_match_model = PlaceRecognitionSeqMatching()
 		else:
 			raise ValueError(f"Invalid VPR Match Model: {args.vpr_match_model}")
 
@@ -181,38 +189,78 @@ def perform_submap_merging(merger: MergePipeline, args):
 			##### Perform Coarse Localization #####
 			# Load global descriptors and poses from the reference map 
 			db_descriptors = np.array([node.get_descriptor() for _, node in final_map.nodes.items()], dtype="float32")
-			db_poses = np.zeros((final_map.get_num_node(), 7), dtype="float32")
-			for indices, (_, node) in enumerate(final_map.nodes.items()):
-				db_poses[indices, :3] = node.trans
-				db_poses[indices, 3:] = node.quat
-			merger.vpr_match_model.initialize_model(db_descriptors, db_poses[:, :3], recall_values=5)
-
+			db_poses = np.array([np.hstack((node.trans, node.quat)) for node in final_map.nodes.values()])
+			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
+			query_poses = np.array([np.hstack((node.trans, node.quat)) for node in cur_submap.nodes.values()])
+			
+			# Initialize the VPR match model
+			merger.vpr_match_model.initialize_model(db_descriptors, recall_values=5)
+			
 			##############################
 			###### DEBUG(gogojjh):
 			query_result_info = np.zeros((cur_submap.get_num_node(), 3), dtype="float32")
 			preds = []
 			##############################
-			edges_nodeA_to_nodeB_coarse = [] # [(db_node, query_node, np.eye(4), prob)]
-			for query_node in cur_submap.nodes.values():
-				# Incrementally update the belief of the full posterior
-				query_desc = query_node.get_descriptor()
-				recall_preds, pred, prob = merger.vpr_match_model.match(final_map, query_desc.reshape(1, -1))
-				# Create connected edges for the coarse localization
-				EDGE_PROB_THRE = 0.4
-				if prob > EDGE_PROB_THRE:
-					edges_nodeA_to_nodeB_coarse.append((final_map.get_node(pred), query_node, np.eye(4), prob))
+			connected_indices = [] # [(pred_db_id, query_node_id, score)]
+			start_time = time.time()
+			for query_node in tqdm(cur_submap.nodes.values()):
+				# NOTE(gogojjh): degrade to single-image-matching if not enough queries
+				query_descs = query_descriptors[max(0, query_node.id-merger.vpr_match_model.seqLen+1) : query_node.id+1]
+				recall_preds, pred, score = merger.vpr_match_model.match(query_descs, query_node.id)
+				if score >= VPR_MATCH_THRESHOLD: continue
+				connected_indices.append((pred, query_node.id, score))
 				preds.append(recall_preds)
-				query_result_info[query_node.id, 0] = prob
-				print(query_node.id, recall_preds, prob)
+			print(f"Sequence Matching found {len(connected_indices)} edges")
+			print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
+			
+			# RANSAC-based reliable edges extraction
+			best_min_rmse, best_indices, best_align_R_t_s = None, None, None
+			for i in range(10):
+				best_min_rmse, best_indices, best_align_R_t_s = \
+					merger.vpr_match_model.ransac_check_match(db_poses, query_poses, connected_indices)
+				print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Indices Size: {len(best_indices)}")
+				if best_min_rmse < RMSE_THRESHOLD: break
+				best_min_rmse, best_indices, best_align_R_t_s = None, None, None
 
+			if best_min_rmse is None:
+				print(f"No Reliable Loops Found")
+				exit()
+
+			# Augment the edges for the subsequent fine localization
+			ind_str = {f"{ind[0]}_{ind[1]}" for ind in best_indices}
+			augment_indices = random.sample(connected_indices, max(1, len(connected_indices) // 2))
+			R, t, s = best_align_R_t_s[0], best_align_R_t_s[1], best_align_R_t_s[2]
+			for ind in augment_indices:
+				if f"{ind[0]}_{ind[1]}" in ind_str: continue
+				db_node, query_node = final_map.get_node(ind[0]), cur_submap.get_node(ind[1])
+				dis = np.linalg.norm(R @ query_node.trans + t - db_node.trans)
+				if dis >= best_min_rmse: continue
+				best_indices.append(ind)
+				ind_str.add(f"{ind[0]}_{ind[1]}")
+			print(f"All inds: {len(connected_indices)} - Best inds: {len(best_indices)}")
+			print(f"RMSE of traj alignment: {best_min_rmse:.3f}")
+
+			T_init = np.block([[R, t.reshape(3, 1)], [0, 0, 0, 1]])
+			edges_nodeA_to_nodeB_coarse = [
+				(final_map.get_node(ind[0]), cur_submap.get_node(ind[1]), T_init, ind[2]) 
+				for ind in best_indices
+			]  # [(pred_db_node, query_node, T_A2B, score)]
 			##############################
 			###### DEBUG(gogojjh):
-			succ_cnt = 0
-			for edge in edges_nodeA_to_nodeB_coarse: 
+			succ = 0
+			for edge in edges_nodeA_to_nodeB_coarse:
 				db_node, query_node = edge[0], edge[1]
-			print(f"Coarse Loc Results with the Submap {cur_submap_id}")
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
+					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
+				if dis_tsl < 10.0:
+					succ += 1
+					print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
+				else:
+					print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
+			print(f"Success Rate: {succ / len(best_indices):.3f} with {len(best_indices)} Edges")
 			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
-			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
+			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, 
+								edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
 			exit()
 			##############################
 
