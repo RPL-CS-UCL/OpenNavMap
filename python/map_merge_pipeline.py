@@ -56,6 +56,7 @@ if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
 RMSE_THRESHOLD = 3.0
 VPR_MATCH_THRESHOLD = 0.9
+REFINE_EDGE_SCORE_THRESHOLD = 20.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
 
 class MergePipeline:
 	def __init__(self, args, log_dir):
@@ -130,6 +131,7 @@ class MergePipeline:
 
 		# Expand the pose graph from submapB by adding internal edges of submapA
 		id_offset = max(submapA.get_all_id()) + 1
+		print(f"id offset: {id_offset}")
 		for node in submapB.nodes.values():
 			curr_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id + id_offset, curr_pose3)
@@ -207,6 +209,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				# NOTE(gogojjh): degrade to single-image-matching if not enough queries
 				query_descs = query_descriptors[max(0, query_node.id-merger.vpr_match_model.seqLen+1) : query_node.id+1]
 				recall_preds, pred, score = merger.vpr_match_model.match(query_descs, query_node.id)
+				query_result_info[query_node.id, 0] = score
 				if score >= VPR_MATCH_THRESHOLD: continue
 				connected_indices.append((pred, query_node.id, score))
 				preds.append(recall_preds)
@@ -257,11 +260,11 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
 				else:
 					print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
-			print(f"Success Rate: {succ / len(best_indices):.3f} with {len(best_indices)} Edges")
+			print(f"VPR Success Rate: {succ / len(best_indices):.3f} with {len(best_indices)} Edges")
 			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
 			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, 
 								edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
-			exit()
+			# exit()
 			##############################
 
 			##### Perform Fine Localization #####
@@ -290,7 +293,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 					start_time = time.time()
 					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
 					edge_scores = merger.pose_estimator.get_edge_score(option='mean')
-					max_edge_core_nodeA_nodeA_next = max(edge_scores['0_1'], edge_scores['1_0'])
+					max_edge_score_nodeA_nodeA_next = max(edge_scores['0_1'], edge_scores['1_0'])
 					max_edge_score_nodeA_nodeB = max((value for key, value in edge_scores.items() if '2' in key), default=0)
 					T_nodeA_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
 					T_query_est = result['im_pose']
@@ -313,8 +316,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(Fore.GREEN + f"Target: {img1_name}")
 					##############################
 
-					EDGE_SCORE_THRE = 20.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
-					if max_edge_score_nodeA_nodeB > EDGE_SCORE_THRE:
+					if max_edge_score_nodeA_nodeB > REFINE_EDGE_SCORE_THRESHOLD:
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
 						print(Fore.RED + f"Good Refinement")
 						query_result_info[nodeB.id, 2] = 1.0
@@ -336,6 +338,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			pose_graph = merger.create_pose_graph_from_submaps(final_map, cur_submap, edges_nodeA_to_nodeB_refine)
 			g2o_file_path = os.path.join(merger.log_dir, "preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_file_path)
+			# NOTE(gogojjh): add optimization
 			# pose_graph.perform_optimization()
 
 			##### Merge the Pose Graph and Update Poses of Each Node #####

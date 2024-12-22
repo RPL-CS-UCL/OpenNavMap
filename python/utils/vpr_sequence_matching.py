@@ -60,6 +60,7 @@ class PlaceRecognitionSeqMatching:
 		recall_preds, pred, score, db_ind_seq_match = self._locate_best_match(template_scores, template_velocities, backward)
 
 		################################
+		# DEBUG(gogojjh):
 		# ind = np.argmin(template_scores)
 		# plt.figure(figsize=(8, 8))
 		# plt.imshow(D, cmap='viridis', aspect='auto')
