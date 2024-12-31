@@ -54,10 +54,6 @@ init(autoreset=True)
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
-RMSE_THRESHOLD = 3.0
-VPR_MATCH_THRESHOLD = 0.9
-REFINE_EDGE_SCORE_THRESHOLD = 20.0 # threshold to select good refinement: out-of-range image, wrong coarse localization
-
 class MergePipeline:
 	def __init__(self, args, log_dir):
 		self.args = args
@@ -213,16 +209,20 @@ def perform_submap_merging(merger: MergePipeline, args):
 				if score >= VPR_MATCH_THRESHOLD: continue
 				connected_indices.append((pred, query_node.id, score))
 				preds.append(recall_preds)
+				print(f"Query: {query_node.id}, DB: {recall_preds}")
 			print(f"Sequence Matching found {len(connected_indices)} edges")
 			print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 			
 			# RANSAC-based reliable edges extraction
 			best_min_rmse, best_indices, best_align_R_t_s = None, None, None
 			for i in range(10):
-				best_min_rmse, best_indices, best_align_R_t_s = \
-					merger.vpr_match_model.ransac_check_match(db_poses, query_poses, connected_indices)
-				print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Indices Size: {len(best_indices)}")
-				if best_min_rmse < RMSE_THRESHOLD: break
+				try:
+					best_min_rmse, best_indices, best_align_R_t_s = \
+						merger.vpr_match_model.ransac_check_match(db_poses, query_poses, connected_indices)
+					print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Inds: {len(best_indices)}")
+					if best_min_rmse < RMSE_THRESHOLD: break
+				except Exception as e:
+					print(f"Error in RANSAC: {e}")
 				best_min_rmse, best_indices, best_align_R_t_s = None, None, None
 
 			if best_min_rmse is None:
@@ -231,7 +231,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 			# Augment the edges for the subsequent fine localization
 			ind_str = {f"{ind[0]}_{ind[1]}" for ind in best_indices}
-			augment_indices = random.sample(connected_indices, max(1, len(connected_indices) // 2))
+			augment_indices = random.sample(connected_indices, max(1, len(connected_indices)))
 			R, t, s = best_align_R_t_s[0], best_align_R_t_s[1], best_align_R_t_s[2]
 			for ind in augment_indices:
 				if f"{ind[0]}_{ind[1]}" in ind_str: continue
@@ -240,7 +240,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				if dis >= best_min_rmse: continue
 				best_indices.append(ind)
 				ind_str.add(f"{ind[0]}_{ind[1]}")
-			print(f"All inds: {len(connected_indices)} - Best inds: {len(best_indices)}")
+			print(f"All Inds: {len(connected_indices)} - Best Inds (after aug): {len(best_indices)}")
 			print(f"RMSE of traj alignment: {best_min_rmse:.3f}")
 
 			T_init = np.block([[R, t.reshape(3, 1)], [0, 0, 0, 1]])
@@ -320,7 +320,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
 						print(Fore.RED + f"Good Refinement")
 						query_result_info[nodeB.id, 2] = 1.0
-					# merger.pose_estimator.show_reconstruction()
+						# merger.pose_estimator.show_reconstruction()
 					# input()
 				except Exception as e:
 					print(f"Error in pose estimation: {e}")
