@@ -85,7 +85,7 @@ class PlaceRecognitionSeqMatching:
 		y_db_indices = [edge[0] for edge in connected_indices]
 		data = np.column_stack((x_query_indices, y_db_indices))
 
-		num_cluster = min(self.N_CLUSTER, int(len(x_query_indices) / (self.seqLen + 5)))
+		num_cluster = min(self.N_CLUSTER, int(len(x_query_indices) / self.seqLen))
 		data_cluster = GaussianMixture(n_components=num_cluster, random_state=42)		
 		labels = data_cluster.fit_predict(data)		
 		data = np.array(data)
@@ -115,6 +115,7 @@ class PlaceRecognitionSeqMatching:
 				inliers_count = len(inliers_ind)
 				
 				if inliers_count < self.seqLen: continue
+				if inliers_count < cur_data.shape[0] * 0.4: continue
 				if np.rad2deg(np.arctan2(m, 1)) < self.RANSAC_LINE_MIN_ANGLE or \
 					np.rad2deg(np.arctan2(m, 1)) > self.RANSAC_LINE_MAX_ANGLE: 
 					continue
@@ -126,7 +127,8 @@ class PlaceRecognitionSeqMatching:
 			if line_coeff is not None:
 				score = np.sum(D_all[cur_data[best_inliers_ind, 1], cur_data[best_inliers_ind, 0]]) / len(best_inliers_ind)
 				if score < self.DIFF_MATRIX_SCORE:
-					print(f"Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f}")
+					m, b = line_coeff
+					print(f"Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
 					best_indices = best_indices + [(cur_data[ind, 1], cur_data[ind, 0]) for ind in best_inliers_ind]
 					lines_coeff.append(line_coeff)
 		
@@ -298,7 +300,7 @@ if __name__ == "__main__":
 		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
 			query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
 		)
-		if dis_tsl < 10.0:
+		if dis_tsl < 20.0:
 			tp += 1
 		else:
 			fp += 1
@@ -342,7 +344,7 @@ if __name__ == "__main__":
 		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
 			query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
 		)
-		if dis_tsl < 10.0:
+		if dis_tsl < 20.0:
 			ax1.plot(edge[1], edge[0], 'go', markersize=5)
 		else:
 			ax1.plot(edge[1], edge[0], 'ro', markersize=5)
@@ -360,7 +362,7 @@ if __name__ == "__main__":
 		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
 			query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
 		)
-		if dis_tsl < 10.0:
+		if dis_tsl < 20.0:
 			ax2.plot(edge[1], edge[0], 'go', markersize=5)
 			print(f"Correct Prediction: DB {edge[0]} - Query {edge[1]}")
 		else:
@@ -407,7 +409,7 @@ if __name__ == "__main__":
 	# 	ax[1].imshow(query_node.rgb_image.permute(1, 2, 0))
 	# 	ax[1].set_title("Query")
 	# 	ax[1].set_axis_off()
-	# 	if dis_tsl < 10.0:
+	# 	if dis_tsl < 20.0:
 	# 		plt.suptitle(f"Correct Prediction: DB {db_node.id} - Query {query_node.id} - Score {edge[2]:.3f}")
 	# 		plt.savefig(f"{args.query_map_path}/preds/db_query_{query_node.id}_correct.jpg")
 	# 	else:

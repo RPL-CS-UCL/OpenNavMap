@@ -197,73 +197,108 @@ def perform_submap_merging(merger: MergePipeline, args):
 			##############################
 			###### DEBUG(gogojjh):
 			query_result_info = np.zeros((cur_submap.get_num_node(), 3), dtype="float32")
-			preds = []
 			##############################
 			connected_indices = [] # [(pred_db_id, query_node_id, score)]
 			start_time = time.time()
 			for query_node in tqdm(cur_submap.nodes.values()):
-				# NOTE(gogojjh): degrade to single-image-matching if not enough queries
 				query_descs = query_descriptors[max(0, query_node.id-merger.vpr_match_model.seqLen+1) : query_node.id+1]
 				recall_preds, pred, score = merger.vpr_match_model.match(query_descs, query_node.id)
 				query_result_info[query_node.id, 0] = score
-				if score >= VPR_MATCH_THRESHOLD: continue
 				connected_indices.append((pred, query_node.id, score))
-				preds.append(recall_preds)
-				print(f"Query: {query_node.id}, DB: {recall_preds}")
-			print(f"Sequence Matching found {len(connected_indices)} edges")
-			print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
-			
-			# RANSAC-based reliable edges extraction
-			best_min_rmse, best_indices, best_align_R_t_s = None, None, None
-			for i in range(10):
-				try:
-					best_min_rmse, best_indices, best_align_R_t_s = \
-						merger.vpr_match_model.ransac_check_match(db_poses, query_poses, connected_indices)
-					print(f"Error: {best_min_rmse:.3f} - Candidates Size: {len(connected_indices)} - Best Inds: {len(best_indices)}")
-					if best_min_rmse < RMSE_THRESHOLD: break
-				except Exception as e:
-					print(f"Error in RANSAC: {e}")
-				best_min_rmse, best_indices, best_align_R_t_s = None, None, None
 
-			if best_min_rmse is None:
-				print(f"No Reliable Loops Found")
-				exit()
-
-			# Augment the edges for the subsequent fine localization
-			ind_str = {f"{ind[0]}_{ind[1]}" for ind in best_indices}
-			augment_indices = random.sample(connected_indices, max(1, len(connected_indices)))
-			R, t, s = best_align_R_t_s[0], best_align_R_t_s[1], best_align_R_t_s[2]
-			for ind in augment_indices:
-				if f"{ind[0]}_{ind[1]}" in ind_str: continue
-				db_node, query_node = final_map.get_node(ind[0]), cur_submap.get_node(ind[1])
-				dis = np.linalg.norm(R @ query_node.trans + t - db_node.trans)
-				if dis >= best_min_rmse: continue
-				best_indices.append(ind)
-				ind_str.add(f"{ind[0]}_{ind[1]}")
-			print(f"All Inds: {len(connected_indices)} - Best Inds (after aug): {len(best_indices)}")
-			print(f"RMSE of traj alignment: {best_min_rmse:.3f}")
-
-			T_init = np.block([[R, t.reshape(3, 1)], [0, 0, 0, 1]])
+			D_all = merger.vpr_match_model._compute_diff_matrix(query_descriptors)
+			best_indices, lines_coeff, cluster_data, cluster_labels = \
+				merger.vpr_match_model.ransac_check_match(D_all, connected_indices)
 			edges_nodeA_to_nodeB_coarse = [
-				(final_map.get_node(ind[0]), cur_submap.get_node(ind[1]), T_init, ind[2]) 
+				(final_map.get_node(ind[0]), cur_submap.get_node(ind[1]), np.eye(4), ind[2]) 
 				for ind in best_indices
 			]  # [(pred_db_node, query_node, T_A2B, score)]
 			##############################
 			###### DEBUG(gogojjh):
-			succ = 0
+			print(f"Sequence Matching found {len(best_indices)} edges")
+			print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
+			tp, fp = 0, 0
 			for edge in edges_nodeA_to_nodeB_coarse:
 				db_node, query_node = edge[0], edge[1]
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+				)
 				if dis_tsl < 10.0:
-					succ += 1
+					tp += 1
 					print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
 				else:
+					fp += 1
 					print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
-			print(f"VPR Success Rate: {succ / len(best_indices):.3f} with {len(best_indices)} Edges")
+			if tp + fp < 1:
+				precision = 0
+			else:
+				precision = tp / (tp+fp)
+			print(f"Precision: {precision:.3f} - {tp}/{tp+fp}")
 			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
 			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, 
 								edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
+
+			fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
+
+			im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+			for edge in connected_indices:
+				db_node = final_map.get_node(edge[0])
+				query_node = cur_submap.get_node(edge[1])
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+				)
+				if dis_tsl < 10.0:
+					ax1.plot(edge[1], edge[0], 'go', markersize=5)
+				else:
+					ax1.plot(edge[1], edge[0], 'ro', markersize=5)
+
+			fig.colorbar(im1, ax=ax1, label='Difference')
+			ax1.set_xlabel('Query Descriptor Index')
+			ax1.set_ylabel('Database Descriptor Index')
+			ax1.set_title("Difference Matrix [Before RANSAC]")
+
+			im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+			for edge in best_indices:
+				db_node = final_map.get_node(edge[0])
+				query_node = cur_submap.get_node(edge[1])
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+				)
+				if dis_tsl < 10.0:
+					ax2.plot(edge[1], edge[0], 'go', markersize=5)
+					print(f"Correct Prediction: DB {edge[0]} - Query {edge[1]}")
+				else:
+					ax2.plot(edge[1], edge[0], 'ro', markersize=5)
+					print(f"Wrong Prediction: DB {edge[0]} - Query {edge[1]}")
+
+			for line_coeff in lines_coeff:
+				m, b = line_coeff
+				x_vals = np.linspace(0, D_all.shape[1], 100)
+				y_vals = m * x_vals + b
+				ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
+
+			fig.colorbar(im2, ax=ax2, label='Difference')
+			ax2.set_xlabel('Query Descriptor Index')
+			ax2.set_ylabel('Database Descriptor Index')
+			ax2.set_title(f"Difference Matrix [After RANSAC] Precision: {precision:.3f} - {tp}/{tp+fp}")
+			ax2.set_xlim(0, D_all.shape[1])
+			ax2.set_ylim(0, D_all.shape[0])
+			ax2.invert_yaxis()
+
+			im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+			scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
+			fig.colorbar(scatter, ax=ax3, label='Cluster Label')
+			ax3.set_xlabel('Query Descriptor Index')
+			ax3.set_ylabel('Database Descriptor Index')
+			ax3.set_title(f"Dot Cluster")
+			ax3.set_xlim(0, D_all.shape[1])
+			ax3.set_ylim(0, D_all.shape[0])
+			ax3.invert_yaxis()
+
+			plt.savefig(f"{merger.log_dir}/preds/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
+			plt.close()
+			################################################
+
 			# exit()
 			##############################
 
@@ -289,6 +324,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 					img1_intr = {'K': torch.from_numpy(nodeB.raw_K), 'im_size': torch.from_numpy(nodeB.raw_img_size)}
 					scene_root = pathlib.Path(final_map.map_root + '/../')
 
+					# TODO(gogojjh): Perform Geomtric Verification
 					# Perform pose estimation
 					start_time = time.time()
 					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
