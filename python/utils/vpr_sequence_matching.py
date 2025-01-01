@@ -253,7 +253,6 @@ if __name__ == "__main__":
 	for node in tqdm(query_map.nodes.values()):
 		query_descs = query_descriptors[max(0, node.id-model.seqLen+1) : node.id+1]
 		recall_preds, pred, score = model.match(query_descs, backward=False)
-		# if score > 0.93: continue
 		connected_indices.append((pred, node.id, score))
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
@@ -398,7 +397,7 @@ if __name__ == "__main__":
 	plt.ylabel("Database Descriptor Index")
 	plt.title(f"Clustering")
 	plt.grid(True)
-	plt.savefig(f"{args.query_map_path}/preds/hdbscan.jpg", dpi=300)
+	plt.savefig(f"{args.query_map_path}/preds/gaussian_mixture.jpg", dpi=300)
 	plt.close()
 	
 	###############################
