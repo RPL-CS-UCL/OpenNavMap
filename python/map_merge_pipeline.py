@@ -48,6 +48,8 @@ import pycpptools.src.python.utils_sensor as pytool_sensor
 
 from gtsam_pose_graph import PoseGraph
 
+from codetiming import Timer
+
 from colorama import Fore, init
 init(autoreset=True)
 
@@ -93,7 +95,7 @@ class MergePipeline:
 			submap_id = len(self.submaps)
 			image_graph = GraphLoader.load_data(
 				submap_path,
-				self.args.image_size,
+				resize=self.args.image_size,
 				depth_scale=0.0,
 				load_rgb=True,
 				load_depth=False,
@@ -192,38 +194,40 @@ def perform_submap_merging(merger: MergePipeline, args):
 			query_poses = np.array([np.hstack((node.trans, node.quat)) for node in cur_submap.nodes.values()])
 			
 			# Initialize the VPR match model
-			merger.vpr_match_model.initialize_model(db_descriptors, recall_values=5)
+			merger.vpr_match_model.initialize_model(db_descriptors)
 			
 			##############################
 			###### DEBUG(gogojjh):
-			query_result_info = np.zeros((cur_submap.get_num_node(), 3), dtype="float32")
+			query_result_info = np.zeros((cur_submap.get_num_node(), 4), dtype="float32")
 			##############################
 			connected_indices = [] # [(pred_db_id, query_node_id, score)]
-			start_time = time.time()
+			timer_global_loc = Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms")
+			timer_global_loc.start()
 			for query_node in tqdm(cur_submap.nodes.values()):
 				query_descs = query_descriptors[max(0, query_node.id-merger.vpr_match_model.seqLen+1) : query_node.id+1]
-				recall_preds, pred, score = merger.vpr_match_model.match(query_descs, query_node.id)
-				query_result_info[query_node.id, 0] = score
+				_, pred, score = merger.vpr_match_model.match(query_descs, backward=False)
 				connected_indices.append((pred, query_node.id, score))
-
+				query_result_info[query_node.id, 0] = score
 			D_all = merger.vpr_match_model._compute_diff_matrix(query_descriptors)
 			best_indices, lines_coeff, cluster_data, cluster_labels = \
 				merger.vpr_match_model.ransac_check_match(D_all, connected_indices)
-			edges_nodeA_to_nodeB_coarse = [
-				(final_map.get_node(ind[0]), cur_submap.get_node(ind[1]), np.eye(4), ind[2]) 
+			timer_global_loc.stop()
+			
+			edges_nodeA_to_nodeB_coarse = [(
+				final_map.get_node(ind[0]), cur_submap.get_node(ind[1]), np.eye(4), ind[2]) 
 				for ind in best_indices
 			]  # [(pred_db_node, query_node, T_A2B, score)]
+
 			##############################
 			###### DEBUG(gogojjh):
 			print(f"Sequence Matching found {len(best_indices)} edges")
-			print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 			tp, fp = 0, 0
 			for edge in edges_nodeA_to_nodeB_coarse:
 				db_node, query_node = edge[0], edge[1]
 				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
 					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
 				)
-				if dis_tsl < 10.0:
+				if dis_tsl < 20.0:
 					tp += 1
 					print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
 				else:
@@ -235,72 +239,76 @@ def perform_submap_merging(merger: MergePipeline, args):
 				precision = tp / (tp+fp)
 			print(f"Precision: {precision:.3f} - {tp}/{tp+fp}")
 			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
-			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, 
-								edges_nodeA_to_nodeB_coarse, suffix=f'{args.vpr_match_model}_coarse')
+			save_vis_pose_graph(
+				merger.log_dir, 
+				final_map, 
+				cur_submap, 
+				cur_submap_id, 
+				edges_nodeA_to_nodeB_coarse, 
+				suffix=f'{args.vpr_match_model}_coarse'
+			)
 
-			fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
+			if True:
+				fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
 
-			im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-			for edge in connected_indices:
-				db_node = final_map.get_node(edge[0])
-				query_node = cur_submap.get_node(edge[1])
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-				)
-				if dis_tsl < 10.0:
-					ax1.plot(edge[1], edge[0], 'go', markersize=5)
-				else:
-					ax1.plot(edge[1], edge[0], 'ro', markersize=5)
+				im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+				for edge in connected_indices:
+					db_node = final_map.get_node(edge[0])
+					query_node = cur_submap.get_node(edge[1])
+					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+						query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+					)
+					if dis_tsl < 20.0:
+						ax1.plot(edge[1], edge[0], 'go', markersize=5)
+					else:
+						ax1.plot(edge[1], edge[0], 'ro', markersize=5)
 
-			fig.colorbar(im1, ax=ax1, label='Difference')
-			ax1.set_xlabel('Query Descriptor Index')
-			ax1.set_ylabel('Database Descriptor Index')
-			ax1.set_title("Difference Matrix [Before RANSAC]")
+				fig.colorbar(im1, ax=ax1, label='Difference')
+				ax1.set_xlabel('Query Descriptor Index')
+				ax1.set_ylabel('Database Descriptor Index')
+				ax1.set_title("Difference Matrix [Before RANSAC]")
 
-			im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-			for edge in best_indices:
-				db_node = final_map.get_node(edge[0])
-				query_node = cur_submap.get_node(edge[1])
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-				)
-				if dis_tsl < 10.0:
-					ax2.plot(edge[1], edge[0], 'go', markersize=5)
-					print(f"Correct Prediction: DB {edge[0]} - Query {edge[1]}")
-				else:
-					ax2.plot(edge[1], edge[0], 'ro', markersize=5)
-					print(f"Wrong Prediction: DB {edge[0]} - Query {edge[1]}")
+				im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+				for edge in best_indices:
+					db_node = final_map.get_node(edge[0])
+					query_node = cur_submap.get_node(edge[1])
+					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+						query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+					)
+					if dis_tsl < 10.0:
+						ax2.plot(edge[1], edge[0], 'go', markersize=5)
+					else:
+						ax2.plot(edge[1], edge[0], 'ro', markersize=5)
 
-			for line_coeff in lines_coeff:
-				m, b = line_coeff
-				x_vals = np.linspace(0, D_all.shape[1], 100)
-				y_vals = m * x_vals + b
-				ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
+				for line_coeff in lines_coeff:
+					m, b = line_coeff
+					x_vals = np.linspace(0, D_all.shape[1], 100)
+					y_vals = m * x_vals + b
+					ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
 
-			fig.colorbar(im2, ax=ax2, label='Difference')
-			ax2.set_xlabel('Query Descriptor Index')
-			ax2.set_ylabel('Database Descriptor Index')
-			ax2.set_title(f"Difference Matrix [After RANSAC] Precision: {precision:.3f} - {tp}/{tp+fp}")
-			ax2.set_xlim(0, D_all.shape[1])
-			ax2.set_ylim(0, D_all.shape[0])
-			ax2.invert_yaxis()
+				fig.colorbar(im2, ax=ax2, label='Difference')
+				ax2.set_xlabel('Query Descriptor Index')
+				ax2.set_ylabel('Database Descriptor Index')
+				ax2.set_title(f"Difference Matrix [After RANSAC] Precision: {precision:.3f} - {tp}/{tp+fp}")
+				ax2.set_xlim(0, D_all.shape[1])
+				ax2.set_ylim(0, D_all.shape[0])
+				ax2.invert_yaxis()
 
-			im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-			scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
-			fig.colorbar(scatter, ax=ax3, label='Cluster Label')
-			ax3.set_xlabel('Query Descriptor Index')
-			ax3.set_ylabel('Database Descriptor Index')
-			ax3.set_title(f"Dot Cluster")
-			ax3.set_xlim(0, D_all.shape[1])
-			ax3.set_ylim(0, D_all.shape[0])
-			ax3.invert_yaxis()
+				im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+				scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
+				fig.colorbar(scatter, ax=ax3, label='Cluster Label')
+				ax3.set_xlabel('Query Descriptor Index')
+				ax3.set_ylabel('Database Descriptor Index')
+				ax3.set_title(f"Dot Cluster")
+				ax3.set_xlim(0, D_all.shape[1])
+				ax3.set_ylim(0, D_all.shape[0])
+				ax3.invert_yaxis()
 
-			plt.savefig(f"{merger.log_dir}/preds/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
-			plt.close()
+				plt.savefig(f"{merger.log_dir}/preds/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
+				plt.close()
 			################################################
-
 			# exit()
-			##############################
+			################################################
 
 			##### Perform Fine Localization #####
 			est_opts = {
@@ -311,10 +319,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 			edges_nodeA_to_nodeB_refine = [] # [(db_node, query_node, T_A2B)]
 			for edge_nodeA_to_nodeB in edges_nodeA_to_nodeB_coarse:
 				nodeA, nodeB = edge_nodeA_to_nodeB[0], edge_nodeA_to_nodeB[1]
-				# Skip if the nodeA has no edges, which means it cannot recover the metric pose
 				if len(nodeA.edges) == 0: continue 
 				try:
-					# Generate paths of images and intrinsics					
+					# Generate paths of images and intrinsics
 					nodeA_list = [nodeA, nodeA.edges[0][0]]
 					list_img0_name = [f"{final_map.map_root.split('/')[-1]}/{node.rgb_img_name}" for node in nodeA_list]
 					img1_name = f"{cur_submap.map_root.split('/')[-1]}/{nodeB.rgb_img_name}"
@@ -324,21 +331,34 @@ def perform_submap_merging(merger: MergePipeline, args):
 					img1_intr = {'K': torch.from_numpy(nodeB.raw_K), 'im_size': torch.from_numpy(nodeB.raw_img_size)}
 					scene_root = pathlib.Path(final_map.map_root + '/../')
 
-					# TODO(gogojjh): Perform Geomtric Verification
+					# Perform Geomtric Verification
+					timer_gv = Timer(name="Geometric Verification", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms")
+					timer_gv.start()
+					result = merger.pose_estimator.get_matched_kpts(scene_root, nodeA_list[0].rgb_image, nodeB.rgb_image)
+					num_inlier0 = result['num_inliers']
+					print(Fore.GREEN + f"DB {nodeA_list[0].id} - Query {nodeB.id} - Number of matched kpts: {num_inlier0}")
+					result = merger.pose_estimator.get_matched_kpts(scene_root, nodeA_list[1].rgb_image, nodeB.rgb_image)
+					num_inlier1 = result['num_inliers']
+					print(Fore.GREEN + f"DB {nodeA_list[1].id} - Query {nodeB.id} - Number of matched kpts: {num_inlier1}")
+					timer_gv.stop()
+					max_num_inliers = max(num_inlier0, num_inlier1)
+					if max_num_inliers < REFINE_GV_SCORE_THRESHOLD: continue
+
 					# Perform pose estimation
-					start_time = time.time()
+					timer_pe = Timer(name="Pose Estimation", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms")
+					timer_pe.start()
 					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
-					edge_scores = merger.pose_estimator.get_edge_score(option='mean')
+					edge_scores = merger.pose_estimator.get_similarity(option='mean')
 					max_edge_score_nodeA_nodeA_next = max(edge_scores['0_1'], edge_scores['1_0'])
 					max_edge_score_nodeA_nodeB = max((value for key, value in edge_scores.items() if '2' in key), default=0)
 					T_nodeA_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
 					T_query_est = result['im_pose']
 					T_rel_est = np.linalg.inv(T_nodeA_est) @ T_query_est
+					timer_pe.stop()
 
 					##############################
 					##### DEBUG(gogojjh):
 					query_result_info[nodeB.id, 1] = max_edge_score_nodeA_nodeB
-					print(f"Processing time: {time.time() - start_time:.2f}s")
 					print(edge_scores)
 					print(Fore.GREEN + f"Max score for query: {max_edge_score_nodeA_nodeB:.3f}")
 					T_nodeA_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
@@ -352,11 +372,16 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(Fore.GREEN + f"Target: {img1_name}")
 					##############################
 
+					# edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
+					# print(Fore.RED + f"Good Refinement")
+					# query_result_info[nodeB.id, 2] = 1.0
+
+					# NOTE(gogojjh): not use edge score to determine good refinement
 					if max_edge_score_nodeA_nodeB > REFINE_EDGE_SCORE_THRESHOLD:
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
 						print(Fore.RED + f"Good Refinement")
 						query_result_info[nodeB.id, 2] = 1.0
-						# merger.pose_estimator.show_reconstruction()
+							# merger.pose_estimator.show_reconstruction()
 					# input()
 				except Exception as e:
 					print(f"Error in pose estimation: {e}")

@@ -37,6 +37,7 @@ class PlaceRecognitionSeqMatching:
 	def initialize_model(self, db_descriptors, recall_values=5):
 		self.db_descriptors = db_descriptors
 		self.recall_values = recall_values
+		
 	def match(self, query_descriptors, backward=False):
 		"""
 			Return:
@@ -129,7 +130,8 @@ class PlaceRecognitionSeqMatching:
 				if score < self.DIFF_MATRIX_SCORE:
 					m, b = line_coeff
 					print(f"Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
-					best_indices = best_indices + [(cur_data[ind, 1], cur_data[ind, 0]) for ind in best_inliers_ind]
+					best_indices = best_indices + \
+								   [(cur_data[ind, 1], cur_data[ind, 0], score) for ind in best_inliers_ind]
 					lines_coeff.append(line_coeff)
 		
 		return best_indices, lines_coeff, data, labels
@@ -237,7 +239,6 @@ if __name__ == "__main__":
 	from image_graph import ImageGraphLoader as GraphLoader
 	import pycpptools.src.python.utils_math as pytool_math
 	from tqdm import tqdm
-	from vpr_single_matching import PlaceRecognitionSingleMatching
 	import time
 
 	# Parse arguments
