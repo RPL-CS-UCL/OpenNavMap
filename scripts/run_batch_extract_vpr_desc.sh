@@ -2,10 +2,10 @@
 
 # Define path and number of submaps
 PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000"
-NUM_SUBMAP=17
+NUM_SUBMAP=55
 
 # Loop over each submap index
-for ((i=16; i<$NUM_SUBMAP; i++ ))
+for ((i=0; i<$NUM_SUBMAP; i++ ))
 do
     echo "Processing submap index: $i"
 

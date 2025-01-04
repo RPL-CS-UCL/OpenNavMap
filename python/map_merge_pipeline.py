@@ -372,14 +372,10 @@ def perform_submap_merging(merger: MergePipeline, args):
 					print(Fore.GREEN + f"Target: {img1_name}")
 					##############################
 
-					# edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
-					# print(Fore.RED + f"Good Refinement")
-					# query_result_info[nodeB.id, 2] = 1.0
-
 					# NOTE(gogojjh): not use edge score to determine good refinement
 					if max_edge_score_nodeA_nodeB > REFINE_EDGE_SCORE_THRESHOLD:
 						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
-						print(Fore.RED + f"Good Refinement")
+						print(Fore.RED + f"Good Refinement (visual similarity > threshold)")
 						query_result_info[nodeB.id, 2] = 1.0
 							# merger.pose_estimator.show_reconstruction()
 					# input()

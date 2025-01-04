@@ -126,7 +126,7 @@ class PlaceRecognitionSeqMatching:
 					line_coeff = (m, b)
 
 			if line_coeff is not None:
-				score = np.sum(D_all[cur_data[best_inliers_ind, 1], cur_data[best_inliers_ind, 0]]) / len(best_inliers_ind)
+				score = np.mean(D_all[cur_data[best_inliers_ind, 1], cur_data[best_inliers_ind, 0]])
 				if score < self.DIFF_MATRIX_SCORE:
 					m, b = line_coeff
 					print(f"Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
