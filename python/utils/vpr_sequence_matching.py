@@ -8,37 +8,43 @@ import argparse
 import numpy as np
 import random
 from sklearn.mixture import GaussianMixture
+from sklearn.cluster import MeanShift, DBSCAN, AffinityPropagation
 from matplotlib import pyplot as plt
 
 import copy
 from evo.core.trajectory import PosePath3D
 from utils.utils_trajectory import align_trajectory
-
+import pycpptools.src.python.utils_math as pytool_math
 
 class PlaceRecognitionSeqMatching:
 	def __init__(self):
 		self.wContrast = 10
 		self.enhance = False  # False for learning-based VPR methods
 
-		self.seqLen = 20      # Length for the sequence matching
-		self.vMin = 0.4        
+		# NOTE(gogojjh): 
+		# seqLen = 20 is robust, but may reject sequences with litter overlap
+		# seqLen = 12 is acceptable
+		self.seqLen = 12      # Length for the sequence matching
+		self.vMin = 0.5        
 		self.vMax = 2.0       # vMax * seqLen. <= db_descriptors.shape[0] - 1
 		self.numVel = 20      # Number of velocities to enumerate
 
 		self.matchWindow = 20 # window size for selecting the best score < number of template
 
-		self.N_CLUSTER = 4
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
-		self.RANSAC_LINE_MIN_ANGLE = 30.0
-		self.RANSAC_LINE_MAX_ANGLE = 70.0
-		self.DIFF_MATRIX_SCORE = 1.20
+		self.RANSAC_LINE_MIN_ANGLE = np.rad2deg(np.arctan2(0.55, 1)) # 26deg velocity of database is 0.5 times of query
+		self.RANSAC_LINE_MAX_ANGLE = np.rad2deg(np.arctan2(3, 1)) # 71deg velocity of database is 3 times of query
+		# NOTE(gogojjh):
+		# DIFF_MATRIX_SCORE = 1.20 is not a strict threshold
+		# DIFF_MATRIX_SCORE = 1.05 is a strict threshold
+		self.DIFF_MATRIX_SCORE = 1.2
 
 	def initialize_model(self, db_descriptors, recall_values=5):
 		self.db_descriptors = db_descriptors
 		self.recall_values = recall_values
 		
-	def match(self, query_descriptors, backward=False):
+	def match(self, query_descriptors, prev_pred, backward=False):
 		"""
 			Return:
 				recall_preds: list of int, top recall values
@@ -56,12 +62,27 @@ class PlaceRecognitionSeqMatching:
 
 		D = self._compute_diff_matrix(query_descriptors)
 		if self.enhance: D = self._enhance_contrast(D)
-		# N: number of database descriptors
-		# L: number of query descriptors with sequence length
-		self.N, self.L = D.shape
 
-		template_scores, template_velocities = self._score_ref_templates(D)
-		recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
+		# Use the last prediction to shorten the search range		
+		if prev_pred > 0:
+			top_row_idx = max(0, prev_pred - int(self.seqLen * 2))
+			bottom_row_idx = min(D.shape[0], prev_pred + int(self.seqLen * 2))
+			D_cut = D[top_row_idx:bottom_row_idx, :]
+
+			# N: number of database descriptors
+			# L: number of query descriptors with sequence length
+			self.N, self.L = D_cut.shape
+			template_scores, template_velocities = self._score_ref_templates(D_cut)
+			recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
+
+			pred += top_row_idx
+			recall_preds = [p + top_row_idx for p in recall_preds]
+
+			# If the new match is not consistent with previous, search the whole difference matrix
+			if abs(pred - prev_pred) > self.seqLen:
+				self.N, self.L = D.shape
+				template_scores, template_velocities = self._score_ref_templates(D)
+				recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
 
 		return recall_preds, pred, score
 
@@ -86,14 +107,23 @@ class PlaceRecognitionSeqMatching:
 		y_db_indices = [edge[0] for edge in connected_indices]
 		data = np.column_stack((x_query_indices, y_db_indices))
 
-		num_cluster = min(self.N_CLUSTER, int(len(x_query_indices) / self.seqLen))
-		data_cluster = GaussianMixture(n_components=num_cluster, random_state=42)		
-		labels = data_cluster.fit_predict(data)		
+		# num_cluster = max(2, int(D_all.shape[0] / 200))
+		# num_cluster = 1
+		# data_cluster = GaussianMixture(n_components=num_cluster, random_state=42)		
+		# labels = data_cluster.fit_predict(data)		
+
+		# data_cluster = MeanShift()
+		# data_cluster = DBSCAN(min_samples=2, eps=0.1)
+		data_cluster = AffinityPropagation()
+		labels = data_cluster.fit_predict(data)
+
 		data = np.array(data)
 		labels = np.array(labels)
+		num_clusters = np.max(labels) + 1
+		print(f"Number of clusters: {num_clusters}")
 		
 		# Perform RANSAC-based line fitting
-		for l in range(num_cluster):
+		for l in range(num_clusters):
 			cur_data = data[labels == l, :]
 			best_inliers_error = 10000
 			best_inliers_ind = []
@@ -169,6 +199,11 @@ class PlaceRecognitionSeqMatching:
 		return Denhanced
 
 	def _score_ref_templates(self, D):
+		# Add rows on D for exceeding
+		rows_to_add = int(self.seqLen * self.vMax)
+		add_matrix = np.full((rows_to_add, D.shape[1]), 10)
+		D_aug = np.vstack((D, add_matrix))
+
 		# v = vMin, vMin+vStep, ..., vMax
 		velocities = np.linspace(self.vMin, self.vMax, self.numVel + 1)
 		# t = 0, ..., L
@@ -189,12 +224,12 @@ class PlaceRecognitionSeqMatching:
 				.astype(int)
 			) # a vector with dimension as max_ind x L
 			# remove indices outside of D.shape[0]
-			row_indices[row_indices >= self.N] = self.N - 1
+			# row_indices[row_indices >= self.N] = self.N - 1
 			row_indices = row_indices.reshape(-1)
 			# line search indices for the query sequence
 			col_indices = np.tile(times, max_ind)
 			# evaluate D at indices and sum to get aggregate difference
-			Dsum = np.sum(D[row_indices, col_indices].reshape(max_ind, self.L), axis=1)
+			Dsum = np.sum(D_aug[row_indices, col_indices].reshape(max_ind, self.L), axis=1)
 			# for sequence matching scores better than
 			# prior scores (under different velocities), update
 			ind_better = Dsum < optD
@@ -231,13 +266,72 @@ class PlaceRecognitionSeqMatching:
 
 		return recall_preds, pred, mu
 
+	def save_diff_matrix_fitting(self, out_dir, connected_indices, best_indices, 
+								 D_all, db_map, query_map, lines_coeff, cluster_data, cluster_labels):
+		fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
+
+		im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+		for edge in connected_indices:
+			db_node = db_map.get_node(edge[0])
+			query_node = query_map.get_node(edge[1])
+			dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+			)
+			if dis_tsl < 20.0:
+				ax1.plot(edge[1], edge[0], 'go', markersize=5)
+			else:
+				ax1.plot(edge[1], edge[0], 'ro', markersize=5)
+
+		fig.colorbar(im1, ax=ax1)
+		ax1.set_xlabel('Query Desc Index')
+		ax1.set_ylabel('Database Desc Index')
+		ax1.set_title("Diff Matrix [Before RANSAC]")
+
+		im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+		for edge in best_indices:
+			db_node = db_map.get_node(edge[0])
+			query_node = query_map.get_node(edge[1])
+			dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+			)
+			if dis_tsl < 20.0:
+				ax2.plot(edge[1], edge[0], 'go', markersize=5)
+			else:
+				ax2.plot(edge[1], edge[0], 'ro', markersize=5)
+
+		for line_coeff in lines_coeff:
+			m, b = line_coeff
+			x_vals = np.linspace(0, D_all.shape[1], 100)
+			y_vals = m * x_vals + b
+			ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
+
+		fig.colorbar(im2, ax=ax2)
+		ax2.set_xlabel('Query Desc Index')
+		ax2.set_ylabel('Database Desc Index')
+		ax2.set_title(f"Diff Matrix [After RANSAC]")
+		ax2.set_xlim(0, D_all.shape[1])
+		ax2.set_ylim(0, D_all.shape[0])
+		ax2.invert_yaxis()
+
+		im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+		scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
+		fig.colorbar(scatter, ax=ax3)
+		ax3.set_xlabel('Query Desc Index')
+		ax3.set_ylabel('Database Desc Index')
+		ax3.set_title(f"Cluster")
+		ax3.set_xlim(0, D_all.shape[1])
+		ax3.set_ylim(0, D_all.shape[0])
+		ax3.invert_yaxis()
+
+		plt.savefig(f"{out_dir}/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
+		plt.close()
+
 if __name__ == "__main__":
 	import os
 	import sys
 	sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 	import argparse
 	from image_graph import ImageGraphLoader as GraphLoader
-	import pycpptools.src.python.utils_math as pytool_math
 	from tqdm import tqdm
 	import time
 
@@ -284,15 +378,20 @@ if __name__ == "__main__":
 	# Perform sequence matching
 	connected_indices = []
 	start_time = time.time()
+	prev_pred = -1
 	for node in tqdm(query_map.nodes.values()):
 		query_descs = query_descriptors[max(0, node.id-model.seqLen+1) : node.id+1]
-		recall_preds, pred, score = model.match(query_descs, backward=False)
+		recall_preds, pred, score = model.match(query_descs, prev_pred, backward=False)
 		connected_indices.append((pred, node.id, score))
+		prev_pred = pred
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
 	################################################
 	D_all = model._compute_diff_matrix(query_descriptors)
-	best_indices, lines_coeff, cluster_data, cluster_labels = model.ransac_check_match(D_all, connected_indices)
+	init_indices = connected_indices[:model.seqLen]
+	best_indices, lines_coeff, cluster_data, cluster_labels = model.ransac_check_match(D_all, connected_indices[int(model.seqLen/2):])
+	best_indices += init_indices
+	best_indices = list(dict.fromkeys(best_indices))
 
 	################################################ 
 	tp, tn, fp, fn = 0, 0, 0, 0
@@ -335,67 +434,11 @@ if __name__ == "__main__":
 	################################################
 
 	################################################
-	fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
-
-	#########
-	im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-	for edge in connected_indices:
-		db_node = db_map.get_node(edge[0])
-		query_node = query_map.get_node(edge[1])
-		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-			query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-		)
-		if dis_tsl < 20.0:
-			ax1.plot(edge[1], edge[0], 'go', markersize=5)
-		else:
-			ax1.plot(edge[1], edge[0], 'ro', markersize=5)
-
-	fig.colorbar(im1, ax=ax1, label='Difference')
-	ax1.set_xlabel('Query Descriptor Index')
-	ax1.set_ylabel('Database Descriptor Index')
-	ax1.set_title("Difference Matrix [Before RANSAC]")
-
-	#########
-	im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-	for edge in best_indices:
-		db_node = db_map.get_node(edge[0])
-		query_node = query_map.get_node(edge[1])
-		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-			query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-		)
-		if dis_tsl < 20.0:
-			ax2.plot(edge[1], edge[0], 'go', markersize=5)
-			print(f"Correct Prediction: DB {edge[0]} - Query {edge[1]}")
-		else:
-			ax2.plot(edge[1], edge[0], 'ro', markersize=5)
-			print(f"Wrong Prediction: DB {edge[0]} - Query {edge[1]}")
-
-	for line_coeff in lines_coeff:
-		m, b = line_coeff
-		x_vals = np.linspace(0, D_all.shape[1], 100)
-		y_vals = m * x_vals + b
-		ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
-
-	fig.colorbar(im2, ax=ax2, label='Difference')
-	ax2.set_xlabel('Query Descriptor Index')
-	ax2.set_ylabel('Database Descriptor Index')
-	ax2.set_title(f"Difference Matrix [After RANSAC] Precision: {precision:.3f} - {tp}/{tp+fp}")
-	ax2.set_xlim(0, D_all.shape[1])
-	ax2.set_ylim(0, D_all.shape[0])
-	ax2.invert_yaxis()
-
-	#########
-	im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-	scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
-	fig.colorbar(scatter, ax=ax3, label='Cluster Label')
-	ax3.set_xlabel('Query Descriptor Index')
-	ax3.set_ylabel('Database Descriptor Index')
-	ax3.set_title(f"Dot Cluster")
-	ax3.set_xlim(0, D_all.shape[1])
-	ax3.set_ylim(0, D_all.shape[0])
-	ax3.invert_yaxis()
-	plt.savefig(f"{args.query_map_path}/preds/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
-	plt.close()
+	model.save_diff_matrix_fitting(\
+		f"{args.query_map_path}/preds", 
+		connected_indices, best_indices, 
+		D_all, db_map, query_map, 
+		lines_coeff, cluster_data, cluster_labels)
 	################################################
 
 	################################################

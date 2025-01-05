@@ -208,6 +208,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				_, pred, score = merger.vpr_match_model.match(query_descs, backward=False)
 				connected_indices.append((pred, query_node.id, score))
 				query_result_info[query_node.id, 0] = score
+			
 			D_all = merger.vpr_match_model._compute_diff_matrix(query_descriptors)
 			best_indices, lines_coeff, cluster_data, cluster_labels = \
 				merger.vpr_match_model.ransac_check_match(D_all, connected_indices)
@@ -238,74 +239,33 @@ def perform_submap_merging(merger: MergePipeline, args):
 			else:
 				precision = tp / (tp+fp)
 			print(f"Precision: {precision:.3f} - {tp}/{tp+fp}")
-			# save_vis_vpr(merger.log_dir, final_map, cur_submap, cur_submap_id, np.array(preds), suffix=f'{args.vpr_match_model}_coarse')
+			# save_vis_vpr(
+			# 	f"{merger.log_dir}/preds", 
+			# 	final_map, 
+			# 	cur_submap, 
+			# 	cur_submap_id, 
+			# 	np.array(preds), 
+			# 	suffix=f'{args.vpr_match_model}_coarse'
+			# )
 			save_vis_pose_graph(
-				merger.log_dir, 
+				f"{merger.log_dir}/preds",
 				final_map, 
 				cur_submap, 
 				cur_submap_id, 
 				edges_nodeA_to_nodeB_coarse, 
 				suffix=f'{args.vpr_match_model}_coarse'
 			)
-
-			if True:
-				fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
-
-				im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-				for edge in connected_indices:
-					db_node = final_map.get_node(edge[0])
-					query_node = cur_submap.get_node(edge[1])
-					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-						query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-					)
-					if dis_tsl < 20.0:
-						ax1.plot(edge[1], edge[0], 'go', markersize=5)
-					else:
-						ax1.plot(edge[1], edge[0], 'ro', markersize=5)
-
-				fig.colorbar(im1, ax=ax1, label='Difference')
-				ax1.set_xlabel('Query Descriptor Index')
-				ax1.set_ylabel('Database Descriptor Index')
-				ax1.set_title("Difference Matrix [Before RANSAC]")
-
-				im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-				for edge in best_indices:
-					db_node = final_map.get_node(edge[0])
-					query_node = cur_submap.get_node(edge[1])
-					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-						query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-					)
-					if dis_tsl < 10.0:
-						ax2.plot(edge[1], edge[0], 'go', markersize=5)
-					else:
-						ax2.plot(edge[1], edge[0], 'ro', markersize=5)
-
-				for line_coeff in lines_coeff:
-					m, b = line_coeff
-					x_vals = np.linspace(0, D_all.shape[1], 100)
-					y_vals = m * x_vals + b
-					ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
-
-				fig.colorbar(im2, ax=ax2, label='Difference')
-				ax2.set_xlabel('Query Descriptor Index')
-				ax2.set_ylabel('Database Descriptor Index')
-				ax2.set_title(f"Difference Matrix [After RANSAC] Precision: {precision:.3f} - {tp}/{tp+fp}")
-				ax2.set_xlim(0, D_all.shape[1])
-				ax2.set_ylim(0, D_all.shape[0])
-				ax2.invert_yaxis()
-
-				im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-				scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
-				fig.colorbar(scatter, ax=ax3, label='Cluster Label')
-				ax3.set_xlabel('Query Descriptor Index')
-				ax3.set_ylabel('Database Descriptor Index')
-				ax3.set_title(f"Dot Cluster")
-				ax3.set_xlim(0, D_all.shape[1])
-				ax3.set_ylim(0, D_all.shape[0])
-				ax3.invert_yaxis()
-
-				plt.savefig(f"{merger.log_dir}/preds/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
-				plt.close()
+			merger.vpr_match_model.save_diff_matrix_fitting(
+				f"{merger.log_dir}/preds", 
+				connected_indices, 
+				best_indices,
+				D_all, 
+				final_map, 
+				cur_submap, 
+				lines_coeff, 
+				cluster_data, 
+				cluster_labels
+			)
 			################################################
 			# exit()
 			################################################

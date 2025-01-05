@@ -38,6 +38,7 @@ start_indice=0
 length_segment=300
 
 for session in "${sessions[@]}"; do
+  echo "Processing Sessions: $session"
   python /Titan/code/robohike_ws/src/pycpptools/pycpptools/src/python/utils_dataset/map_multisession/gendataset_from_files.py \
     --in_dir "/Rocket_ssd/dataset/data_litevloc/raw_vrs/ucl_campus/out_general_${session}" \
     --out_dir "/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus" \
