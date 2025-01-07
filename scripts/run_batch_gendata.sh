@@ -44,5 +44,6 @@ for session in "${sessions[@]}"; do
     --out_dir "/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus" \
     --scene_id $scene_id \
     --start_indice $start_indice \
-    --split_length $length_segment
+    --split_length $length_segment \
+    --kf_time_interval 3.0
 done
