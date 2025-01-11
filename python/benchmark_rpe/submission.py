@@ -209,8 +209,18 @@ if __name__ == "__main__":
         default="test",
         help="Dataset split to use for evaluation. Choose from test or val. Default: test",
     )
-    parser.add_argument('--top_k', type=int, default=2, help='Number of randomly selected reference images for localization')
-    parser.add_argument('--n_query', type=int, default=1, help='Number of query images for localization')
+    parser.add_argument(
+        '--top_k', 
+        type=int, 
+        default=2, 
+        help='Number of randomly selected reference images for localization'
+    )
+    parser.add_argument(
+        '--n_query', 
+        type=int, 
+        default=1, 
+        help='Number of query images for localization'
+    )
     args = parser.parse_args()
     if args.models == "all":
         args.models = available_models

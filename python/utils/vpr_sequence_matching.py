@@ -17,19 +17,21 @@ from utils.utils_trajectory import align_trajectory
 import pycpptools.src.python.utils_math as pytool_math
 
 class PlaceRecognitionSeqMatching:
-	def __init__(self):
+	def __init__(self, seqLen=12):
 		self.wContrast = 10
 		self.enhance = False  # False for learning-based VPR methods
 
 		# NOTE(gogojjh): 
 		# seqLen = 20 is robust, but may reject sequences with litter overlap
 		# seqLen = 12 is acceptable
-		self.seqLen = 12      # Length for the sequence matching
+		self.seqLen = seqLen   # Length for the sequence matching
 		self.vMin = 0.5        
 		self.vMax = 2.0       # vMax * seqLen. <= db_descriptors.shape[0] - 1
 		self.numVel = 20      # Number of velocities to enumerate
 
 		self.matchWindow = 20 # window size for selecting the best score < number of template
+
+		self.prev_pred = -1
 
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
@@ -44,7 +46,7 @@ class PlaceRecognitionSeqMatching:
 		self.db_descriptors = db_descriptors
 		self.recall_values = recall_values
 		
-	def match(self, query_descriptors, prev_pred, backward=False):
+	def match(self, query_descriptors, backward=False):
 		"""
 			Return:
 				recall_preds: list of int, top recall values
@@ -58,15 +60,16 @@ class PlaceRecognitionSeqMatching:
 			recall_preds = np.argsort(dists)[:self.recall_values]
 			pred = recall_preds[0]
 			score = dists[pred]
+			self.prev_pred = pred
 			return recall_preds, pred, score
 
 		D = self._compute_diff_matrix(query_descriptors)
 		if self.enhance: D = self._enhance_contrast(D)
 
 		# Use the last prediction to shorten the search range		
-		if prev_pred > 0:
-			top_row_idx = max(0, prev_pred - int(self.seqLen * 2))
-			bottom_row_idx = min(D.shape[0], prev_pred + int(self.seqLen * 2))
+		if self.prev_pred >= 0:
+			top_row_idx = max(0, self.prev_pred - int(self.seqLen * 2))
+			bottom_row_idx = min(D.shape[0], self.prev_pred + int(self.seqLen * 2))
 			D_cut = D[top_row_idx:bottom_row_idx, :]
 
 			# N: number of database descriptors
@@ -79,11 +82,13 @@ class PlaceRecognitionSeqMatching:
 			recall_preds = [p + top_row_idx for p in recall_preds]
 
 			# If the new match is not consistent with previous, search the whole difference matrix
-			if abs(pred - prev_pred) > self.seqLen:
+			if abs(pred - self.prev_pred) > self.seqLen:
 				self.N, self.L = D.shape
 				template_scores, template_velocities = self._score_ref_templates(D)
 				recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
 
+			self.prev_pred = pred
+		
 		return recall_preds, pred, score
 
 	def ransac_check_match(self, D_all: np.array, connected_indices: list):
@@ -378,12 +383,10 @@ if __name__ == "__main__":
 	# Perform sequence matching
 	connected_indices = []
 	start_time = time.time()
-	prev_pred = -1
 	for node in tqdm(query_map.nodes.values()):
 		query_descs = query_descriptors[max(0, node.id-model.seqLen+1) : node.id+1]
-		recall_preds, pred, score = model.match(query_descs, prev_pred, backward=False)
+		recall_preds, pred, score = model.match(query_descs, backward=False)
 		connected_indices.append((pred, node.id, score))
-		prev_pred = pred
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
 	################################################
