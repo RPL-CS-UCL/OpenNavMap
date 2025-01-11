@@ -82,25 +82,28 @@ def predict(test_ds, vpr_model, match_model, args):
         est_time = time.time() - start_time
         running_time.append(est_time)
         
-        results_dict[queries_image_names[query_idx]] = [database_image_names[i] for i in recall_preds]
+        results_dict[queries_image_names[query_idx]] =  [database_image_names[i] for i in recall_preds]
+        results_dict[queries_image_names[query_idx]] += [score]
 
     avg_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
     return results_dict, avg_runtime
 
 def save_submission(results_dict: dict, output_path: Path):
-    results = np.empty((0, 2), dtype=object)
+    results = np.empty((0, 3), dtype=object)
     for query_image_name, database_image_names in results_dict.items():
-        vec = np.empty((1, 2), dtype=object)
-        vec[0, 0], vec[0, 1] = query_image_name, database_image_names[0]
+        vec = np.empty((1, 3), dtype=object)
+        vec[0, 0], vec[0, 1], vec[0, 2] = \
+            query_image_name, database_image_names[0], database_image_names[-1]
         results = np.vstack((results, vec))
         
-    np.savetxt(output_path, results, fmt='%s %s')
+    np.savetxt(output_path, results, fmt='%s %s %f')
 
 def save_predictions(results_dict: dict, test_ds, log_dir):
     """Save visualizations of predictions."""    
     for query_idx, (query_image_name, database_image_names) in enumerate(results_dict.items()):
         query_path = [os.path.join(test_ds.queries_folder, query_image_name)]
-        database_paths = [os.path.join(test_ds.database_folder, name) for name in database_image_names]
+        database_paths = [os.path.join(test_ds.database_folder, name) 
+                          for name in database_image_names[:-2]]
         image_paths = query_path + database_paths
         save_visualization(log_dir, query_idx, image_paths, [1] * len(image_paths))
 
@@ -130,9 +133,9 @@ def eval(args):
         # Save predictions to txt per scene
         log_dir = Path(output_root / f"{args.method}_{args.match_model}")
         log_dir.mkdir(parents=True, exist_ok=True)
-        database_name = args.database_folder.split('out_map_')[-1]
         query_name = args.queries_folder.split('out_map_')[-1]
-        save_submission(results_dict, log_dir / f"submission_{database_name}_{query_name}.txt")
+        database_name = args.database_folder.split('out_map_')[-1]
+        save_submission(results_dict, log_dir / f"submission-{query_name}-{database_name}.txt")
         if args.debug:
             Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
             save_predictions(results_dict, test_ds, log_dir)
