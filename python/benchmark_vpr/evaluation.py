@@ -1,3 +1,11 @@
+"""
+Usage: python python/benchmark_vpr/evaluation.py \
+--result_dir /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00000/results_vpr/cosplace_sequence_match \
+--dataset_path /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00000
+"""
+
+#! /usr/bin/env python
+
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))

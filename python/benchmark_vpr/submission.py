@@ -7,6 +7,8 @@ Usage: python demo_vpr.py \
 --num_preds_to_save 3 --log_dir anymal_ops_mos
 """
 
+#! /usr/bin/env python
+
 import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
