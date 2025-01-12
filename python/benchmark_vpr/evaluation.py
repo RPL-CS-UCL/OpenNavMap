@@ -19,24 +19,6 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 
 from utils.utils import *
 
-def calculate_recalls(predictions, test_ds, args):
-    """Calculate and log recall values."""
-    if args.use_labels:
-        positives_per_query = test_ds.get_positives()
-        recalls = np.zeros(len(args.recall_values))
-        for query_index, preds in enumerate(predictions):
-            for i, n in enumerate(args.recall_values):
-                if np.any(np.in1d(preds[:n], positives_per_query[query_index])):
-                    recalls[i:] += 1
-                    break
-
-        # Divide by num_queries and multiply by 100, so the recalls are in percentages
-        recalls = recalls / test_ds.num_queries * 100
-        recalls_str = ", ".join(
-            [f"R@{val}: {rec:.1f}" for val, rec in zip(args.recall_values, recalls)]
-        )
-        logging.info(recalls_str)
-
 def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr, 
                         tsl_thre, ang_thre):
     poses_query = read_poses(
@@ -64,11 +46,14 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
             if flag_same_place:
                 y_true.append(1)
                 break
+        
+        # no place is added
         if indice == len(y_true):
             y_true.append(0)
 
     y_true = np.array(y_true)
     confidence_scores = np.array(confidence_scores)
+    print(y_true)
 
     # Compute the precision and recall
     tp, fp = 0, 0

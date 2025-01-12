@@ -33,7 +33,9 @@ def extract_descriptors(model, test_ds, args):
     """Extract and return all descriptors from the test dataset."""
     with torch.inference_mode():
         # Extract database descriptors
-        logging.debug("Extracting database descriptors for evaluation/testing")
+        logging.debug(
+            "Extracting database descriptors for evaluation/testing"
+        )
         database_subset_ds = Subset(test_ds, list(range(test_ds.num_database)))
         database_dataloader = DataLoader(
             dataset=database_subset_ds,
@@ -72,18 +74,18 @@ def predict(test_ds, vpr_model, match_model, args):
     queries_descriptors, database_descriptors = extract_descriptors(vpr_model, test_ds, args)
     queries_image_names = test_ds.queries_image_names
     database_image_names = test_ds.database_image_names
-    print("Number of database_descriptors: ", len(database_descriptors))
-    print("Number of queries_descriptors: ", len(queries_descriptors))
+    print("Shape of database_descriptors: ", database_descriptors.shape)
+    print("Shape of queries_descriptors: ", queries_descriptors.shape)
 
-    results_dict = defaultdict(list)
     running_time = []
+    results_dict = defaultdict(list)
     match_model.initialize_model(database_descriptors, recall_values=3)
     for query_idx, desc in enumerate(queries_descriptors):
         start_time = time.time()
         recall_preds, pred, score = match_model.match(desc.reshape(1, -1))
-        est_time = time.time() - start_time
-        running_time.append(est_time)
+        running_time.append(time.time() - start_time)
         
+        # pred0, pred1, ..., predN-1, score of pred0
         results_dict[queries_image_names[query_idx]] =  [database_image_names[i] for i in recall_preds]
         results_dict[queries_image_names[query_idx]] += [score]
 
