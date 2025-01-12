@@ -35,11 +35,11 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
         confidence_scores.append(score)
 
         pose_query = poses_query[query_name]
-        for k, pose_db in poses_database.items():
-            Tc2w = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
-            trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-            Tc2w = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
-            trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
+        for database_name, pose_db in poses_database.items():
+            Tc2w_query = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
+            trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w_query), 'xyzw')
+            Tc2w_db = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
+            trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w_db), 'xyzw')
             
             dis_trans, dis_angle = compute_relative_dis(trans_query, quat_query, trans_db, quat_db, 'xyzw')
             flag_same_place = (dis_trans < tsl_thre and dis_angle < ang_thre)
@@ -53,24 +53,28 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
 
     y_true = np.array(y_true)
     confidence_scores = np.array(confidence_scores)
-    print(y_true)
 
     # Compute the precision and recall
-    tp, fp = 0, 0
+    tp, fp, tn = 0, 0, 0
     for result in results_vpr:
-        query_name, database_name, score = result[0], result[1], result[2]
-        pose_query, pose_database = poses_query[query_name], poses_database[database_name]
+        query_name, database_name, score = result[0], result[1], float(result[2])
+        pose_query, pose_db = poses_query[query_name], poses_database[database_name]
 
-        Tc2w = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
-        trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-        Tc2w = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
-        trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-        
+        Tc2w_query = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
+        trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w_query), 'xyzw')
+        Tc2w_db = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
+        trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w_db), 'xyzw')
+
         dis_trans, dis_angle = compute_relative_dis(trans_query, quat_query, trans_db, quat_db, 'xyzw')
         flag_same_place = (dis_trans < tsl_thre and dis_angle < ang_thre)
-        if flag_same_place:
+        # Loop detection with high confidence
+        if flag_same_place and score > 1e-3:
             tp += 1
-        else:
+        # Loop detection but with zero confidence for rejection
+        if not flag_same_place and score < 1e-3:
+            tn += 1
+        # Wrong loop detection with high confidence
+        elif not flag_same_place:
             fp += 1
 
     output_metrics = dict()
