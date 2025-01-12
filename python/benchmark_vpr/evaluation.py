@@ -19,13 +19,13 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 
 from utils.utils import *
 
-def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr, 
+def compute_vpr_metrics(dataset_path, query_seq, database_seq, results_vpr, 
                         tsl_thre, ang_thre):
     poses_query = read_poses(
-        os.path.join(dataset_path, 'query', 'out_map_' + query_name, 'poses_abs_gt.txt')
+        os.path.join(dataset_path, 'query', 'out_map_' + query_seq, 'poses_abs_gt.txt')
     )
     poses_database = read_poses(
-        os.path.join(dataset_path, 'database', 'out_map_' + database_name, 'poses_abs_gt.txt')
+        os.path.join(dataset_path, 'database', 'out_map_' + database_seq, 'poses_abs_gt.txt')
     )
 
     # Compute the number of positive
@@ -53,6 +53,7 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
 
     y_true = np.array(y_true)
     confidence_scores = np.array(confidence_scores)
+    print(f"{query_seq}-{database_seq}: \n {y_true}")
 
     # Compute the precision and recall
     tp, fp, tn = 0, 0, 0
@@ -71,7 +72,7 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
         if flag_same_place and score > 1e-3:
             tp += 1
         # Loop detection but with zero confidence for rejection
-        if not flag_same_place and score < 1e-3:
+        if not flag_same_place and score <= 1e-3:
             tn += 1
         # Wrong loop detection with high confidence
         elif not flag_same_place:
@@ -102,14 +103,16 @@ def main(args):
     for f in os.listdir(args.result_dir):
         if 'submission-' in f:
             f_new = f.replace('.txt', '')
-            query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
+            query_seq, database_seq = f_new.split('-')[1], f_new.split('-')[2]
             results_vpr = np.loadtxt(os.path.join(args.result_dir, f), dtype=object)
             metrics, curves_data = compute_vpr_metrics(
-                args.dataset_path, query_name, database_name, results_vpr,
+                args.dataset_path, query_seq, database_seq, results_vpr,
                 args.tsl_thre, args.ang_thre
             )
-            # all_results[f"{query_name}-{database_name}"] = metrics
-            print(metrics)
+            all_results[f"{query_seq}-{database_seq}"] = metrics
+    
+    for k, v in all_results.items():
+        print(f"{k} - Precision: {v['Precision']:.3f}, Recall: {v['Recall']:.3f}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('eval', description='Evaluate submissions for the VPR dataset benchmark')
@@ -119,7 +122,7 @@ if __name__ == '__main__':
                         default='warning', help='Logging level. Default: warning')
     parser.add_argument('--dataset_path', type=Path, default=None,
                         help='Path to the dataset folder')
-    parser.add_argument('--tsl_thre', type=float, default=10.0, 
+    parser.add_argument('--tsl_thre', type=float, default=5.0, 
                         help='Threshold (meters) to consider two poses as the same place.')
     parser.add_argument('--ang_thre', type=float, default=75.0, 
                         help='Threshold (degree) to consider two poses as the same place.')
@@ -128,7 +131,3 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=args.log.upper())
     main(args)
-    # try:
-    #     main(args)
-    # except Exception:
-    #     logging.error("Unexpected behaviour. Exiting.")

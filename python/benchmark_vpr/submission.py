@@ -20,6 +20,7 @@ from torch.utils.data.dataset import Subset
 import parser
 from dataloader import TestDataset
 from utils.utils_vpr_method import *
+from utils.utils_image_matching_method import initialize_img_matcher
 
 def extract_descriptors(model, test_ds, args):
 	"""Extract and return all descriptors from the test dataset."""
@@ -62,11 +63,10 @@ def extract_descriptors(model, test_ds, args):
 	database_descriptors = all_descriptors[: test_ds.num_database]
 	return queries_descriptors, database_descriptors
 
-def predict(test_ds, vpr_model, match_model, args):
+def predict(test_ds, vpr_model, match_model, image_matcher_model, args):
 	queries_descriptors, database_descriptors = extract_descriptors(vpr_model, test_ds, args)
 	queries_image_names = test_ds.queries_image_names
 	database_image_names = test_ds.database_image_names
-
 	assert len(queries_descriptors) == len(queries_image_names)
 	print("Shape of database_descriptors: ", database_descriptors.shape)
 	print("Shape of queries_descriptors: ", queries_descriptors.shape)
@@ -74,9 +74,9 @@ def predict(test_ds, vpr_model, match_model, args):
 	match_model.initialize_model(database_descriptors, recall_values=3)
 
 	running_time = []
-	start_time = time.time()
-	
+
 	# Initial Sequence Matching
+	start_time = time.time()	
 	init_results_dict, init_db_query_indices = defaultdict(list), []
 	for query_indice in range(len(queries_descriptors)):
 		query_image_name = queries_image_names[query_indice]
@@ -85,23 +85,13 @@ def predict(test_ds, vpr_model, match_model, args):
 		init_results_dict[query_image_name] = (recall_preds, pred, score)
 		init_db_query_indices.append((pred, query_indice, score))
 
+	# RANSAC-based fitting for outlier rejection
 	if match_model.ENABLE_RANSAC:
 		D_all = match_model._compute_diff_matrix(queries_descriptors)
-
-		# DEBUG(gogojjh):
-		# best_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
-		# 	match_model.ransac_check_match(
-		# 		D_all, 
-		# 		init_db_query_indices[int(match_model.seqLen/2):]
-		# 	)
-		# best_db_query_indices = init_db_query_indices[:match_model.seqLen] + best_db_query_indices
-
 		best_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
-			match_model.ransac_check_match(
-				D_all, 
-				init_db_query_indices
-			)
-		
+			match_model.ransac_check_match(D_all, init_db_query_indices[match_model.seqLen:])
+		best_db_query_indices = init_db_query_indices[:match_model.seqLen] + best_db_query_indices
+
 		# Add reliable results after filtering and set high score
 		best_results_dict = defaultdict(list)
 		for db_query_indice in best_db_query_indices:
@@ -109,6 +99,7 @@ def predict(test_ds, vpr_model, match_model, args):
 			query_image_name = queries_image_names[db_query_indice[1]]
 			best_results_dict[query_image_name] =  [database_image_names[i] for i in init_results_dict[query_image_name][0]]
 			best_results_dict[query_image_name] += [1.0]
+			# print(f"Fitting score: {db_query_indice[2]:.3f}")
 		
 		# Add unreliable results after filtering and set low score
 		for k, v in init_results_dict.items():
@@ -116,7 +107,7 @@ def predict(test_ds, vpr_model, match_model, args):
 				best_results_dict[k] =  [database_image_names[i] for i in v[0]]
 				best_results_dict[k] += [0.0]
 
-		avg_runtime = (time.time() - start_time) / len(queries_descriptors)
+		avg_vpr_time = (time.time() - start_time) / len(queries_descriptors)
 		
 		match_model.save_diff_matrix_fitting(\
 			f"{args.out_dir}/{args.method}_{args.match_model}/preds", 
@@ -125,7 +116,29 @@ def predict(test_ds, vpr_model, match_model, args):
 			lines_coeff, cluster_data, cluster_labels)
 	else:
 		best_results_dict = init_results_dict
-		avg_runtime = (time.time() - start_time) / len(queries_descriptors)
+		avg_vpr_time = (time.time() - start_time) / len(queries_descriptors)
+
+	# Geometric Verification
+	if image_matcher_model is not None:
+		avg_gv_time = 0.0
+		for db_query_indice in best_db_query_indices:
+			query_image_name = queries_image_names[db_query_indice[1]]
+			if best_reslts_dict[query_image_name] >= 1e-3:
+				db_img_path = test_ds.database_image_paths[db_query_indice[0]]
+				img0 =  image_matcher_model.load_image(db_img_path, resize=512)
+				query_img_path = test_ds.queries_image_paths[db_query_indice[1]]
+				img1 =  image_matcher_model.load_image(query_img_path, resize=512)
+				
+				start_time = time.time()
+				result = image_matcher_model(img0, img1)
+				num_inliers, H, mkpts0, mkpts1 = result['num_inliers'], result['H'], result['inlier_kpts0'], result['inlier_kpts1']
+				print(f"num_inliers: {num_inliers}")
+				avg_gv_time += (time.time() - start_time) / len(queries_descriptors)
+				if num_inliers < 50: best_results_dict[query_image_name][2] = 0.0
+	else:
+		avg_gv_time = 0.0
+
+	avg_runtime = avg_vpr_time + avg_gv_time
 
 	return best_results_dict, avg_runtime
 
@@ -162,7 +175,11 @@ def eval(args):
 	with open(output_root / "runtime_results.txt", "w") as f:
 		vpr_model = initialize_vpr_model(args.method, args.backbone, args.descriptors_dimension, args.device)
 		match_model = initialize_match_model(args.match_model)
-		results_dict, avg_runtime = predict(test_ds, vpr_model, match_model, args)
+		if args.image_match_model == "none":
+			image_matcher_model = None
+		else:
+			image_matcher_model = initialize_img_matcher(args.image_match_model, args.device, max_num_keypoints=2048)
+		results_dict, avg_runtime = predict(test_ds, vpr_model, match_model, image_matcher_model, args)
 		print(Fore.GREEN + f"Running VPR Method {args.method} with Match Method {args.match_model}" + Style.RESET_ALL)
 
 		# Save runtimes to txt

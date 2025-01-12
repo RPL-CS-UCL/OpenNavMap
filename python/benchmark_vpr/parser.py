@@ -63,6 +63,52 @@ def parse_arguments():
         help="_",
     )
     parser.add_argument("--descriptors_dimension", type=int, default=None, help="_")
+    parser.add_argument(
+        "--image_match_model",
+        type=str,
+        default="master",
+        choices=[
+            "none",
+            "loftr",
+            "eloftr",
+            "se2loftr",
+            "aspanformer",
+            "matchformer",
+            "sift-lg",
+            "superpoint-lg",
+            "disk-lg",
+            "aliked-lg",
+            "doghardnet-lg",
+            "roma",
+            "tiny-roma",
+            "dedode",
+            "steerers",
+            "dedode-kornia",
+            "sift-nn",
+            "orb-nn",
+            "patch2pix",
+            "superglue",
+            "r2d2",
+            "d2net",
+            "duster",
+            "master",
+            "doghardnet-nn",
+            "xfeat",
+            "xfeat-star",
+            "xfeat-lg",
+            "dedode-lg",
+            "gim-dkm",
+            "gim-lg",
+            "omniglue",
+            "mickey",
+            "xfeat-subpx",
+            "xfeat-lg-subpx",
+            "dedode-subpx",
+            "splg-subpx",
+            "aliked-subpx",
+        ]
+    )
+
     parser.add_argument("--database_folder", type=str, required=True, help="path/to/database")
     parser.add_argument("--queries_folder", type=str, required=True, help="path/to/queries")
     parser.add_argument("--num_workers", type=int, default=4, help="_")

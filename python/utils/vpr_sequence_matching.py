@@ -40,8 +40,8 @@ class PlaceRecognitionSeqMatching:
 		self.RANSAC_LINE_MAX_ANGLE = np.rad2deg(np.arctan2(3, 1)) # 71deg velocity of database is 3 times of query
 		# NOTE(gogojjh):
 		# DIFF_MATRIX_SCORE = 1.20 is not a strict threshold
-		# DIFF_MATRIX_SCORE = 1.05 is a strict threshold
-		self.DIFF_MATRIX_SCORE = 1.2
+		# DIFF_MATRIX_SCORE = 1.1 is a strict threshold
+		self.DIFF_MATRIX_SCORE = 1.1
 
 	def initialize_model(self, db_descriptors, recall_values=5):
 		self.db_descriptors = db_descriptors
@@ -162,7 +162,7 @@ class PlaceRecognitionSeqMatching:
 				score = np.mean(D_all[cur_data[best_inliers_ind, 1], cur_data[best_inliers_ind, 0]])
 				if score < self.DIFF_MATRIX_SCORE:
 					m, b = line_coeff
-					print(f"Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
+					print(f"Labels {l} Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
 					best_indices = best_indices + \
 								   [(cur_data[ind, 1], cur_data[ind, 0], score) for ind in best_inliers_ind]
 					lines_coeff.append(line_coeff)
