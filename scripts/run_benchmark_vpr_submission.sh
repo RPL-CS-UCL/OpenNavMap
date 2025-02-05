@@ -11,6 +11,7 @@ fi
 DATASET_PATH=$1
 DATABASE_NAME=$2
 QUERY_NAME=$3
+MATCH_MODEL=$4
 
 # Export environment variables
 export PROJECT_PATH="/home/jjiao/robohike_ws/src/litevloc_private"
@@ -21,7 +22,6 @@ export OUT_DIR="$DATASET_PATH/results_vpr"
 export VPR_MODEL="cosplace"
 export BACKBONE="ResNet18"
 export DESC_DIMENSION="256"
-export MATCH_MODEL="sequence_match"
 
 export IMAGE_MATCH_MODEL="none"
 

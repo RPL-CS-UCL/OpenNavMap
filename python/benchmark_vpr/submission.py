@@ -123,7 +123,7 @@ def predict(test_ds, vpr_model, match_model, image_matcher_model, args):
 		avg_gv_time = 0.0
 		for db_query_indice in best_db_query_indices:
 			query_image_name = queries_image_names[db_query_indice[1]]
-			if best_reslts_dict[query_image_name] >= 1e-3:
+			if best_results_dict[query_image_name] >= 1e-3:
 				db_img_path = test_ds.database_image_paths[db_query_indice[0]]
 				img0 =  image_matcher_model.load_image(db_img_path, resize=512)
 				query_img_path = test_ds.queries_image_paths[db_query_indice[1]]

@@ -17,7 +17,7 @@ from utils.utils_trajectory import align_trajectory
 import pycpptools.src.python.utils_math as pytool_math
 
 class PlaceRecognitionSeqMatching:
-	def __init__(self, seqLen=12, enable_ransac=False):
+	def __init__(self, seqLen=20, enable_ransac=False):
 		self.wContrast = 10
 		self.enhance = False  # False for learning-based VPR methods
 
@@ -29,10 +29,11 @@ class PlaceRecognitionSeqMatching:
 		self.vMax = 2.0       # vMax * seqLen. <= db_descriptors.shape[0] - 1
 		self.numVel = 20      # Number of velocities to enumerate
 
-		self.matchWindow = 20 # window size for selecting the best score < number of template
+		self.matchWindow = 15 # window size for selecting the best score < number of template
 
 		self.prev_pred = -1
 
+		self.N_cluster = 2
 		self.ENABLE_RANSAC = enable_ransac
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
@@ -64,7 +65,7 @@ class PlaceRecognitionSeqMatching:
 			self.prev_pred = pred
 			return recall_preds, pred, score
 
-		D = self._compute_diff_matrix(query_descriptors)
+		D = self.compute_diff_matrix(query_descriptors)
 		if self.enhance: D = self._enhance_contrast(D)
 
 		# Use the last prediction to shorten the search range		
@@ -87,6 +88,7 @@ class PlaceRecognitionSeqMatching:
 				self.N, self.L = D.shape
 				template_scores, template_velocities = self._score_ref_templates(D)
 				recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
+				self.N_cluster += 1
 
 			self.prev_pred = pred
 		
@@ -176,7 +178,7 @@ class PlaceRecognitionSeqMatching:
 		dists = np.linalg.norm(self.db_descriptors - descriptor, axis=1)
 		return dists
 
-	def _compute_diff_matrix(self, query_descriptors) -> np.ndarray:
+	def compute_diff_matrix(self, query_descriptors) -> np.ndarray:
 		"""
 			Return:
 				D: np.ndarray, num_of_database x sequence_length
@@ -394,9 +396,10 @@ if __name__ == "__main__":
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
 	################################################
-	D_all = model._compute_diff_matrix(query_descriptors)
+	D_all = model.compute_diff_matrix(query_descriptors)
 	init_indices = connected_indices[:model.seqLen]
-	best_indices, lines_coeff, cluster_data, cluster_labels = model.ransac_check_match(D_all, connected_indices[int(model.seqLen/2):])
+	best_indices, lines_coeff, cluster_data, cluster_labels = \
+		model.ransac_check_match(D_all, connected_indices[int(model.seqLen/2):])
 	best_indices += init_indices
 	best_indices = list(dict.fromkeys(best_indices))
 

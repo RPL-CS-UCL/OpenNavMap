@@ -26,10 +26,10 @@ def is_same_place(quatA, transA, quatB, transB, tsl_threshold, ang_threshold):
 def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr, 
                         tsl_thre, ang_thre):
     poses_query = read_poses(
-        os.path.join(dataset_path, 'query', 'out_map_' + query_seq, 'poses_abs_gt.txt')
+        os.path.join(dataset_path, 'query', 'out_map_' + query_name, 'poses_abs_gt.txt')
     )
     poses_database = read_poses(
-        os.path.join(dataset_path, 'database', 'out_map_' + database_seq, 'poses_abs_gt.txt')
+        os.path.join(dataset_path, 'database', 'out_map_' + database_name, 'poses_abs_gt.txt')
     )
 
     # Compute the number of positive sample
@@ -60,10 +60,10 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
         if same:
             tp += 1
         # Loop detection but with zero confidence for rejection
-        if not flag_same_place and score <= 1e-3:
+        if not same and score <= 1e-3:
             tn += 1
         # Wrong loop detection with high confidence
-        elif not flag_same_place:
+        elif not same:
             fp += 1
     confidence_scores = np.array(confidence_scores)
 
@@ -96,7 +96,7 @@ def main(args):
 
             results_vpr = np.loadtxt(os.path.join(args.result_dir, f), dtype=object)           
             metrics, curves_data = compute_vpr_metrics(
-                args.dataset_path, query_seq, database_seq, results_vpr,
+                args.dataset_path, query_name, database_name, results_vpr,
                 args.tsl_thre, args.ang_thre
             )
             all_results[f"{query_name}-{database_name}"] = metrics
