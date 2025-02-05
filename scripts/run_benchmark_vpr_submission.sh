@@ -13,26 +13,29 @@ DATABASE_NAME=$2
 QUERY_NAME=$3
 
 # Export environment variables
-export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
+export PROJECT_PATH="/home/jjiao/robohike_ws/src/litevloc_private"
 export DATABASE_PATH="$DATASET_PATH/database/$DATABASE_NAME"
 export QUERY_PATH="$DATASET_PATH/query/$QUERY_NAME"
 export OUT_DIR="$DATASET_PATH/results_vpr"
 
-export VPR_MODELS="cosplace"
+export VPR_MODEL="cosplace"
 export BACKBONE="ResNet18"
 export DESC_DIMENSION="256"
 export MATCH_MODEL="sequence_match"
+
+export IMAGE_MATCH_MODEL="none"
 
 # Run the Python script
 python $PROJECT_PATH/python/benchmark_vpr/submission.py \
   --database_folder $DATABASE_PATH \
   --queries_folder $QUERY_PATH \
-  --method $VPR_MODELS \
+  --method $VPR_MODEL \
   --backbone $BACKBONE \
   --descriptors_dimension $DESC_DIMENSION \
   --match_model $MATCH_MODEL \
+  --image_match_model $IMAGE_MATCH_MODEL \
   --num_preds_to_save 3 \
   --image_size 512 288 \
   --device cuda \
   --out_dir $OUT_DIR \
-  --debug
+  # --debug

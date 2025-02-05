@@ -7,8 +7,8 @@ from typing import Union
 
 class PlaceRecognitionSingleMatching:
     def __init__(self):
-        pass
-    
+        self.seqLen = 1
+
     def initialize_model(self, db_descriptors, recall_values=5):
         # get map descriptors
         self.db_descriptors = db_descriptors

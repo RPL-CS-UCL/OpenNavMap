@@ -17,7 +17,7 @@ from utils.utils_trajectory import align_trajectory
 import pycpptools.src.python.utils_math as pytool_math
 
 class PlaceRecognitionSeqMatching:
-	def __init__(self, seqLen=12):
+	def __init__(self, seqLen=12, enable_ransac=False):
 		self.wContrast = 10
 		self.enhance = False  # False for learning-based VPR methods
 
@@ -33,14 +33,15 @@ class PlaceRecognitionSeqMatching:
 
 		self.prev_pred = -1
 
+		self.ENABLE_RANSAC = enable_ransac
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
 		self.RANSAC_LINE_MIN_ANGLE = np.rad2deg(np.arctan2(0.55, 1)) # 26deg velocity of database is 0.5 times of query
 		self.RANSAC_LINE_MAX_ANGLE = np.rad2deg(np.arctan2(3, 1)) # 71deg velocity of database is 3 times of query
 		# NOTE(gogojjh):
 		# DIFF_MATRIX_SCORE = 1.20 is not a strict threshold
-		# DIFF_MATRIX_SCORE = 1.05 is a strict threshold
-		self.DIFF_MATRIX_SCORE = 1.2
+		# DIFF_MATRIX_SCORE = 1.1 is a strict threshold
+		self.DIFF_MATRIX_SCORE = 1.1
 
 	def initialize_model(self, db_descriptors, recall_values=5):
 		self.db_descriptors = db_descriptors
@@ -91,12 +92,12 @@ class PlaceRecognitionSeqMatching:
 		
 		return recall_preds, pred, score
 
-	def ransac_check_match(self, D_all: np.array, connected_indices: list):
+	def ransac_check_match(self, D_all: np.array, db_query_indices: list):
 		"""
 		Performs RANSAC-based line fitting on a set of connected indices.
 
 		Args:
-			connected_indices (list): List of connected indices representing edges.
+			db_query_indices (list): List of connected indices representing edges.
 				edge[0]: database_node id
 				edge[1]: query_ndoe_id
 
@@ -107,20 +108,17 @@ class PlaceRecognitionSeqMatching:
 		best_indices = []
 		lines_coeff = []
 
-		# Perform GMM-based clustering
-		x_query_indices = [edge[1] for edge in connected_indices]
-		y_db_indices = [edge[0] for edge in connected_indices]
+		# Perform clustering
+		x_query_indices = [db_query_indice[1] for db_query_indice in db_query_indices]
+		y_db_indices = [db_query_indice[0] for db_query_indice in db_query_indices]
 		data = np.column_stack((x_query_indices, y_db_indices))
 
-		# num_cluster = max(2, int(D_all.shape[0] / 200))
-		# num_cluster = 1
-		# data_cluster = GaussianMixture(n_components=num_cluster, random_state=42)		
-		# labels = data_cluster.fit_predict(data)		
-
-		# data_cluster = MeanShift()
-		# data_cluster = DBSCAN(min_samples=2, eps=0.1)
-		data_cluster = AffinityPropagation()
-		labels = data_cluster.fit_predict(data)
+		if len(x_query_indices) > 50:
+			data_cluster = AffinityPropagation()
+			labels = data_cluster.fit_predict(data)
+		else:
+			data_cluster = GaussianMixture(n_components=2, random_state=42)
+			labels = data_cluster.fit_predict(data)		
 
 		data = np.array(data)
 		labels = np.array(labels)
@@ -164,7 +162,7 @@ class PlaceRecognitionSeqMatching:
 				score = np.mean(D_all[cur_data[best_inliers_ind, 1], cur_data[best_inliers_ind, 0]])
 				if score < self.DIFF_MATRIX_SCORE:
 					m, b = line_coeff
-					print(f"Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
+					print(f"Labels {l} Fitting line angle: {np.rad2deg(np.arctan2(m, 1)):.3f} - Score: {score:.3f}")
 					best_indices = best_indices + \
 								   [(cur_data[ind, 1], cur_data[ind, 0], score) for ind in best_inliers_ind]
 					lines_coeff.append(line_coeff)
@@ -269,7 +267,7 @@ class PlaceRecognitionSeqMatching:
 			pred = iOpt
 			recall_preds = np.argsort(template_scores)[:self.recall_values]
 
-		return recall_preds, pred, mu
+		return recall_preds, pred, 1.0 - mu
 
 	def save_diff_matrix_fitting(self, out_dir, connected_indices, best_indices, 
 								 D_all, db_map, query_map, lines_coeff, cluster_data, cluster_labels):
@@ -277,13 +275,16 @@ class PlaceRecognitionSeqMatching:
 
 		im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
 		for edge in connected_indices:
-			db_node = db_map.get_node(edge[0])
-			query_node = query_map.get_node(edge[1])
-			dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-			)
-			if dis_tsl < 20.0:
-				ax1.plot(edge[1], edge[0], 'go', markersize=5)
+			if db_map is not None and query_map is not None:
+				db_node = db_map.get_node(edge[0])
+				query_node = query_map.get_node(edge[1])
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+				)
+				if dis_tsl < 20.0:
+					ax1.plot(edge[1], edge[0], 'go', markersize=5)
+				else:
+					ax1.plot(edge[1], edge[0], 'ro', markersize=5)
 			else:
 				ax1.plot(edge[1], edge[0], 'ro', markersize=5)
 
@@ -294,13 +295,16 @@ class PlaceRecognitionSeqMatching:
 
 		im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
 		for edge in best_indices:
-			db_node = db_map.get_node(edge[0])
-			query_node = query_map.get_node(edge[1])
-			dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-				query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-			)
-			if dis_tsl < 20.0:
-				ax2.plot(edge[1], edge[0], 'go', markersize=5)
+			if db_map is not None and query_map is not None:
+				db_node = db_map.get_node(edge[0])
+				query_node = query_map.get_node(edge[1])
+				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
+					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+				)
+				if dis_tsl < 20.0:
+					ax2.plot(edge[1], edge[0], 'go', markersize=5)
+				else:
+					ax2.plot(edge[1], edge[0], 'ro', markersize=5)
 			else:
 				ax2.plot(edge[1], edge[0], 'ro', markersize=5)
 
