@@ -13,24 +13,7 @@ def parse_arguments():
         "--out_dir", type=str, default=None, help="path where outputs are saved"
     )
     parser.add_argument(
-        "--positive_dist_threshold",
-        type=int,
-        default=25,
-        help="distance (in meters) for a prediction to be considered a positive",
-    )
-    parser.add_argument(
-        "--match_model",
-        type=str,
-        default="single_match",
-        choices=[
-            "single_match",
-            "topo_filter",
-            "sequence_match",
-            "sequence_match-ransac"
-        ]
-    )
-    parser.add_argument(
-        "--method",
+        "--vpr_model",
         type=str,
         default="cosplace",
         choices=[
@@ -63,6 +46,17 @@ def parse_arguments():
         help="_",
     )
     parser.add_argument("--descriptors_dimension", type=int, default=None, help="_")
+    parser.add_argument(
+        "--vpr_match_model",
+        type=str,
+        default="single_match",
+        choices=[
+            "single_match",
+            "topo_filter",
+            "sequence_match",
+            "sequence_match_ransac"
+        ]
+    )
     parser.add_argument(
         "--image_match_model",
         type=str,
@@ -157,7 +151,7 @@ def parse_arguments():
 
     args.use_labels = not args.no_labels
 
-    if args.method == "netvlad":
+    if args.vpr_model == "netvlad":
         if args.backbone not in [None, "VGG16"]:
             raise ValueError("When using NetVLAD the backbone must be None or VGG16")
         if args.descriptors_dimension not in [None, 4096, 32768]:
@@ -165,7 +159,7 @@ def parse_arguments():
         if args.descriptors_dimension is None:
             args.descriptors_dimension = 4096
 
-    elif args.method == "sfrs":
+    elif args.vpr_model == "sfrs":
         if args.backbone not in [None, "VGG16"]:
             raise ValueError("When using SFRS the backbone must be None or VGG16")
         if args.descriptors_dimension not in [None, 4096]:
@@ -173,7 +167,7 @@ def parse_arguments():
         if args.descriptors_dimension is None:
             args.descriptors_dimension = 4096
 
-    elif args.method == "cosplace":
+    elif args.vpr_model == "cosplace":
         if args.backbone is None:
             args.backbone = "ResNet50"
         if args.descriptors_dimension is None:
@@ -197,7 +191,7 @@ def parse_arguments():
                 f"When using CosPlace with {args.backbone} the descriptors_dimension must be in [32, 64, 128, 256, 512, 1024, 2048]"
             )
 
-    elif args.method == "convap":
+    elif args.vpr_model == "convap":
         if args.backbone is None:
             args.backbone = "ResNet50"
         if args.descriptors_dimension is None:
@@ -209,7 +203,7 @@ def parse_arguments():
                 "When using Conv-AP the descriptors_dimension must be one of [None, 512, 2048, 4096, 8192]"
             )
 
-    elif args.method == "mixvpr":
+    elif args.vpr_model == "mixvpr":
         if args.backbone is None:
             args.backbone = "ResNet50"
         if args.descriptors_dimension is None:
@@ -219,7 +213,7 @@ def parse_arguments():
         if args.descriptors_dimension not in [None, 128, 512, 4096]:
             raise ValueError("When using Conv-AP the descriptors_dimension must be one of [None, 128, 512, 4096]")
 
-    elif args.method == "eigenplaces":
+    elif args.vpr_model == "eigenplaces":
         if args.backbone is None:
             args.backbone = "ResNet50"
         if args.descriptors_dimension is None:
@@ -238,31 +232,31 @@ def parse_arguments():
                 f"When using EigenPlaces with {args.backbone} the descriptors_dimension must be in [128, 256, 512, 2048]"
             )
 
-    elif args.method == "eigenplaces-indoor":
+    elif args.vpr_model == "eigenplaces-indoor":
         args.backbone = "ResNet50"
         args.descriptors_dimension = 2048
 
-    elif args.method == "apgem":
+    elif args.vpr_model == "apgem":
         args.backbone = "Resnet101"
         args.descriptors_dimension = 2048
 
-    elif args.method.startswith("anyloc"):
+    elif args.vpr_model.startswith("anyloc"):
         args.backbone = "DINOv2"
         args.descriptors_dimension = 49152
 
-    elif args.method == "salad":
+    elif args.vpr_model == "salad":
         args.backbone = "DINOv2"
         args.descriptors_dimension = 8448
 
-    elif args.method == "clique-mining":
+    elif args.vpr_model == "clique-mining":
         args.backbone = "DINOv2"
         args.descriptors_dimension = 8448
 
-    elif args.method == "salad-indoor":
+    elif args.vpr_model == "salad-indoor":
         args.backbone = "Dinov2"
         args.descriptors_dimension = 8448
 
-    elif args.method == "cricavpr":
+    elif args.vpr_model == "cricavpr":
         args.backbone = "Dinov2"
         args.descriptors_dimension = 10752
 

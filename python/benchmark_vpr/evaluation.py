@@ -19,23 +19,19 @@ from sklearn.metrics import precision_recall_curve, average_precision_score
 
 from utils.utils import *
 
-def is_same_place(quatA, transA, quatB, transB, tsl_threshold, ang_threshold):
+def is_same_place(quatA, transA, quatB, transB, tsl_thre, ang_thre):
     dis_tsl, dis_angle = compute_relative_dis(transA, quatA, transB, quatB)			
-    return (dis_tsl < tsl_threshold and dis_angle < ang_threshold) 
+    return (dis_tsl < tsl_thre and dis_angle < ang_thre) 
 
 def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr, 
                         tsl_thre, ang_thre):
-    poses_query = read_poses(
-        os.path.join(dataset_path, 'query', 'out_map_' + query_name, 'poses_abs_gt.txt')
-    )
-    poses_database = read_poses(
-        os.path.join(dataset_path, 'database', 'out_map_' + database_name, 'poses_abs_gt.txt')
-    )
+    poses_query = read_poses(os.path.join(dataset_path, 'query', 'out_map_' + query_name, 'poses_abs_gt.txt'))
+    poses_db = read_poses(os.path.join(dataset_path, 'database', 'out_map_' + database_name, 'poses_abs_gt.txt'))
 
     # Compute the number of positive sample
     num_pos_sample = 0
     for _, pose_query in poses_query.items():
-        for _, pose_db in poses_database.items():
+        for _, pose_db in poses_db.items():
             Tc2w = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
             trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
             Tc2w = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
@@ -46,11 +42,11 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
     print(f"Number of query as valid PR: {num_pos_sample}")
 
     # Compute the precision and recall
-    tp, fp = 0, 0
+    tp, fp, tn = 0, 0, 0
     confidence_scores = []
     for result in results_vpr:
-        query_name, database_name, score = result[0], result[1], result[2]
-        pose_query, pose_db = poses_query[query_name], poses_database[database_name]
+        query_name, database_name, score = result[0], result[1], float(result[2])
+        pose_query, pose_db = poses_query[query_name], poses_db[database_name]
         confidence_scores.append(score)
         Tc2w = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
         trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
@@ -87,6 +83,9 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
     return output_metrics, curve_data
 
 def main(args):
+    if not os.path.exists(args.result_dir):
+        return
+    
     all_results = dict()
     for f in sorted(os.listdir(args.result_dir)):
         if 'submission-' in f:
@@ -101,20 +100,19 @@ def main(args):
             )
             all_results[f"{query_name}-{database_name}"] = metrics
             print(metrics)
-    print()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('eval', description='Evaluate submissions for the VPR dataset benchmark')
     parser.add_argument('--result_dir', type=Path, default='',
                         help='Path to the submission files')
-    parser.add_argument('--log', choices=('warning', 'info', 'error'),
-                        default='warning', help='Logging level. Default: warning')
     parser.add_argument('--dataset_path', type=Path, default=None,
                         help='Path to the dataset folder')
     parser.add_argument('--tsl_thre', type=float, default=7.5, 
                         help='Threshold (meters) to consider two poses as the same place.')
     parser.add_argument('--ang_thre', type=float, default=75.0, 
                         help='Threshold (degree) to consider two poses as the same place.')
+    parser.add_argument('--log', choices=('warning', 'info', 'error'),
+                        default='warning', help='Logging level. Default: warning')
                         
     args = parser.parse_args()      
 

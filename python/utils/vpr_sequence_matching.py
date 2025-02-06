@@ -33,7 +33,6 @@ class PlaceRecognitionSeqMatching:
 
 		self.prev_pred = -1
 
-		self.N_cluster = 2
 		self.ENABLE_RANSAC = enable_ransac
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
@@ -88,7 +87,6 @@ class PlaceRecognitionSeqMatching:
 				self.N, self.L = D.shape
 				template_scores, template_velocities = self._score_ref_templates(D)
 				recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
-				self.N_cluster += 1
 
 			self.prev_pred = pred
 		
@@ -383,7 +381,7 @@ if __name__ == "__main__":
 		query_poses[indices, 3:] = node.quat
 
 	# Create sequence matching model
-	model = PlaceRecognitionSeqMatching()
+	model = PlaceRecognitionSeqMatching(enable_ransac=True)
 	model.initialize_model(db_descriptors)
 
 	# Perform sequence matching
@@ -396,12 +394,15 @@ if __name__ == "__main__":
 	print(f"Sequence Matching Costs: {time.time() - start_time:.3f}s")
 
 	################################################
-	D_all = model.compute_diff_matrix(query_descriptors)
-	init_indices = connected_indices[:model.seqLen]
-	best_indices, lines_coeff, cluster_data, cluster_labels = \
-		model.ransac_check_match(D_all, connected_indices[int(model.seqLen/2):])
-	best_indices += init_indices
-	best_indices = list(dict.fromkeys(best_indices))
+	if model.ENABLE_RANSAC:
+		D_all = model.compute_diff_matrix(query_descriptors)
+		init_indices = connected_indices[:model.seqLen]
+		best_indices, lines_coeff, cluster_data, cluster_labels = \
+			model.ransac_check_match(D_all, connected_indices[int(model.seqLen/2):])
+		best_indices += init_indices
+		best_indices = list(dict.fromkeys(best_indices))
+	else:
+		best_indices = connected_indices
 
 	################################################ 
 	tp, tn, fp, fn = 0, 0, 0, 0
