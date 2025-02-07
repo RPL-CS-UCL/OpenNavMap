@@ -132,7 +132,7 @@ def eval(args):
             output_querydb_metrics[querydb_name] = output_metrics
             logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
 
-            plot_prec_recall_curve(curves_data['Precision Values'], curves_data['Recall Values'], output_metrics['Average Precision'])
+            # plot_prec_recall_curve(curves_data['Precision Values'], curves_data['Recall Values'], output_metrics['Average Precision'])
 
     output_json = json.dumps(output_querydb_metrics, indent=2)
     with open(os.path.join(args.result_dir, 'report_evaluation.json'), 'w') as f:
