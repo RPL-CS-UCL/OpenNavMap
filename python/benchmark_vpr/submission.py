@@ -67,7 +67,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	# Extract VPR Descriptors
 	start_time = time.time()
 	queries_descriptors, database_descriptors = extract_descriptors(vpr_model, test_ds, args)
-	avg_desc_time = (time.time() - start_time) / (len(queries_descriptors) + len(database_descriptors))
+	total_desc_time = time.time() - start_time
 
 	queries_image_names = test_ds.queries_image_names
 	database_image_names = test_ds.database_image_names
@@ -143,9 +143,9 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 				else:
 					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], result['num_inliers'])
 		
-	avg_runtime = avg_desc_time + (total_vpr_time + total_gv_time) / len(queries_descriptors)
+	total_runtime = total_desc_time + total_vpr_time + total_gv_time
 
-	return best_results_dict, avg_runtime
+	return best_results_dict, total_runtime
 
 def save_submission(results_dict: dict, output_path: Path):
 	results = np.empty((0, 3), dtype=object)
@@ -178,7 +178,7 @@ def eval(args):
 
 	query_name = args.queries_folder.split('out_map_')[-1]
 	database_name = args.database_folder.split('out_map_')[-1]
-	with open(output_root / f"{query_name}-{database_name}-runtime_results.txt", "w") as f:
+	with open(output_root / f"total_runtime_results-{query_name}-{database_name}.txt", "w") as f:
 		for str_vpr_model in args.vpr_models:
 			for str_vpr_match_model in args.vpr_match_models:
 				for str_image_match_model in args.image_match_models:
@@ -197,13 +197,13 @@ def eval(args):
 						image_matcher_model = None
 					else:
 						image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
-					results_dict, avg_runtime = predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
+					results_dict, total_runtime = predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
 					print(Fore.GREEN + 
 						f"Running {str_vpr_model} [VPR Model] {str_vpr_match_model} [VPR Match Model] {str_image_match_model} [Image Match Model]" + 
 						Style.RESET_ALL)
 
 					# Save runtimes to txt
-					runtime_str = f"{setting}: {avg_runtime:.3f}s"
+					runtime_str = f"{setting}: {total_runtime:.3f}s / {len(test_ds.queries_image_names)}"
 					f.write(runtime_str + "\n")
 					tqdm.write(runtime_str)
 

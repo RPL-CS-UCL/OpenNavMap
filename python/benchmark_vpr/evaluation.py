@@ -159,7 +159,7 @@ def summ(args):
 
     ##### Parse running_time
     for querydb in all_querydbs:
-        path_report_runtime = os.path.join(args.result_dir, f"{querydb}-runtime_results.txt")
+        path_report_runtime = os.path.join(args.result_dir, f"total_runtime_results-{querydb}.txt")
         with open(path_report_runtime, 'r') as file:
             lines = file.readlines()
 
