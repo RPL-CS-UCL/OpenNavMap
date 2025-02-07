@@ -11,11 +11,13 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
 
 import glob
+import json
 import argparse
 import logging
 import numpy as np
 from pathlib import Path
 from sklearn.metrics import precision_recall_curve, average_precision_score
+import pandas as pd
 
 from utils.utils import *
 
@@ -39,7 +41,7 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
             if is_same_place(quat_query, trans_query, quat_db, trans_db, tsl_thre, ang_thre):
                 num_pos_sample += 1
                 break
-    print(f"Number of query as valid PR: {num_pos_sample}")
+    logging.info(f"Number of query as valid PR: {num_pos_sample}")
 
     # Compute the precision and recall
     tp, fp, tn = 0, 0, 0
@@ -53,9 +55,10 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
         Tc2w = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
         trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
         same = is_same_place(quat_query, trans_query, quat_db, trans_db, tsl_thre, ang_thre)
-        if same:
+        # Correct Loop detection with high confidence for acceptance
+        if same and score >= 1e-3:
             tp += 1
-        # Loop detection but with zero confidence for rejection
+        # Wrong Loop detection but with zero confidence for rejection
         if not same and score <= 1e-3:
             tn += 1
         # Wrong loop detection with high confidence
@@ -82,24 +85,98 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
 
     return output_metrics, curve_data
 
-def main(args):
-    if not os.path.exists(args.result_dir):
-        return
-    
-    all_results = dict()
+def eval(args):
+    output_querydb_metrics = dict()
     for f in sorted(os.listdir(args.result_dir)):
         if 'submission-' in f:
             f_new = f.replace('.txt', '')
             query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
-            print(f"Query: {query_name}, Database: {database_name}")
 
             results_vpr = np.loadtxt(os.path.join(args.result_dir, f), dtype=object)           
-            metrics, curves_data = compute_vpr_metrics(
+            output_metrics, curves_data = compute_vpr_metrics(
                 args.dataset_path, query_name, database_name, results_vpr,
                 args.tsl_thre, args.ang_thre
             )
-            all_results[f"{query_name}-{database_name}"] = metrics
-            print(metrics)
+            querydb_name = f"{query_name}-{database_name}"
+            output_querydb_metrics[querydb_name] = output_metrics
+            logging.warning(f"Evaluating Results of {querydb_name}")
+
+    output_json = json.dumps(output_querydb_metrics, indent=2)
+    with open(os.path.join(args.result_dir, 'report_evaluation.json'), 'w') as f:
+        f.write(output_json)
+
+def summ(args):
+    ##### Parse results
+    result_method = {}
+    for method_name in sorted(os.listdir(args.result_dir)):
+        method_path = os.path.join(args.result_dir, method_name)
+        if os.path.isdir(method_path):
+            json_file = os.path.join(method_path, 'report_evaluation.json')
+            if os.path.exists(json_file):
+                with open(json_file, 'r') as f:
+                    result_method[method_name] = json.load(f)
+
+    # Collect all unique query databases and sort them
+    all_querydbs = set()
+    for method_metrics in result_method.values():
+        all_querydbs.update(method_metrics.keys())
+    all_querydbs = sorted(all_querydbs)
+
+    # Sort method names
+    sorted_methods = sorted(result_method.keys())
+    csv_lines = []
+
+    # Generate CSV content
+    for querydb in all_querydbs:
+        # Add section header for query database
+        csv_lines.append(f"{querydb}")
+        csv_lines.append("Method,Precision,Recall")
+        
+        # Add each method's metrics
+        for method in sorted_methods:
+            metrics = result_method.get(method, {}).get(querydb, {})
+            precision = metrics.get('Precision', 0)
+            recall = metrics.get('Recall', 0)
+            csv_lines.append(f"{method},{precision:.3f},{recall:.3f}")
+        
+        # Add empty line between sections
+        csv_lines.append("")
+
+    # Remove the last empty line to avoid trailing newline
+    if csv_lines and csv_lines[-1] == "":
+        csv_lines.pop()
+
+    csv_output = '\n'.join(csv_lines)
+    with open(os.path.join(args.result_dir, 'report_evaluation.csv'), 'w') as f:
+        f.write(csv_output)
+
+    ##### Parse running_time
+    path_report_runtime = os.path.join(args.result_dir, 'runtime_results.txt')
+    with open(path_report_runtime, 'r') as file:
+        lines = file.readlines()
+
+    data = dict()
+    for line in lines:
+        method, runtime = line.split(': ')
+        method = method.replace('(vpr_model + vpr_match_model + image_match_model) ', '')
+        data[method] = float(runtime.strip()[:-1])  # Remove the 's' from the end and convert to float
+
+    for key in data.keys():
+        data[key] *= 1000
+        data[key] = '{:.0f}'.format(data[key])
+
+    df = pd.DataFrame(list(data.items()), columns=['Method', 'Runtime [ms]'])
+    path_report_eval_csv = path_report_runtime.replace('.txt', '.csv')
+    df.to_csv(path_report_eval_csv)
+    
+def main(args):
+    if not os.path.exists(args.result_dir):
+        return
+    
+    if args.option == 'eval':
+        eval(args)
+    elif args.option == 'summ':
+        summ(args)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('eval', description='Evaluate submissions for the VPR dataset benchmark')
@@ -113,8 +190,32 @@ if __name__ == '__main__':
                         help='Threshold (degree) to consider two poses as the same place.')
     parser.add_argument('--log', choices=('warning', 'info', 'error'),
                         default='warning', help='Logging level. Default: warning')
-                        
+    parser.add_argument('--option', choices=('eval', 'summ'), 
+                        default='eval', help='Running option. Default: eval')
+
     args = parser.parse_args()      
 
     logging.basicConfig(level=args.log.upper())
     main(args)
+
+"""
+Example output:
+seq     : query-database1
+metric  : precision recall
+method 1: xx        xx
+method 2: xx        xx
+method 3: xx        xx
+
+seq     : query-database2
+metric  : precision recall
+method 1: xx        xx
+method 2: xx        xx
+method 3: xx        xx
+
+seq     : query-database3
+metric  : precision recall
+method 1: xx        xx
+method 2: xx        xx
+method 3: xx        xx
+
+"""

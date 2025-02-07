@@ -98,14 +98,14 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, args):
 			vpr_match_model.ransac_check_match(D_all, init_db_query_indices[vpr_match_model.seqLen:])
 		total_vpr_time += time.time() - start_time
 
-		# Add reliable results after filtering and set high score
+		# Add reliable results and set high score for acceptance
 		best_results_dict = defaultdict(list)
 		best_db_query_indices = init_db_query_indices[:vpr_match_model.seqLen] + best_db_query_indices
 		for db_query_indice in best_db_query_indices:
 			query_image_name = queries_image_names[db_query_indice[1]]
 			best_results_dict[query_image_name] =  (database_image_names[db_query_indice[0]], 1.0)
 		
-		# Add unreliable results after filtering and set low score
+		# Add unreliable results and set zero score for rejection
 		for k, v in init_results_dict.items():
 			if not (k in best_results_dict):
 				best_results_dict[k] = (v[0], 0.0)
@@ -135,7 +135,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, args):
 					result = image_matcher_model(img0, img1)
 				except Exception as e:
 					print(f"Error in Image Matching: {e}")
-					continue
+					result = {'num_inliers': 0.0}
 				total_gv_time += time.time() - start_time
 
 				if result['num_inliers'] < 50.0:

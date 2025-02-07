@@ -17,7 +17,7 @@ from utils.utils_trajectory import align_trajectory
 import pycpptools.src.python.utils_math as pytool_math
 
 class PlaceRecognitionSeqMatching:
-	def __init__(self, seqLen=20, enable_ransac=False):
+	def __init__(self, seqLen=12, enable_ransac=False):
 		self.wContrast = 10
 		self.enhance = False  # False for learning-based VPR methods
 
@@ -29,7 +29,7 @@ class PlaceRecognitionSeqMatching:
 		self.vMax = 2.0       # vMax * seqLen. <= db_descriptors.shape[0] - 1
 		self.numVel = 20      # Number of velocities to enumerate
 
-		self.matchWindow = 15 # window size for selecting the best score < number of template
+		self.matchWindow = 10 # window size for selecting the best score < number of template
 
 		self.prev_pred = -1
 
@@ -60,7 +60,7 @@ class PlaceRecognitionSeqMatching:
 			dists = self._compute_dist_desc(query_desc)
 			recall_preds = np.argsort(dists)[:self.recall_values]
 			pred = recall_preds[0]
-			score = dists[pred]
+			score = 2.0 - dists[pred]
 			self.prev_pred = pred
 			return recall_preds, pred, score
 
@@ -68,28 +68,35 @@ class PlaceRecognitionSeqMatching:
 		if self.enhance: D = self._enhance_contrast(D)
 
 		# Use the last prediction to shorten the search range		
+		# if self.prev_pred >= 0:
+		# 	top_row_idx = max(0, self.prev_pred - int(self.seqLen * 2))
+		# 	bottom_row_idx = min(D.shape[0], self.prev_pred + int(self.seqLen * 2))
+		# 	D_cut = D[top_row_idx:bottom_row_idx, :]
+
+		# 	# N: number of database descriptors
+		# 	# L: number of query descriptors with sequence length
+		# 	self.N, self.L = D_cut.shape
+		# 	template_scores, template_velocities = self._score_ref_templates(D_cut)
+		# 	recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
+
+		# 	pred += top_row_idx
+		# 	recall_preds = [p + top_row_idx for p in recall_preds]
+
+		# 	# If the new match is not consistent with previous, search the whole difference matrix
+		# 	if abs(pred - self.prev_pred) > self.seqLen:
+		# 		self.N, self.L = D.shape
+		# 		template_scores, template_velocities = self._score_ref_templates(D)
+		# 		recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
+
+		# 	self.prev_pred = pred
+
 		if self.prev_pred >= 0:
-			top_row_idx = max(0, self.prev_pred - int(self.seqLen * 2))
-			bottom_row_idx = min(D.shape[0], self.prev_pred + int(self.seqLen * 2))
-			D_cut = D[top_row_idx:bottom_row_idx, :]
-
-			# N: number of database descriptors
-			# L: number of query descriptors with sequence length
-			self.N, self.L = D_cut.shape
-			template_scores, template_velocities = self._score_ref_templates(D_cut)
+			self.N, self.L = D.shape
+			template_scores, template_velocities = self._score_ref_templates(D)
 			recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
-
-			pred += top_row_idx
-			recall_preds = [p + top_row_idx for p in recall_preds]
-
-			# If the new match is not consistent with previous, search the whole difference matrix
-			if abs(pred - self.prev_pred) > self.seqLen:
-				self.N, self.L = D.shape
-				template_scores, template_velocities = self._score_ref_templates(D)
-				recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
-
-			self.prev_pred = pred
 		
+			self.prev_pred = pred
+
 		return recall_preds, pred, score
 
 	def ransac_check_match(self, D_all: np.array, db_query_indices: list):

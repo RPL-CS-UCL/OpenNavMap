@@ -19,7 +19,11 @@ methods=("cosplace_single_match_none"
          "cosplace_sequence_match_ransac_master"
         )
 
-# Run the Python script
+# methods=("cosplace_single_match_none" 
+#          "cosplace_single_match_master"
+#         )
+
+# Evaluation and generate report_evaluation.txt
 for method in "${methods[@]}"
 do
   echo "Evaluate VPR methods: $method"
@@ -28,6 +32,15 @@ do
     --dataset_path $DATASET_PATH \
     --tsl_thre 7.5 \
     --ang_thre 75.0 \
-    --log warning
+    --log warning \
+    --option eval
   echo ""
 done
+
+# Evaluation and summarize report_evaluation.csv and runtime_results.csv
+python $PROJECT_PATH/python/benchmark_vpr/evaluation.py \
+  --result_dir $DATASET_PATH/results_vpr \
+  --dataset_path $DATASET_PATH \
+  --log warning \
+  --option summ
+
