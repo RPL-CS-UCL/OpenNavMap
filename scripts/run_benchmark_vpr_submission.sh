@@ -30,7 +30,7 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     IMAGE_MATCH_MODELS="none master"
 
     # VPR_MODELS="cosplace"
-    # VPR_MATCH_MODELS="sequence_match_ransac"
+    # VPR_MATCH_MODELS="single_match"
     # IMAGE_MATCH_MODELS="none"
 
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \

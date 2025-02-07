@@ -67,7 +67,7 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
     confidence_scores = np.array(confidence_scores)
 
     output_metrics = dict()
-    output_metrics['Postive Sample Number'] = num_pos_sample
+    output_metrics['Positive Sample Number'] = num_pos_sample
     if tp + fp < 1:
         output_metrics['Precision'] = 0
     else:
@@ -100,7 +100,7 @@ def eval(args):
             )
             querydb_name = f"{query_name}-{database_name}"
             output_querydb_metrics[querydb_name] = output_metrics
-            logging.warning(f"Evaluating Results of {querydb_name}")
+            logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
 
     output_json = json.dumps(output_querydb_metrics, indent=2)
     with open(os.path.join(args.result_dir, 'report_evaluation.json'), 'w') as f:
@@ -110,10 +110,10 @@ def summ(args):
     ##### Parse results
     """ Example Output
     query-database
-    Precision,Cecall
-    method 1,xx,xx
-    method 2,xx,xx
-    method 3,xx,xx
+    Precision, Cecall, Positive Sample Number, Total Runtime [ms], Query Number
+    method 1, xx, xx, ...
+    method 2, xx, xx, ...
+    method 3, xx, xx, ...
     """    
     result_method = {}
     for method_name in sorted(os.listdir(args.result_dir)):

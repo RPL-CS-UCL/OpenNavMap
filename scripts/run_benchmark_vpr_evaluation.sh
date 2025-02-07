@@ -20,7 +20,6 @@ methods=("cosplace_single_match_none"
         )
 
 # methods=("cosplace_single_match_none" 
-#          "cosplace_single_match_master"
 #         )
 
 # Evaluation and generate report_evaluation.txt
