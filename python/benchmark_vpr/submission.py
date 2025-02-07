@@ -87,44 +87,43 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 		_, pred, score = vpr_match_model.match(query_descs)
 		total_vpr_time += time.time() - start_time
 	
-		init_results_dict[query_image_name] = (database_image_names[pred], score)
 		init_db_query_indices.append((pred, query_indice, score))
+		init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
 
 	# RANSAC-based fitting for outlier rejection
 	if hasattr(vpr_match_model, 'ENABLE_RANSAC') and vpr_match_model.ENABLE_RANSAC:
 		start_time = time.time()
 		D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
-		best_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
+		filter_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
 			vpr_match_model.ransac_check_match(D_all, init_db_query_indices[vpr_match_model.seqLen:])
 		total_vpr_time += time.time() - start_time
 
 		# Add reliable results and set high score for acceptance
+		filter_db_query_indices = init_db_query_indices[:vpr_match_model.seqLen] + filter_db_query_indices
 		best_results_dict = defaultdict(list)
-		best_db_query_indices = init_db_query_indices[:vpr_match_model.seqLen] + best_db_query_indices
-		for db_query_indice in best_db_query_indices:
+		for db_query_indice in filter_db_query_indices:
 			query_image_name = queries_image_names[db_query_indice[1]]
-			best_results_dict[query_image_name] =  (database_image_names[db_query_indice[0]], 1.0)
+			best_results_dict[query_image_name] = init_results_dict[query_image_name]
 		
 		# Add unreliable results and set zero score for rejection
 		for k, v in init_results_dict.items():
 			if not (k in best_results_dict):
-				best_results_dict[k] = (v[0], 0.0)
+				best_results_dict[k] = (v[0], v[1], 0)
 		
 		vpr_match_model.save_diff_matrix_fitting(\
 			f"{args.out_dir}/{setting}/preds", 
-			init_db_query_indices, best_db_query_indices, 
+			init_db_query_indices, filter_db_query_indices, 
 			D_all, None, None, 
 			lines_coeff, cluster_data, cluster_labels)
 	else:
-		best_db_query_indices = init_db_query_indices
 		best_results_dict = init_results_dict
 
 	# Geometric Verification
 	total_gv_time = 0.0
 	if image_matcher_model is not None:
-		for db_query_indice in best_db_query_indices:
+		for db_query_indice in init_db_query_indices:
 			query_image_name = queries_image_names[db_query_indice[1]]
-			if best_results_dict[query_image_name][1] >= 1e-3:
+			if best_results_dict[query_image_name][2] > 0:
 				db_img_path = test_ds.database_image_paths[db_query_indice[0]]
 				img0 = image_matcher_model.load_image(db_img_path, resize=512)
 				query_img_path = test_ds.queries_image_paths[db_query_indice[1]]
@@ -138,23 +137,27 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 					result = {'num_inliers': 0.0}
 				total_gv_time += time.time() - start_time
 
-				if result['num_inliers'] < 50.0:
-					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], 0.0)
+				if result['num_inliers'] > 100:
+					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], result['num_inliers'], 1)
 				else:
-					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], result['num_inliers'])
+					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], result['num_inliers'], 0)
+			else:
+				best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], 0, 0)
 		
 	total_runtime = total_desc_time + total_vpr_time + total_gv_time
-
 	return best_results_dict, total_runtime
 
 def save_submission(results_dict: dict, output_path: Path):
-	results = np.empty((0, 3), dtype=object)
+	results = np.empty((0, 4), dtype=object)
 	for query_image_name, db_image_name_score in results_dict.items():
-		vec = np.empty((1, 3), dtype=object)
-		vec[0, 0], vec[0, 1], vec[0, 2] = query_image_name, db_image_name_score[0], db_image_name_score[-1]
+		vec = np.empty((1, 4), dtype=object)
+		vec[0, 0] = query_image_name 
+		vec[0, 1] = db_image_name_score[0]
+		vec[0, 2] = db_image_name_score[1]
+		vec[0, 3] = db_image_name_score[2]
 		results = np.vstack((results, vec))
 		
-	np.savetxt(output_path, results, fmt='%s %s %f')
+	np.savetxt(output_path, results, fmt='%s %s %f %s')
 
 def save_predictions(results_dict: dict, test_ds, log_dir):
 	"""Save visualizations of predictions."""    

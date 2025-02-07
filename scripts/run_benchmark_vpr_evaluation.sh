@@ -11,16 +11,16 @@ DATASET_PATH=$1
 
 # Export environment variables
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
-methods=("cosplace_single_match_none" 
-         "cosplace_single_match_master"
-         "cosplace_sequence_match_none"
-         "cosplace_sequence_match_master"
-         "cosplace_sequence_match_ransac_none"
-         "cosplace_sequence_match_ransac_master"
-        )
-
 # methods=("cosplace_single_match_none" 
+#          "cosplace_single_match_master"
+#          "cosplace_sequence_match_none"
+#          "cosplace_sequence_match_master"
+#          "cosplace_sequence_match_ransac_none"
+#          "cosplace_sequence_match_ransac_master"
 #         )
+
+methods=("cosplace_sequence_match_ransac_master"
+        )
 
 # Evaluation and generate report_evaluation.txt
 for method in "${methods[@]}"

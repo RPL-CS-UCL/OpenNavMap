@@ -21,7 +21,11 @@ import pandas as pd
 
 from utils.utils import *
 
-def is_same_place(quatA, transA, quatB, transB, tsl_thre, ang_thre):
+def is_same_place(poseA, poseB, tsl_thre, ang_thre):
+    Tc2w = convert_vec_to_matrix(poseA[4:], poseA[:4], 'wxyz')
+    transA, quatA = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
+    Tc2w = convert_vec_to_matrix(poseB[4:], poseB[:4], 'wxyz')
+    transB, quatB = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
     dis_tsl, dis_angle = compute_relative_dis(transA, quatA, transB, quatB)			
     return (dis_tsl < tsl_thre and dis_angle < ang_thre) 
 
@@ -29,62 +33,87 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
                         tsl_thre, ang_thre):
     poses_query = read_poses(os.path.join(dataset_path, 'query', 'out_map_' + query_name, 'poses_abs_gt.txt'))
     poses_db = read_poses(os.path.join(dataset_path, 'database', 'out_map_' + database_name, 'poses_abs_gt.txt'))
+    
+    assert len(poses_query) > 0, "No query poses found"
+    assert len(poses_db) > 0, "No database poses found"
 
     # Compute the number of positive sample
-    num_pos_sample = 0
-    for _, pose_query in poses_query.items():
-        for _, pose_db in poses_db.items():
-            Tc2w = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
-            trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-            Tc2w = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
-            trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-            if is_same_place(quat_query, trans_query, quat_db, trans_db, tsl_thre, ang_thre):
-                num_pos_sample += 1
-                break
-    logging.info(f"Number of query as valid PR: {num_pos_sample}")
+    y_true = [any(is_same_place(pose_query, pose_db, tsl_thre, ang_thre)
+              for pose_db in poses_db.values()) 
+              for pose_query in poses_query.values()]
+    y_true = [int(value) for value in y_true]
+    print(y_true)
+
+    total_samples = int(np.sum(y_true))
+    logging.info(f"Number of query as valid PR: {total_samples}")
 
     # Compute the precision and recall
-    tp, fp, tn = 0, 0, 0
-    confidence_scores = []
+    y_score = []
+    tp, fp = 0, 0
+
     for result in results_vpr:
-        query_name, database_name, score = result[0], result[1], float(result[2])
+        query_name, database_name, score, acc_flag = result[0], result[1], float(result[2]), int(result[3])
         pose_query, pose_db = poses_query[query_name], poses_db[database_name]
-        confidence_scores.append(score)
-        Tc2w = convert_vec_to_matrix(pose_query[4:], pose_query[:4], 'wxyz')
-        trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-        Tc2w = convert_vec_to_matrix(pose_db[4:], pose_db[:4], 'wxyz')
-        trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-        same = is_same_place(quat_query, trans_query, quat_db, trans_db, tsl_thre, ang_thre)
-        # Correct Loop detection with high confidence for acceptance
-        if same and score >= 1e-3:
-            tp += 1
-        # Wrong Loop detection but with zero confidence for rejection
-        if not same and score <= 1e-3:
-            tn += 1
-        # Wrong loop detection with high confidence
-        elif not same:
-            fp += 1
-    confidence_scores = np.array(confidence_scores)
+        same_flag = is_same_place(pose_query, pose_db, tsl_thre, ang_thre)
+        y_score.append(score)
+
+        # High confidence
+        if acc_flag > 0:
+            # Correct Loop detection with high confidence for acceptance
+            if same_flag:
+                tp += 1
+            # Wrong loop detection with high confidence
+            else:
+                fp += 1
+
+    if tp + fp < 1:
+        precision = 0
+    else:
+        precision = tp / (tp + fp)
+    
+    if total_samples < 1:
+        recall = 0
+    else:
+        recall = tp / total_samples
+
+    f1_score = 2 * (precision * recall) / (precision + recall + 1e-9)
+
+    # Compute Curve data
+    prec_values, recall_values, thres = precision_recall_curve(y_true, y_score)
+    avg_precision = average_precision_score(y_true, y_score)
+    
+    curves_data = dict()
+    curves_data['Precision Values'], curves_data['Recall Values'] = prec_values, recall_values
+    curves_data['Average Precision'] = avg_precision
+    curves_data['PR Thresholds'] = thres.tolist()
 
     output_metrics = dict()
-    output_metrics['Positive Sample Number'] = num_pos_sample
-    if tp + fp < 1:
-        output_metrics['Precision'] = 0
-    else:
-        output_metrics['Precision'] = tp / (tp + fp)
+    output_metrics['Positive Sample Number'] = total_samples
+    output_metrics['Precision'] = precision
+    output_metrics['Recall'] = recall
+    output_metrics['F1 Score'] = f1_score
+    output_metrics['Average Precision'] = avg_precision
+    return output_metrics, curves_data
+
+def plot_prec_recall_curve(precision_curve, recall_curve, average_precision=None):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(8, 6))
+    plt.plot(recall_curve, precision_curve, 
+             color='b', lw=2, 
+             label=f'Precision-Recall curve')
+    if average_precision is not None:
+        plt.plot([], [], ' ', 
+                 label=f'Average Precision = {average_precision:.3f}')
     
-    if num_pos_sample < 1:
-        output_metrics['Recall'] = 0
-    else:
-        output_metrics['Recall'] = tp / num_pos_sample
-
-    # compute Curve data
-    # prec_values, recall_values, thres = precision_recall_curve(y_true, confidence_scores)
-    # average_precision = average_precision_score(ground_truth, confidence_scores)
-    curve_data = dict()
-    # curve_data['prec_values'], curve_data['recall_values'] = prec_values, recall_values
-
-    return output_metrics, curve_data
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.legend(loc="lower left")
+    
+    plt.grid(True, alpha=0.3)
+    plt.show()
 
 def eval(args):
     output_querydb_metrics = dict()
@@ -98,9 +127,12 @@ def eval(args):
                 args.dataset_path, query_name, database_name, results_vpr,
                 args.tsl_thre, args.ang_thre
             )
+
             querydb_name = f"{query_name}-{database_name}"
             output_querydb_metrics[querydb_name] = output_metrics
             logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
+
+            plot_prec_recall_curve(curves_data['Precision Values'], curves_data['Recall Values'], output_metrics['Average Precision'])
 
     output_json = json.dumps(output_querydb_metrics, indent=2)
     with open(os.path.join(args.result_dir, 'report_evaluation.json'), 'w') as f:
@@ -138,7 +170,7 @@ def summ(args):
     for querydb in all_querydbs:
         # Add section header for query database
         csv_lines.append(f"{querydb}")
-        csv_lines.append("Method,Precision,Recall,Positive Sample Number,Total Runtime [ms],Query Number")
+        csv_lines.append("Method,Precision,Recall,F1 Score,Average Precision,Positive Sample Number,Total Runtime [ms],Query Number")
 
         json_file = os.path.join(args.result_dir, f"runtime_results-{querydb}.json")
         with open(json_file, 'r') as f:
@@ -149,6 +181,8 @@ def summ(args):
             metrics = result_method.get(method, {}).get(querydb, {})
             precision = metrics.get('Precision', 0)
             recall = metrics.get('Recall', 0)
+            f1_score = metrics.get('F1 Score', 0)
+            avg_prec = metrics.get('Average_Precision', 0)
             num_pos_sample = metrics.get('Positive Sample Number', 0)
             if method in json_data:
                 total_runtime = json_data[method]['Total Runtime [s]'] * 1000
@@ -156,7 +190,8 @@ def summ(args):
             else:
                 total_runtime = float('nan')
                 num_query = float('nan')
-            csv_lines.append(f"{method},{precision:.3f},{recall:.3f},{num_pos_sample},{total_runtime:.1f},{num_query}")
+            csv_lines.append(f"{method},{precision:.3f},{recall:.3f},{f1_score:.3f},{avg_prec:.3f}," + 
+                             f"{num_pos_sample},{total_runtime:.1f},{num_query}")
         
         # Add empty line between sections
         csv_lines.append("")

@@ -33,6 +33,8 @@ class PlaceRecognitionSeqMatching:
 
 		self.prev_pred = -1
 
+		self.MAX_SCORE = 2.0
+
 		self.ENABLE_RANSAC = enable_ransac
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
@@ -41,7 +43,7 @@ class PlaceRecognitionSeqMatching:
 		# NOTE(gogojjh):
 		# DIFF_MATRIX_SCORE = 1.20 is not a strict threshold
 		# DIFF_MATRIX_SCORE = 1.1 is a strict threshold
-		self.DIFF_MATRIX_SCORE = 1.1
+		self.DIFF_MATRIX_SCORE = 1.2
 
 	def initialize_model(self, db_descriptors, recall_values=5):
 		self.db_descriptors = db_descriptors
@@ -60,13 +62,14 @@ class PlaceRecognitionSeqMatching:
 			dists = self._compute_dist_desc(query_desc)
 			recall_preds = np.argsort(dists)[:self.recall_values]
 			pred = recall_preds[0]
-			score = 2.0 - dists[pred]
+			score = self.MAX_SCORE - dists[pred]
 			self.prev_pred = pred
 			return recall_preds, pred, score
 
 		D = self.compute_diff_matrix(query_descriptors)
 		if self.enhance: D = self._enhance_contrast(D)
 
+		##### To be removed
 		# Use the last prediction to shorten the search range		
 		# if self.prev_pred >= 0:
 		# 	top_row_idx = max(0, self.prev_pred - int(self.seqLen * 2))
@@ -89,12 +92,13 @@ class PlaceRecognitionSeqMatching:
 		# 		recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
 
 		# 	self.prev_pred = pred
+		#####
 
 		if self.prev_pred >= 0:
 			self.N, self.L = D.shape
 			template_scores, template_velocities = self._score_ref_templates(D)
-			recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
-		
+			recall_preds, pred, dist = self._locate_best_match(template_scores, template_velocities, backward)
+			score = self.MAX_SCORE - dist
 			self.prev_pred = pred
 
 		return recall_preds, pred, score
@@ -154,9 +158,8 @@ class PlaceRecognitionSeqMatching:
 				distances = np.abs(m * cur_data[:, 0] + b - cur_data[:, 1]) / np.sqrt(m**2 + 1)
 				inliers_ind = np.where(distances < self.RANSAC_LINE_DIS_THRESHOLD)[0]
 				inliers_count = len(inliers_ind)
-				
 				if inliers_count < self.seqLen: continue
-				if inliers_count < cur_data.shape[0] * 0.4: continue
+				
 				if np.rad2deg(np.arctan2(m, 1)) < self.RANSAC_LINE_MIN_ANGLE or \
 					np.rad2deg(np.arctan2(m, 1)) > self.RANSAC_LINE_MAX_ANGLE: 
 					continue
@@ -274,7 +277,7 @@ class PlaceRecognitionSeqMatching:
 			pred = iOpt
 			recall_preds = np.argsort(template_scores)[:self.recall_values]
 
-		return recall_preds, pred, 1.0 - mu
+		return recall_preds, pred, mu
 
 	def save_diff_matrix_fitting(self, out_dir, connected_indices, best_indices, 
 								 D_all, db_map, query_map, lines_coeff, cluster_data, cluster_labels):

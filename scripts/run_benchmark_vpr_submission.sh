@@ -26,12 +26,13 @@ for db_dir in "$DATASET_PATH"/database/*/; do
 
     # Set evaluation methods
     VPR_MODELS="cosplace"
-    VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
-    IMAGE_MATCH_MODELS="none master"
+    # VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
+    VPR_MATCH_MODELS="sequence_match"
+    # IMAGE_MATCH_MODELS="none master"
 
     # VPR_MODELS="cosplace"
     # VPR_MATCH_MODELS="single_match"
-    # IMAGE_MATCH_MODELS="none"
+    IMAGE_MATCH_MODELS="master"
 
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \
       --database_folder $DATABASE_PATH \
