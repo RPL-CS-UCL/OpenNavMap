@@ -110,7 +110,7 @@ def parse_arguments():
     parser.add_argument("--queries_folder", type=str, required=True, help="path/to/queries")
     parser.add_argument("--num_workers", type=int, default=1, help="_")
     parser.add_argument(
-        "--batch_size", type=int, default=4, help="set to 1 if database images may have different resolution"
+        "--batch_size", type=int, default=1, help="set to 1 if database images may have different resolution"
     )
     parser.add_argument(
         "--log_dir", type=str, default="default", help="experiment name, output logs will be saved under logs/log_dir"

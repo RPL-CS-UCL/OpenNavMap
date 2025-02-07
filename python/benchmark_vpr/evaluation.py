@@ -67,6 +67,7 @@ def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr,
     confidence_scores = np.array(confidence_scores)
 
     output_metrics = dict()
+    output_metrics['Postive Sample Number'] = num_pos_sample
     if tp + fp < 1:
         output_metrics['Precision'] = 0
     else:
@@ -137,14 +138,25 @@ def summ(args):
     for querydb in all_querydbs:
         # Add section header for query database
         csv_lines.append(f"{querydb}")
-        csv_lines.append("Method,Precision,Recall")
-        
+        csv_lines.append("Method,Precision,Recall,Positive Sample Number,Total Runtime [ms],Query Number")
+
+        json_file = os.path.join(args.result_dir, f"runtime_results-{querydb}.json")
+        with open(json_file, 'r') as f:
+            json_data = json.load(f)
+
         # Add each method's metrics
         for method in sorted_methods:
             metrics = result_method.get(method, {}).get(querydb, {})
             precision = metrics.get('Precision', 0)
             recall = metrics.get('Recall', 0)
-            csv_lines.append(f"{method},{precision:.3f},{recall:.3f}")
+            num_pos_sample = metrics.get('Positive Sample Number', 0)
+            if method in json_data:
+                total_runtime = json_data[method]['Total Runtime [s]'] * 1000
+                num_query = json_data[method]['Query Number']
+            else:
+                total_runtime = float('nan')
+                num_query = float('nan')
+            csv_lines.append(f"{method},{precision:.3f},{recall:.3f},{num_pos_sample},{total_runtime:.1f},{num_query}")
         
         # Add empty line between sections
         csv_lines.append("")
@@ -156,26 +168,6 @@ def summ(args):
     csv_output = '\n'.join(csv_lines)
     with open(os.path.join(args.result_dir, 'report_evaluation.csv'), 'w') as f:
         f.write(csv_output)
-
-    ##### Parse running_time
-    for querydb in all_querydbs:
-        path_report_runtime = os.path.join(args.result_dir, f"total_runtime_results-{querydb}.txt")
-        with open(path_report_runtime, 'r') as file:
-            lines = file.readlines()
-
-        data = dict()
-        for line in lines:
-            method, runtime = line.split(': ')
-            method = method.replace('(vpr_model + vpr_match_model + image_match_model) ', '')
-            data[method] = float(runtime.strip()[:-1])  # Remove the 's' from the end and convert to float
-
-        for key in data.keys():
-            data[key] *= 1000
-            data[key] = '{:.0f}'.format(data[key])
-
-        df = pd.DataFrame(list(data.items()), columns=['Method', 'Runtime [ms]'])
-        path_report_eval_csv = path_report_runtime.replace('.txt', '.csv')
-        df.to_csv(path_report_eval_csv)
     
 def main(args):
     if not os.path.exists(args.result_dir):
