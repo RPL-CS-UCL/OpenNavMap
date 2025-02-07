@@ -63,7 +63,7 @@ def extract_descriptors(model, test_ds, args):
 	database_descriptors = all_descriptors[: test_ds.num_database]
 	return queries_descriptors, database_descriptors
 
-def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, args):
+def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args):
 	# Extract VPR Descriptors
 	start_time = time.time()
 	queries_descriptors, database_descriptors = extract_descriptors(vpr_model, test_ds, args)
@@ -111,7 +111,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, args):
 				best_results_dict[k] = (v[0], 0.0)
 		
 		vpr_match_model.save_diff_matrix_fitting(\
-			f"{args.out_dir}/{args.vpr_model}_{args.vpr_match_model}_{args.image_match_model}/preds", 
+			f"{args.out_dir}/{setting}/preds", 
 			init_db_query_indices, best_db_query_indices, 
 			D_all, None, None, 
 			lines_coeff, cluster_data, cluster_labels)
@@ -175,33 +175,42 @@ def eval(args):
 	##### Prediction
 	output_root = Path(args.out_dir)
 	output_root.mkdir(parents=True, exist_ok=True)
-	with open(output_root / "runtime_results.txt", "w") as f:
-		log_dir = Path(output_root / f"{args.vpr_model}_{args.vpr_match_model}_{args.image_match_model}")
-		log_dir.mkdir(parents=True, exist_ok=True)
-		Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
 
-		vpr_model = initialize_vpr_model(args.vpr_model, args.backbone, args.descriptors_dimension, args.device)
-		vpr_match_model = initialize_match_model(args.vpr_match_model)
-		if args.image_match_model == "none":
-			image_matcher_model = None
-		else:
-			image_matcher_model = initialize_img_matcher(args.image_match_model, args.device, max_num_keypoints=2048)
-		results_dict, avg_runtime = predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, args)
-		print(Fore.GREEN + 
-			  f"Running {args.vpr_model} [VPR Model] {args.vpr_match_model} [VPR Match Model] {args.image_match_model} [Image Match Model]" + 
-			  Style.RESET_ALL)
+	query_name = args.queries_folder.split('out_map_')[-1]
+	database_name = args.database_folder.split('out_map_')[-1]
+	with open(output_root / f"{query_name}-{database_name}-runtime_results.txt", "w") as f:
+		for str_vpr_model in args.vpr_models:
+			for str_vpr_match_model in args.vpr_match_models:
+				for str_image_match_model in args.image_match_models:
+					setting = f"{str_vpr_model}_{str_vpr_match_model}_{str_image_match_model}"
+					logging.warning(f"Evaluating VPR Setting: {setting}")
+					log_dir = Path(output_root / f"{setting}")
+					log_dir.mkdir(parents=True, exist_ok=True)
+					Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
+					
+					str_vpr_model, backbone, descriptors_dimension = \
+						parser.check_vpr_params(str_vpr_model, args.backbone, args.descriptors_dimension, args.image_size)
 
-		# Save runtimes to txt
-		runtime_str = f"{args.vpr_model}_{args.vpr_match_model}_{args.image_match_model}: {avg_runtime:.3f}s"
-		f.write(runtime_str + "\n")
-		tqdm.write(runtime_str)
+					vpr_model = initialize_vpr_model(str_vpr_model, backbone, descriptors_dimension, args.device)
+					vpr_match_model = initialize_match_model(str_vpr_match_model)
+					if str_image_match_model == "none":
+						image_matcher_model = None
+					else:
+						image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
+					results_dict, avg_runtime = predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
+					print(Fore.GREEN + 
+						f"Running {str_vpr_model} [VPR Model] {str_vpr_match_model} [VPR Match Model] {str_image_match_model} [Image Match Model]" + 
+						Style.RESET_ALL)
 
-		# Save predictions to txt per scene
-		query_name = args.queries_folder.split('out_map_')[-1]
-		database_name = args.database_folder.split('out_map_')[-1]
-		save_submission(results_dict, log_dir / f"submission-{query_name}-{database_name}.txt")
-		if args.debug:
-			save_predictions(results_dict, test_ds, log_dir)
+					# Save runtimes to txt
+					runtime_str = f"{setting}: {avg_runtime:.3f}s"
+					f.write(runtime_str + "\n")
+					tqdm.write(runtime_str)
+
+					# Save predictions to txt per scene
+					save_submission(results_dict, log_dir / f"submission-{query_name}-{database_name}.txt")
+					if args.debug:
+						save_predictions(results_dict, test_ds, log_dir)
 
 def main():
 	args = parser.parse_arguments()
@@ -210,5 +219,4 @@ def main():
 if __name__ == "__main__":
 	import warnings
 	warnings.filterwarnings("ignore", category=FutureWarning)
-
 	main()

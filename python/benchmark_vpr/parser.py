@@ -13,9 +13,10 @@ def parse_arguments():
         "--out_dir", type=str, default=None, help="path where outputs are saved"
     )
     parser.add_argument(
-        "--vpr_model",
+        "--vpr_models",
         type=str,
         default="cosplace",
+        nargs="+",        
         choices=[
             "netvlad",
             "apgem",
@@ -47,8 +48,9 @@ def parse_arguments():
     )
     parser.add_argument("--descriptors_dimension", type=int, default=None, help="_")
     parser.add_argument(
-        "--vpr_match_model",
+        "--vpr_match_models",
         type=str,
+        nargs="+",
         default="single_match",
         choices=[
             "single_match",
@@ -58,8 +60,9 @@ def parse_arguments():
         ]
     )
     parser.add_argument(
-        "--image_match_model",
+        "--image_match_models",
         type=str,
+        nargs="+",
         default="master",
         choices=[
             "none",
@@ -105,7 +108,7 @@ def parse_arguments():
 
     parser.add_argument("--database_folder", type=str, required=True, help="path/to/database")
     parser.add_argument("--queries_folder", type=str, required=True, help="path/to/queries")
-    parser.add_argument("--num_workers", type=int, default=4, help="_")
+    parser.add_argument("--num_workers", type=int, default=1, help="_")
     parser.add_argument(
         "--batch_size", type=int, default=4, help="set to 1 if database images may have different resolution"
     )
@@ -150,35 +153,38 @@ def parse_arguments():
     args = parser.parse_args()
 
     args.use_labels = not args.no_labels
+    
+    return args
 
-    if args.vpr_model == "netvlad":
-        if args.backbone not in [None, "VGG16"]:
+def check_vpr_params(vpr_model, backbone, descriptors_dimension, image_size):
+    if vpr_model == "netvlad":
+        if backbone not in [None, "VGG16"]:
             raise ValueError("When using NetVLAD the backbone must be None or VGG16")
-        if args.descriptors_dimension not in [None, 4096, 32768]:
+        if descriptors_dimension not in [None, 4096, 32768]:
             raise ValueError("When using NetVLAD the descriptors_dimension must be one of [None, 4096, 32768]")
-        if args.descriptors_dimension is None:
-            args.descriptors_dimension = 4096
+        if descriptors_dimension is None:
+            descriptors_dimension = 4096
 
-    elif args.vpr_model == "sfrs":
-        if args.backbone not in [None, "VGG16"]:
+    elif vpr_model == "sfrs":
+        if backbone not in [None, "VGG16"]:
             raise ValueError("When using SFRS the backbone must be None or VGG16")
-        if args.descriptors_dimension not in [None, 4096]:
+        if descriptors_dimension not in [None, 4096]:
             raise ValueError("When using SFRS the descriptors_dimension must be one of [None, 4096]")
-        if args.descriptors_dimension is None:
-            args.descriptors_dimension = 4096
+        if descriptors_dimension is None:
+            descriptors_dimension = 4096
 
-    elif args.vpr_model == "cosplace":
-        if args.backbone is None:
-            args.backbone = "ResNet50"
-        if args.descriptors_dimension is None:
-            args.descriptors_dimension = 512
-        if args.backbone == "VGG16" and args.descriptors_dimension not in [64, 128, 256, 512]:
+    elif vpr_model == "cosplace":
+        if backbone is None:
+            backbone = "ResNet50"
+        if descriptors_dimension is None:
+            descriptors_dimension = 512
+        if backbone == "VGG16" and descriptors_dimension not in [64, 128, 256, 512]:
             raise ValueError("When using CosPlace with VGG16 the descriptors_dimension must be in [64, 128, 256, 512]")
-        if args.backbone == "ResNet18" and args.descriptors_dimension not in [32, 64, 128, 256, 512]:
+        if backbone == "ResNet18" and descriptors_dimension not in [32, 64, 128, 256, 512]:
             raise ValueError(
                 "When using CosPlace with ResNet18 the descriptors_dimension must be in [32, 64, 128, 256, 512]"
             )
-        if args.backbone in ["ResNet50", "ResNet101", "ResNet152"] and args.descriptors_dimension not in [
+        if backbone in ["ResNet50", "ResNet101", "ResNet152"] and descriptors_dimension not in [
             32,
             64,
             128,
@@ -188,81 +194,81 @@ def parse_arguments():
             2048,
         ]:
             raise ValueError(
-                f"When using CosPlace with {args.backbone} the descriptors_dimension must be in [32, 64, 128, 256, 512, 1024, 2048]"
+                f"When using CosPlace with {backbone} the descriptors_dimension must be in [32, 64, 128, 256, 512, 1024, 2048]"
             )
 
-    elif args.vpr_model == "convap":
-        if args.backbone is None:
-            args.backbone = "ResNet50"
-        if args.descriptors_dimension is None:
-            args.descriptors_dimension = 512
-        if args.backbone not in [None, "ResNet50"]:
+    elif vpr_model == "convap":
+        if backbone is None:
+            backbone = "ResNet50"
+        if descriptors_dimension is None:
+            descriptors_dimension = 512
+        if backbone not in [None, "ResNet50"]:
             raise ValueError("When using Conv-AP the backbone must be None or ResNet50")
-        if args.descriptors_dimension not in [None, 512, 2048, 4096, 8192]:
+        if descriptors_dimension not in [None, 512, 2048, 4096, 8192]:
             raise ValueError(
                 "When using Conv-AP the descriptors_dimension must be one of [None, 512, 2048, 4096, 8192]"
             )
 
-    elif args.vpr_model == "mixvpr":
-        if args.backbone is None:
-            args.backbone = "ResNet50"
-        if args.descriptors_dimension is None:
-            args.descriptors_dimension = 512
-        if args.backbone not in [None, "ResNet50"]:
+    elif vpr_model == "mixvpr":
+        if backbone is None:
+            backbone = "ResNet50"
+        if descriptors_dimension is None:
+            descriptors_dimension = 512
+        if backbone not in [None, "ResNet50"]:
             raise ValueError("When using Conv-AP the backbone must be None or ResNet50")
-        if args.descriptors_dimension not in [None, 128, 512, 4096]:
+        if descriptors_dimension not in [None, 128, 512, 4096]:
             raise ValueError("When using Conv-AP the descriptors_dimension must be one of [None, 128, 512, 4096]")
 
-    elif args.vpr_model == "eigenplaces":
-        if args.backbone is None:
-            args.backbone = "ResNet50"
-        if args.descriptors_dimension is None:
-            args.descriptors_dimension = 512
-        if args.backbone == "VGG16" and args.descriptors_dimension not in [512]:
+    elif vpr_model == "eigenplaces":
+        if backbone is None:
+            backbone = "ResNet50"
+        if descriptors_dimension is None:
+            descriptors_dimension = 512
+        if backbone == "VGG16" and descriptors_dimension not in [512]:
             raise ValueError("When using EigenPlaces with VGG16 the descriptors_dimension must be in [512]")
-        if args.backbone == "ResNet18" and args.descriptors_dimension not in [256, 512]:
+        if backbone == "ResNet18" and descriptors_dimension not in [256, 512]:
             raise ValueError("When using EigenPlaces with ResNet18 the descriptors_dimension must be in [256, 512]")
-        if args.backbone in ["ResNet50", "ResNet101", "ResNet152"] and args.descriptors_dimension not in [
+        if backbone in ["ResNet50", "ResNet101", "ResNet152"] and descriptors_dimension not in [
             128,
             256,
             512,
             2048,
         ]:
             raise ValueError(
-                f"When using EigenPlaces with {args.backbone} the descriptors_dimension must be in [128, 256, 512, 2048]"
+                f"When using EigenPlaces with {backbone} the descriptors_dimension must be in [128, 256, 512, 2048]"
             )
 
-    elif args.vpr_model == "eigenplaces-indoor":
-        args.backbone = "ResNet50"
-        args.descriptors_dimension = 2048
+    elif vpr_model == "eigenplaces-indoor":
+        backbone = "ResNet50"
+        descriptors_dimension = 2048
 
-    elif args.vpr_model == "apgem":
-        args.backbone = "Resnet101"
-        args.descriptors_dimension = 2048
+    elif vpr_model == "apgem":
+        backbone = "Resnet101"
+        descriptors_dimension = 2048
 
-    elif args.vpr_model.startswith("anyloc"):
-        args.backbone = "DINOv2"
-        args.descriptors_dimension = 49152
+    elif vpr_model.startswith("anyloc"):
+        backbone = "DINOv2"
+        descriptors_dimension = 49152
 
-    elif args.vpr_model == "salad":
-        args.backbone = "DINOv2"
-        args.descriptors_dimension = 8448
+    elif vpr_model == "salad":
+        backbone = "DINOv2"
+        descriptors_dimension = 8448
 
-    elif args.vpr_model == "clique-mining":
-        args.backbone = "DINOv2"
-        args.descriptors_dimension = 8448
+    elif vpr_model == "clique-mining":
+        backbone = "DINOv2"
+        descriptors_dimension = 8448
 
-    elif args.vpr_model == "salad-indoor":
-        args.backbone = "Dinov2"
-        args.descriptors_dimension = 8448
+    elif vpr_model == "salad-indoor":
+        backbone = "Dinov2"
+        descriptors_dimension = 8448
 
-    elif args.vpr_model == "cricavpr":
-        args.backbone = "Dinov2"
-        args.descriptors_dimension = 10752
+    elif vpr_model == "cricavpr":
+        backbone = "Dinov2"
+        descriptors_dimension = 10752
 
-    if args.image_size and len(args.image_size) > 2:
+    if image_size and len(image_size) > 2:
         raise ValueError(
-            f"The --image_size parameter can only take up to 2 values, but has received {len(args.image_size)}."
+            f"The --image_size parameter can only take up to 2 values, but has received {len(image_size)}."
         )
 
-    return args
+    return vpr_model, backbone, descriptors_dimension

@@ -107,6 +107,13 @@ def eval(args):
 
 def summ(args):
     ##### Parse results
+    """ Example Output
+    query-database
+    Precision,Cecall
+    method 1,xx,xx
+    method 2,xx,xx
+    method 3,xx,xx
+    """    
     result_method = {}
     for method_name in sorted(os.listdir(args.result_dir)):
         method_path = os.path.join(args.result_dir, method_name)
@@ -151,23 +158,24 @@ def summ(args):
         f.write(csv_output)
 
     ##### Parse running_time
-    path_report_runtime = os.path.join(args.result_dir, 'runtime_results.txt')
-    with open(path_report_runtime, 'r') as file:
-        lines = file.readlines()
+    for querydb in all_querydbs:
+        path_report_runtime = os.path.join(args.result_dir, f"{querydb}-runtime_results.txt")
+        with open(path_report_runtime, 'r') as file:
+            lines = file.readlines()
 
-    data = dict()
-    for line in lines:
-        method, runtime = line.split(': ')
-        method = method.replace('(vpr_model + vpr_match_model + image_match_model) ', '')
-        data[method] = float(runtime.strip()[:-1])  # Remove the 's' from the end and convert to float
+        data = dict()
+        for line in lines:
+            method, runtime = line.split(': ')
+            method = method.replace('(vpr_model + vpr_match_model + image_match_model) ', '')
+            data[method] = float(runtime.strip()[:-1])  # Remove the 's' from the end and convert to float
 
-    for key in data.keys():
-        data[key] *= 1000
-        data[key] = '{:.0f}'.format(data[key])
+        for key in data.keys():
+            data[key] *= 1000
+            data[key] = '{:.0f}'.format(data[key])
 
-    df = pd.DataFrame(list(data.items()), columns=['Method', 'Runtime [ms]'])
-    path_report_eval_csv = path_report_runtime.replace('.txt', '.csv')
-    df.to_csv(path_report_eval_csv)
+        df = pd.DataFrame(list(data.items()), columns=['Method', 'Runtime [ms]'])
+        path_report_eval_csv = path_report_runtime.replace('.txt', '.csv')
+        df.to_csv(path_report_eval_csv)
     
 def main(args):
     if not os.path.exists(args.result_dir):
@@ -197,25 +205,3 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=args.log.upper())
     main(args)
-
-"""
-Example output:
-seq     : query-database1
-metric  : precision recall
-method 1: xx        xx
-method 2: xx        xx
-method 3: xx        xx
-
-seq     : query-database2
-metric  : precision recall
-method 1: xx        xx
-method 2: xx        xx
-method 3: xx        xx
-
-seq     : query-database3
-metric  : precision recall
-method 1: xx        xx
-method 2: xx        xx
-method 3: xx        xx
-
-"""
