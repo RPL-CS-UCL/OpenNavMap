@@ -16,84 +16,100 @@ import argparse
 import logging
 import numpy as np
 from pathlib import Path
-from sklearn.metrics import precision_recall_curve, average_precision_score
 import pandas as pd
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import precision_recall_curve, average_precision_score
 
 from utils.utils_file import *
 
-def is_same_place(poseA, poseB, tsl_thre, ang_thre):
+def is_same_place(poseA, poseB, trans_threshold, ori_threshold):
     Tc2w = convert_vec_to_matrix(poseA[4:], poseA[:4], 'wxyz')
     transA, quatA = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
     Tc2w = convert_vec_to_matrix(poseB[4:], poseB[:4], 'wxyz')
     transB, quatB = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-    dis_tsl, dis_angle = compute_relative_dis(transA, quatA, transB, quatB)			
-    return (dis_tsl < tsl_thre and dis_angle < ang_thre) 
+    dis_trans, dis_angle = compute_relative_dis(transA, quatA, transB, quatB)			
+    return (dis_trans < trans_threshold and dis_angle < ori_threshold) 
 
-def compute_vpr_metrics(dataset_path, query_name, database_name, results_vpr, 
-                        tsl_thre, ang_thre):
+def compute_metrics(dataset_path, results_vpr, 
+                    query_name, database_name, 
+                    trans_threshold, ori_threshold):
+
     poses_query = read_poses(os.path.join(dataset_path, 'query', 'out_map_' + query_name, 'poses_abs_gt.txt'))
     poses_db = read_poses(os.path.join(dataset_path, 'database', 'out_map_' + database_name, 'poses_abs_gt.txt'))
-    
     assert len(poses_query) > 0, "No query poses found"
     assert len(poses_db) > 0, "No database poses found"
 
-    # Compute the number of positive sample
-    y_true = [any(is_same_place(pose_query, pose_db, tsl_thre, ang_thre)
-              for pose_db in poses_db.values()) 
-              for pose_query in poses_query.values()]
-    y_true = [int(value) for value in y_true]
-    print(y_true)
+    """
+    Label Definitions:
+        - y_true = 1: Query image has a valid match (corresponding database image exists).
+        - y_true = 0: Query image has no valid match (no corresponding database image exists).
+    Prediction Logic:
+        - If the query image has a valid match (y_true=1):
+            - Correct Top-1 match -> True Positive (TP) (y_pred=1)
+            - Incorrect Top-1 match or No Top-1 match -> False Negative (FN) (y_pred=0)
+        - If the query image has no valid match (y_true=0):
+            - Any Top-1 retrieval -> False Positive (FP) (y_pred=1)
+            - No Top-1 retrieval  -> True Negative (TN) (y_pred=0)
+    """
+    # Generate binary labels
+    y_true = [0] * len(results_vpr)
+    for ind, result in enumerate(results_vpr):
+        query_name = result[0]
+        pose_query = poses_query[query_name]
+        for pose_db in poses_db.values():
+            same_place = is_same_place(pose_query, pose_db, trans_threshold, ori_threshold)
+            if same_place:
+                y_true[ind] = 1
 
-    total_samples = int(np.sum(y_true))
-    logging.info(f"Number of query as valid PR: {total_samples}")
+    logging.info(f"Number Valid Match of Queries: {np.sum(y_true)}")
 
-    # Compute the precision and recall
-    y_score = []
-    tp, fp = 0, 0
-
-    for result in results_vpr:
+    # Generate binary predictions
+    y_pred, y_score = [], []
+    for ind, result in enumerate(results_vpr):
         query_name, database_name, score, acc_flag = result[0], result[1], float(result[2]), int(result[3])
         pose_query, pose_db = poses_query[query_name], poses_db[database_name]
-        same_flag = is_same_place(pose_query, pose_db, tsl_thre, ang_thre)
+        if y_true[ind]:
+            # Any retrieval
+            if acc_flag > 0:
+                same_flag = is_same_place(pose_query, pose_db, trans_threshold, ori_threshold)
+                y_pred.append(int(same_flag))
+            # No retrieval
+            else:
+                y_pred.append(0)
+        else:
+            # Any retrieval
+            if acc_flag > 0:
+                y_pred.append(1)
+            # No retrieval
+            else:
+                y_pred.append(0)
+
         y_score.append(score)
 
-        # High confidence
-        if acc_flag > 0:
-            # Correct Loop detection with high confidence for acceptance
-            if same_flag:
-                tp += 1
-            # Wrong loop detection with high confidence
-            else:
-                fp += 1
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, zero_division=0)
+    recall = recall_score(y_true, y_pred, zero_division=0)
+    f1 = f1_score(y_true, y_pred, zero_division=0)
 
-    if tp + fp < 1:
-        precision = 0
-    else:
-        precision = tp / (tp + fp)
-    
-    if total_samples < 1:
-        recall = 0
-    else:
-        recall = tp / total_samples
-
-    f1_score = 2 * (precision * recall) / (precision + recall + 1e-9)
-
-    # Compute Curve data
+    # Compute curve data
     prec_values, recall_values, thres = precision_recall_curve(y_true, y_score)
     avg_precision = average_precision_score(y_true, y_score)
     
-    curves_data = dict()
-    curves_data['Precision Values'], curves_data['Recall Values'] = prec_values, recall_values
-    curves_data['Average Precision'] = avg_precision
-    curves_data['PR Thresholds'] = thres.tolist()
-
+    # Store results as dict()
     output_metrics = dict()
-    output_metrics['Positive Sample Number'] = total_samples
+    output_metrics['Accuracy'] = accuracy
     output_metrics['Precision'] = precision
     output_metrics['Recall'] = recall
-    output_metrics['F1 Score'] = f1_score
+    output_metrics['F1 Score'] = f1
     output_metrics['Average Precision'] = avg_precision
-    return output_metrics, curves_data
+    output_metrics['Valid Match Number'] = int(np.sum(y_true))
+
+    curves_data = dict()
+    curves_data['Precision Values'] = prec_values 
+    curves_data['Recall Values'] = recall_values
+    curves_data['Average Precision'] = avg_precision
+    curves_data['PR Thresholds'] = thres.tolist()
+    return output_metrics, curves_data, y_true, y_pred, y_score
 
 def plot_prec_recall_curve(precision_curve, recall_curve, average_precision=None):
     import matplotlib.pyplot as plt
@@ -111,42 +127,53 @@ def plot_prec_recall_curve(precision_curve, recall_curve, average_precision=None
     plt.ylabel('Precision')
     plt.title('Precision-Recall Curve')
     plt.legend(loc="lower left")
-    
     plt.grid(True, alpha=0.3)
     plt.show()
 
 def eval(args):
     output_querydb_metrics = dict()
+    y_true_all, y_pred_all, y_score_all = [], [], []
     for f in sorted(os.listdir(args.result_dir)):
         if 'submission-' in f:
             f_new = f.replace('.txt', '')
             query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
+            logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
 
             results_vpr = np.loadtxt(os.path.join(args.result_dir, f), dtype=object)           
-            output_metrics, curves_data = compute_vpr_metrics(
-                args.dataset_path, query_name, database_name, results_vpr,
-                args.tsl_thre, args.ang_thre
+            output_metrics, curves_data, y_true, y_pred, y_score = compute_metrics(
+                args.dataset_path, results_vpr,
+                query_name, database_name,
+                args.trans_threshold, args.ori_threshold
             )
 
             querydb_name = f"{query_name}-{database_name}"
             output_querydb_metrics[querydb_name] = output_metrics
-            logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
+            y_true_all  += y_true
+            y_pred_all  += y_pred
+            y_score_all += y_score
 
-            # plot_prec_recall_curve(curves_data['Precision Values'], curves_data['Recall Values'], output_metrics['Average Precision'])
+    # Compute mean metrics of all samples
+    mean_accuracy = accuracy_score(y_true_all, y_pred_all)
+    mean_precision = precision_score(y_true_all, y_pred_all, zero_division=0)
+    mean_recall = recall_score(y_true_all, y_pred_all, zero_division=0)
+    mean_f1 = f1_score(y_true_all, y_pred_all, zero_division=0)
+    output_querydb_metrics['Mean Accuracy'] = mean_accuracy
+    output_querydb_metrics['Mean Precision'] = mean_precision
+    output_querydb_metrics['Mean Recall'] = mean_recall
+    output_querydb_metrics['Mean F1 Score'] = mean_f1
+    output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
+    output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
 
+    # prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
+    # avg_precision = average_precision_score(y_true_all, y_score_all)    
+    # plot_prec_recall_curve(prec_values, recall_values, avg_precision)
+
+    # Save metrics as a json file
     output_json = json.dumps(output_querydb_metrics, indent=2)
     with open(os.path.join(args.result_dir, 'report_evaluation.json'), 'w') as f:
         f.write(output_json)
 
 def summ(args):
-    ##### Parse results
-    """ Example Output
-    query-database
-    Precision, Cecall, Positive Sample Number, Total Runtime [ms], Query Number
-    method 1, xx, xx, ...
-    method 2, xx, xx, ...
-    method 3, xx, xx, ...
-    """    
     result_method = {}
     for method_name in sorted(os.listdir(args.result_dir)):
         method_path = os.path.join(args.result_dir, method_name)
@@ -168,33 +195,52 @@ def summ(args):
 
     # Generate CSV content
     for querydb in all_querydbs:
-        # Add section header for query database
-        csv_lines.append(f"{querydb}")
-        csv_lines.append("Method,Precision,Recall,F1 Score,Average Precision,Positive Sample Number,Total Runtime [ms],Query Number")
-
         json_file = os.path.join(args.result_dir, f"runtime_results-{querydb}.json")
         with open(json_file, 'r') as f:
             json_data = json.load(f)
 
-        # Add each method's metrics
+        csv_lines.append(f"{querydb}")
+        csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score," + \
+                         "Average Precision,Valid Match Number," + \
+                         "Total Runtime [ms],Query Number")
+        
         for method in sorted_methods:
             metrics = result_method.get(method, {}).get(querydb, {})
+
+            accuracy = metrics.get('Accuracy', 0)
             precision = metrics.get('Precision', 0)
             recall = metrics.get('Recall', 0)
-            f1_score = metrics.get('F1 Score', 0)
+            f1 = metrics.get('F1 Score', 0)
+            
             avg_prec = metrics.get('Average_Precision', 0)
-            num_pos_sample = metrics.get('Positive Sample Number', 0)
+            num_valid_match = metrics.get('Valid Match Number', 0)
             if method in json_data:
                 total_runtime = json_data[method]['Total Runtime [s]'] * 1000
                 num_query = json_data[method]['Query Number']
             else:
                 total_runtime = float('nan')
                 num_query = float('nan')
-            csv_lines.append(f"{method},{precision:.3f},{recall:.3f},{f1_score:.3f},{avg_prec:.3f}," + 
-                             f"{num_pos_sample},{total_runtime:.1f},{num_query}")
+                
+            csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
+                             f"{avg_prec:.3f},{num_valid_match}," + \
+                             f"{total_runtime:.1f},{num_query}")
         
         # Add empty line between sections
         csv_lines.append("")
+
+    # Output Mean Results
+    csv_lines.append("Mean Results")
+    csv_lines.append("Method,Mean Accuracy,Mean Precision,Mean Recall,Mean F1 Score")
+    for method in sorted_methods:
+        metrics = result_method.get(method, {})
+        mean_accuracy = metrics.get('Mean Accuracy')
+        mean_precision = metrics.get('Mean Precision', 0)
+        mean_recall = metrics.get('Mean Recall', 0)
+        mean_f1 = metrics.get('Mean F1 Score', 0)
+        total_valid = metrics.get('Total Valid Match Number', 0)
+        total_query = metrics.get('Total Query Number', 0)   
+        csv_lines.append(f"{method},{mean_accuracy:.3f},{mean_precision:.3f},{mean_recall:.3f},{mean_f1:.3f}," + \
+                         f"{total_valid},{total_query}") 
 
     # Remove the last empty line to avoid trailing newline
     if csv_lines and csv_lines[-1] == "":
@@ -219,9 +265,9 @@ if __name__ == '__main__':
                         help='Path to the submission files')
     parser.add_argument('--dataset_path', type=Path, default=None,
                         help='Path to the dataset folder')
-    parser.add_argument('--tsl_thre', type=float, default=7.5, 
+    parser.add_argument('--trans_threshold', type=float, default=7.5, 
                         help='Threshold (meters) to consider two poses as the same place.')
-    parser.add_argument('--ang_thre', type=float, default=75.0, 
+    parser.add_argument('--ori_threshold', type=float, default=75.0, 
                         help='Threshold (degree) to consider two poses as the same place.')
     parser.add_argument('--log', choices=('warning', 'info', 'error'),
                         default='warning', help='Logging level. Default: warning')

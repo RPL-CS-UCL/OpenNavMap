@@ -27,7 +27,7 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     VPR_MODELS="cosplace"
     VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
     IMAGE_MATCH_MODELS="none master"
-    VPR_MATCH_SEQ_LENS="5 10 12 20"
+    VPR_MATCH_SEQ_LENS="5 12 20"
 
     # VPR_MODELS="cosplace"
     # VPR_MATCH_MODELS="sequence_match_ransac"
@@ -48,6 +48,5 @@ for db_dir in "$DATASET_PATH"/database/*/; do
       --out_dir $OUT_DIR
       echo ""
 
-      break
   done
 done

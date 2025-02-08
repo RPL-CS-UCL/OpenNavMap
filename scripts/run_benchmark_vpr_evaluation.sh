@@ -12,16 +12,24 @@ DATASET_PATH=$1
 # Export environment variables
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 methods=(
-         "cosplace_single_match_none" 
-         "cosplace_single_match_master"
-         "cosplace_sequence_match_none"
-         "cosplace_sequence_match_master"
-         "cosplace_sequence_match_ransac_none"
-         "cosplace_sequence_match_ransac_master"
+         "cosplace_single_match_1_none" 
+         "cosplace_single_match_1_master"
+         "cosplace_sequence_match_5_none"
+         "cosplace_sequence_match_5_master"
+         "cosplace_sequence_match_12_none"
+         "cosplace_sequence_match_12_master"
+         "cosplace_sequence_match_20_none"
+         "cosplace_sequence_match_20_master"
+         "cosplace_sequence_match_ransac_5_none"
+         "cosplace_sequence_match_ransac_5_master"
+         "cosplace_sequence_match_ransac_12_none"
+         "cosplace_sequence_match_ransac_12_master"
+         "cosplace_sequence_match_ransac_20_none"
+         "cosplace_sequence_match_ransac_20_master"
         )
 
 # methods=(
-#          "cosplace_sequence_match_ransac_master"
+#          "cosplace_sequence_match_12_master"
 #         )
 
 # Evaluation and generate report_evaluation.txt
@@ -31,8 +39,8 @@ do
   python $PROJECT_PATH/python/benchmark_vpr/evaluation.py \
     --result_dir $DATASET_PATH/results_vpr/$method \
     --dataset_path $DATASET_PATH \
-    --tsl_thre 7.5 \
-    --ang_thre 75.0 \
+    --trans_threshold 7.5 \
+    --ori_threshold 75.0 \
     --log warning \
     --option eval
   echo ""

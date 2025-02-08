@@ -190,7 +190,7 @@ def eval(args):
 			for str_image_match_model in args.image_match_models:
 				
 				if 'single_match' in str_vpr_match_model:
-					seq_lens = [0]
+					seq_lens = [1]
 				else:
 					seq_lens = args.vpr_match_seq_lens
 
