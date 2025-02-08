@@ -33,12 +33,12 @@ def extract_descriptors(model, test_ds, args):
 		database_dataloader = DataLoader(
 			dataset=database_subset_ds,
 			num_workers=args.num_workers,
-			batch_size=args.batch_size,
+			batch_size=1,
 		)
 		all_descriptors = np.empty(
 			(len(test_ds), args.descriptors_dimension), dtype="float32"
 		)
-		for images, indices, image_name in tqdm(database_dataloader):
+		for images, indices, _ in tqdm(database_dataloader):
 			descriptors = model(images.to(args.device))
 			descriptors = descriptors.cpu().numpy()
 			all_descriptors[indices.numpy(), :] = descriptors
@@ -52,9 +52,11 @@ def extract_descriptors(model, test_ds, args):
 			list(range(test_ds.num_database, test_ds.num_database + test_ds.num_queries)),
 		)
 		queries_dataloader = DataLoader(
-			dataset=queries_subset_ds, num_workers=args.num_workers, batch_size=1
+			dataset=queries_subset_ds, 
+			num_workers=args.num_workers, 
+			batch_size=1
 		)
-		for images, indices, image_name in tqdm(queries_dataloader):
+		for images, indices, _ in tqdm(queries_dataloader):
 			descriptors = model(images.to(args.device))
 			descriptors = descriptors.cpu().numpy()
 			all_descriptors[indices.numpy(), :] = descriptors
@@ -82,7 +84,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	for query_indice in range(len(queries_descriptors)):
 		query_image_name = queries_image_names[query_indice]
 		query_descs = queries_descriptors[max(0, query_indice-vpr_match_model.seqLen+1) : query_indice+1]
-	
+			
 		start_time = time.time()	
 		_, pred, score = vpr_match_model.match(query_descs)
 		total_vpr_time += time.time() - start_time
@@ -137,7 +139,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 					result = {'num_inliers': 0.0}
 				total_gv_time += time.time() - start_time
 
-				if result['num_inliers'] > 100:
+				if result['num_inliers'] > 50:
 					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], result['num_inliers'], 1)
 				else:
 					best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], result['num_inliers'], 0)
@@ -182,38 +184,50 @@ def eval(args):
 	query_name = args.queries_folder.split('out_map_')[-1]
 	database_name = args.database_folder.split('out_map_')[-1]
 	output_time = dict()
+
 	for str_vpr_model in args.vpr_models:
 		for str_vpr_match_model in args.vpr_match_models:
 			for str_image_match_model in args.image_match_models:
-				setting = f"{str_vpr_model}_{str_vpr_match_model}_{str_image_match_model}"
-				logging.warning(f"Evaluating VPR Setting: {setting}")
-				log_dir = Path(output_root / f"{setting}")
-				log_dir.mkdir(parents=True, exist_ok=True)
-				Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
 				
-				str_vpr_model, backbone, descriptors_dimension = \
-					parser.check_vpr_params(str_vpr_model, args.backbone, args.descriptors_dimension, args.image_size)
-
-				vpr_model = initialize_vpr_model(str_vpr_model, backbone, descriptors_dimension, args.device)
-				vpr_match_model = initialize_match_model(str_vpr_match_model)
-				if str_image_match_model == "none":
-					image_matcher_model = None
+				if 'single_match' in str_vpr_match_model:
+					seq_lens = [0]
 				else:
-					image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
-				results_dict, total_runtime = predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
-				print(Fore.GREEN + 
-					f"Running {str_vpr_model} [VPR Model] {str_vpr_match_model} [VPR Match Model] {str_image_match_model} [Image Match Model]" + 
-					Style.RESET_ALL)
+					seq_lens = args.vpr_match_seq_lens
 
-				# Save runtimes to txt
-				output_time[setting] = dict()
-				output_time[setting]['Total Runtime [s]'] = total_runtime
-				output_time[setting]['Query Number'] = len(test_ds.queries_image_names)
+				for vpr_match_seq_len in seq_lens:
+					setting = f"{str_vpr_model}_{str_vpr_match_model}_{vpr_match_seq_len}_{str_image_match_model}"
+					logging.warning(f"Evaluating VPR Setting: {setting}")
+					log_dir = Path(output_root / f"{setting}")
+					log_dir.mkdir(parents=True, exist_ok=True)
+					Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
+					
+					str_vpr_model, backbone, descriptors_dimension = \
+						parser.check_vpr_params(str_vpr_model, args.backbone, args.descriptors_dimension, args.image_size)
 
-				# Save predictions to txt per scene
-				save_submission(results_dict, log_dir / f"submission-{query_name}-{database_name}.txt")
-				if args.debug:
-					save_predictions(results_dict, test_ds, log_dir)
+					vpr_model = initialize_vpr_model(str_vpr_model, backbone, descriptors_dimension, args.device)
+					vpr_match_model = initialize_match_model(str_vpr_match_model, vpr_match_seq_len)
+					if str_image_match_model == "none":
+						image_matcher_model = None
+					else:
+						image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
+					results_dict, total_runtime = \
+						predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
+			
+					print(Fore.GREEN + 
+						  f"Running {str_vpr_model} [VPR Model] " + 
+						  f"{str_vpr_match_model} [VPR Match Model] with {vpr_match_seq_len} [Seq] " +
+						  f"{str_image_match_model} [Image Match Model]" + 
+						  Style.RESET_ALL)
+
+					# Save runtimes to txt
+					output_time[setting] = dict()
+					output_time[setting]['Total Runtime [s]'] = total_runtime
+					output_time[setting]['Query Number'] = test_ds.num_queries
+
+					# Save predictions to txt per scene
+					save_submission(results_dict, log_dir / f"submission-{query_name}-{database_name}.txt")
+					if args.debug:
+						save_predictions(results_dict, test_ds, log_dir)
 
 	output_json = json.dumps(output_time, indent=2)
 	with open(os.path.join(args.out_dir, f"runtime_results-{query_name}-{database_name}.json"), 'w') as f:

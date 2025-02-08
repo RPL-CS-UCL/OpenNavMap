@@ -10,7 +10,6 @@ fi
 
 DATASET_PATH=$1
 
-
 for db_dir in "$DATASET_PATH"/database/*/; do
   DATABASE_NAME="$(basename "$db_dir")"
   for query_dir in "$DATASET_PATH"/query/*/; do
@@ -26,13 +25,13 @@ for db_dir in "$DATASET_PATH"/database/*/; do
 
     # Set evaluation methods
     VPR_MODELS="cosplace"
-    # VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
-    VPR_MATCH_MODELS="sequence_match"
-    # IMAGE_MATCH_MODELS="none master"
+    VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
+    IMAGE_MATCH_MODELS="none master"
+    VPR_MATCH_SEQ_LENS="5 10 12 20"
 
     # VPR_MODELS="cosplace"
-    # VPR_MATCH_MODELS="single_match"
-    IMAGE_MATCH_MODELS="master"
+    # VPR_MATCH_MODELS="sequence_match_ransac"
+    # IMAGE_MATCH_MODELS="none"
 
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \
       --database_folder $DATABASE_PATH \
@@ -41,11 +40,14 @@ for db_dir in "$DATASET_PATH"/database/*/; do
       --descriptors_dimension $DESC_DIMENSION \
       --vpr_models $VPR_MODELS \
       --vpr_match_models $VPR_MATCH_MODELS \
+      --vpr_match_seq_lens $VPR_MATCH_SEQ_LENS \
       --image_match_models $IMAGE_MATCH_MODELS \
       --num_preds_to_save 3 \
       --image_size 512 288 \
       --device cuda \
       --out_dir $OUT_DIR
-    echo ""
+      echo ""
+
+      break
   done
 done

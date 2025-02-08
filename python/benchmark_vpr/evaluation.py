@@ -19,7 +19,7 @@ from pathlib import Path
 from sklearn.metrics import precision_recall_curve, average_precision_score
 import pandas as pd
 
-from utils.utils import *
+from utils.utils_file import *
 
 def is_same_place(poseA, poseB, tsl_thre, ang_thre):
     Tc2w = convert_vec_to_matrix(poseA[4:], poseA[:4], 'wxyz')

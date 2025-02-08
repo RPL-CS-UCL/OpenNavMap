@@ -60,6 +60,11 @@ def parse_arguments():
         ]
     )
     parser.add_argument(
+        "--vpr_match_seq_lens", 
+        type=int, 
+        nargs="+",
+        default=10)
+    parser.add_argument(
         "--image_match_models",
         type=str,
         nargs="+",

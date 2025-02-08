@@ -12,37 +12,33 @@ from sklearn.cluster import MeanShift, DBSCAN, AffinityPropagation
 from matplotlib import pyplot as plt
 
 import copy
-from evo.core.trajectory import PosePath3D
-from utils.utils_trajectory import align_trajectory
 import pycpptools.src.python.utils_math as pytool_math
 
 class PlaceRecognitionSeqMatching:
-	def __init__(self, seqLen=12, enable_ransac=False):
+	def __init__(self, seqLen, enable_ransac=False):
+		# Base sequence length (used as reference)
+		self.seqLen = seqLen
+		self.matchWindow = 10
+				
+		# Velocity parameters (expanded range)
+		self.vMin = 0.4                
+		self.vMax = 2.5                
+		self.numVel = 30               
+		
+		# Original parameters remain
 		self.wContrast = 10
-		self.enhance = False  # False for learning-based VPR methods
+		self.enhance = False
 
-		# NOTE(gogojjh): 
-		# seqLen = 20 is robust, but may reject sequences with litter overlap
-		# seqLen = 12 is acceptable
-		self.seqLen = seqLen   # Length for the sequence matching
-		self.vMin = 0.5        
-		self.vMax = 2.0       # vMax * seqLen. <= db_descriptors.shape[0] - 1
-		self.numVel = 20      # Number of velocities to enumerate
-
-		self.matchWindow = 10 # window size for selecting the best score < number of template
-
-		self.prev_pred = -1
-
-		self.MAX_SCORE = 2.0
-
+		self.MAX_DIST = 2.0
 		self.ENABLE_RANSAC = enable_ransac
+
 		self.RANSAC_ITERATIONS = 100
 		self.RANSAC_LINE_DIS_THRESHOLD = 3.0
 		self.RANSAC_LINE_MIN_ANGLE = np.rad2deg(np.arctan2(0.55, 1)) # 26deg velocity of database is 0.5 times of query
 		self.RANSAC_LINE_MAX_ANGLE = np.rad2deg(np.arctan2(3, 1)) # 71deg velocity of database is 3 times of query
 		# NOTE(gogojjh):
 		# DIFF_MATRIX_SCORE = 1.20 is not a strict threshold
-		# DIFF_MATRIX_SCORE = 1.1 is a strict threshold
+		# DIFF_MATRIX_SCORE = 1.10 is a strict threshold
 		self.DIFF_MATRIX_SCORE = 1.2
 
 	def initialize_model(self, db_descriptors, recall_values=5):
@@ -62,45 +58,17 @@ class PlaceRecognitionSeqMatching:
 			dists = self._compute_dist_desc(query_desc)
 			recall_preds = np.argsort(dists)[:self.recall_values]
 			pred = recall_preds[0]
-			score = self.MAX_SCORE - dists[pred]
-			self.prev_pred = pred
+			score = self.MAX_DIST - dists[pred]
 			return recall_preds, pred, score
 
 		D = self.compute_diff_matrix(query_descriptors)
-		if self.enhance: D = self._enhance_contrast(D)
+		if self.enhance: 
+			D = self._enhance_contrast(D)
 
-		##### To be removed
-		# Use the last prediction to shorten the search range		
-		# if self.prev_pred >= 0:
-		# 	top_row_idx = max(0, self.prev_pred - int(self.seqLen * 2))
-		# 	bottom_row_idx = min(D.shape[0], self.prev_pred + int(self.seqLen * 2))
-		# 	D_cut = D[top_row_idx:bottom_row_idx, :]
-
-		# 	# N: number of database descriptors
-		# 	# L: number of query descriptors with sequence length
-		# 	self.N, self.L = D_cut.shape
-		# 	template_scores, template_velocities = self._score_ref_templates(D_cut)
-		# 	recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
-
-		# 	pred += top_row_idx
-		# 	recall_preds = [p + top_row_idx for p in recall_preds]
-
-		# 	# If the new match is not consistent with previous, search the whole difference matrix
-		# 	if abs(pred - self.prev_pred) > self.seqLen:
-		# 		self.N, self.L = D.shape
-		# 		template_scores, template_velocities = self._score_ref_templates(D)
-		# 		recall_preds, pred, score = self._locate_best_match(template_scores, template_velocities, backward)
-
-		# 	self.prev_pred = pred
-		#####
-
-		if self.prev_pred >= 0:
-			self.N, self.L = D.shape
-			template_scores, template_velocities = self._score_ref_templates(D)
-			recall_preds, pred, dist = self._locate_best_match(template_scores, template_velocities, backward)
-			score = self.MAX_SCORE - dist
-			self.prev_pred = pred
-
+		self.N, self.L = D.shape
+		template_scores, template_velocities = self._score_ref_templates(D)
+		recall_preds, pred, dist = self._locate_best_match(template_scores, template_velocities, backward)
+		score = self.MAX_DIST - dist
 		return recall_preds, pred, score
 
 	def ransac_check_match(self, D_all: np.array, db_query_indices: list):
@@ -212,23 +180,19 @@ class PlaceRecognitionSeqMatching:
 		return Denhanced
 
 	def _score_ref_templates(self, D):
-		# Add rows on D for exceeding
-		rows_to_add = int(self.seqLen * self.vMax)
-		add_matrix = np.full((rows_to_add, D.shape[1]), 10)
-		D_aug = np.vstack((D, add_matrix))
-
 		# v = vMin, vMin+vStep, ..., vMax
 		velocities = np.linspace(self.vMin, self.vMax, self.numVel + 1)
-		# t = 0, ..., L
-		times = np.arange(self.L)
 		# i = 0, ..., max_ind <- truncated so line search not cut off
-		max_ind = int(self.N - 1 - self.vMin * self.L)
+		max_ind = int(self.N - 1 - self.vMax * self.L)
 		# last template image to begin sequence matching on: 0, 1, ..., max_ind - 1
 		refs = np.arange(max_ind) 
 		# D score for best velocity for each starting point (template image)
 		# optD[i]: best score for sequence starting at template i
 		optD = np.empty(max_ind); optD[:] = np.inf
 		optV = np.empty(max_ind); optV[:] = np.inf
+
+		# t = 0, ..., L
+		times = np.arange(self.L)
 		for vel in velocities:
 			# indices in D for line search given a particular velocity
 			# include all template number
@@ -242,7 +206,7 @@ class PlaceRecognitionSeqMatching:
 			# line search indices for the query sequence
 			col_indices = np.tile(times, max_ind)
 			# evaluate D at indices and sum to get aggregate difference
-			Dsum = np.sum(D_aug[row_indices, col_indices].reshape(max_ind, self.L), axis=1)
+			Dsum = np.sum(D[row_indices, col_indices].reshape(max_ind, self.L), axis=1)
 			# for sequence matching scores better than
 			# prior scores (under different velocities), update
 			ind_better = Dsum < optD
@@ -281,7 +245,7 @@ class PlaceRecognitionSeqMatching:
 
 	def save_diff_matrix_fitting(self, out_dir, connected_indices, best_indices, 
 								 D_all, db_map, query_map, lines_coeff, cluster_data, cluster_labels):
-		fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))
+		fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(18, 4))
 
 		im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
 		for edge in connected_indices:
@@ -341,6 +305,15 @@ class PlaceRecognitionSeqMatching:
 		ax3.set_xlim(0, D_all.shape[1])
 		ax3.set_ylim(0, D_all.shape[0])
 		ax3.invert_yaxis()
+
+		im4 = ax4.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+		fig.colorbar(im4, ax=ax4)
+		ax4.set_xlabel('Query Desc Index')
+		ax4.set_ylabel('Database Desc Index')
+		ax4.set_title(f"Cluster")
+		ax4.set_xlim(0, D_all.shape[1])
+		ax4.set_ylim(0, D_all.shape[0])
+		ax4.invert_yaxis()
 
 		plt.savefig(f"{out_dir}/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
 		plt.close()
@@ -460,25 +433,4 @@ if __name__ == "__main__":
 		connected_indices, best_indices, 
 		D_all, db_map, query_map, 
 		lines_coeff, cluster_data, cluster_labels)
-	################################################
-
-	################################################
-	# for edge in best_indices:
-	# 	db_node, query_node = db_map.get_node(edge[0]), query_map.get_node(edge[1])
-	# 	dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-	# 		query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt)
-	# 	fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-	# 	ax[0].imshow(db_node.rgb_image.permute(1, 2, 0))
-	# 	ax[0].set_title("Database")
-	# 	ax[0].set_axis_off()
-	# 	ax[1].imshow(query_node.rgb_image.permute(1, 2, 0))
-	# 	ax[1].set_title("Query")
-	# 	ax[1].set_axis_off()
-	# 	if dis_tsl < 20.0:
-	# 		plt.suptitle(f"Correct Prediction: DB {db_node.id} - Query {query_node.id} - Score {edge[2]:.3f}")
-	# 		plt.savefig(f"{args.query_map_path}/preds/db_query_{query_node.id}_correct.jpg")
-	# 	else:
-	# 		plt.suptitle(f"Wrong Prediction: DB {db_node.id} - Query {query_node.id} - Score {edge[2]:.3f}")		
-	# 		plt.savefig(f"{args.query_map_path}/preds/db_query_{query_node.id}_wrong.jpg")
-	# 	plt.close()
 	################################################
