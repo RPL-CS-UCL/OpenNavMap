@@ -21,6 +21,7 @@ from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_sc
 from sklearn.metrics import precision_recall_curve, average_precision_score
 
 from utils.utils_file import *
+from utils.utils_vpr_method import save_prec_recall_curve
 
 def is_same_place(poseA, poseB, trans_threshold, ori_threshold):
     Tc2w = convert_vec_to_matrix(poseA[4:], poseA[:4], 'wxyz')
@@ -101,8 +102,8 @@ def compute_metrics(dataset_path, results_vpr,
     output_metrics['Precision'] = precision
     output_metrics['Recall'] = recall
     output_metrics['F1 Score'] = f1
-    output_metrics['Average Precision'] = avg_precision
     output_metrics['Valid Match Number'] = int(np.sum(y_true))
+    output_metrics['Query Number'] = int(len(y_true))
 
     curves_data = dict()
     curves_data['Precision Values'] = prec_values 
@@ -110,25 +111,6 @@ def compute_metrics(dataset_path, results_vpr,
     curves_data['Average Precision'] = avg_precision
     curves_data['PR Thresholds'] = thres.tolist()
     return output_metrics, curves_data, y_true, y_pred, y_score
-
-def plot_prec_recall_curve(precision_curve, recall_curve, average_precision=None):
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(8, 6))
-    plt.plot(recall_curve, precision_curve, 
-             color='b', lw=2, 
-             label=f'Precision-Recall curve')
-    if average_precision is not None:
-        plt.plot([], [], ' ', 
-                 label=f'Average Precision = {average_precision:.3f}')
-    
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision-Recall Curve')
-    plt.legend(loc="lower left")
-    plt.grid(True, alpha=0.3)
-    plt.show()
 
 def eval(args):
     output_querydb_metrics = dict()
@@ -153,20 +135,21 @@ def eval(args):
             y_score_all += y_score
 
     # Compute mean metrics of all samples
-    mean_accuracy = accuracy_score(y_true_all, y_pred_all)
-    mean_precision = precision_score(y_true_all, y_pred_all, zero_division=0)
-    mean_recall = recall_score(y_true_all, y_pred_all, zero_division=0)
-    mean_f1 = f1_score(y_true_all, y_pred_all, zero_division=0)
-    output_querydb_metrics['Mean Accuracy'] = mean_accuracy
-    output_querydb_metrics['Mean Precision'] = mean_precision
-    output_querydb_metrics['Mean Recall'] = mean_recall
-    output_querydb_metrics['Mean F1 Score'] = mean_f1
+    accuracy = accuracy_score(y_true_all, y_pred_all)
+    precision = precision_score(y_true_all, y_pred_all, zero_division=0)
+    recall = recall_score(y_true_all, y_pred_all, zero_division=0)
+    f1 = f1_score(y_true_all, y_pred_all, zero_division=0)
+    output_querydb_metrics['Accuracy'] = accuracy
+    output_querydb_metrics['Precision'] = precision
+    output_querydb_metrics['Recall'] = recall
+    output_querydb_metrics['F1 Score'] = f1
     output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
     output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
 
-    # prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
-    # avg_precision = average_precision_score(y_true_all, y_score_all)    
-    # plot_prec_recall_curve(prec_values, recall_values, avg_precision)
+    prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
+    avg_precision = average_precision_score(y_true_all, y_score_all)    
+    output_querydb_metrics['Average Precision'] = avg_precision
+    save_prec_recall_curve(args.result_dir, prec_values, recall_values, avg_precision)
 
     # Save metrics as a json file
     output_json = json.dumps(output_querydb_metrics, indent=2)
@@ -186,7 +169,9 @@ def summ(args):
     # Collect all unique query databases and sort them
     all_querydbs = set()
     for method_metrics in result_method.values():
-        all_querydbs.update(method_metrics.keys())
+        for k in method_metrics.keys():
+            if '-' in k:
+                all_querydbs.add(k)
     all_querydbs = sorted(all_querydbs)
 
     # Sort method names
@@ -201,7 +186,7 @@ def summ(args):
 
         csv_lines.append(f"{querydb}")
         csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score," + \
-                         "Average Precision,Valid Match Number," + \
+                         "Valid Match Number," + \
                          "Total Runtime [ms],Query Number")
         
         for method in sorted_methods:
@@ -211,8 +196,6 @@ def summ(args):
             precision = metrics.get('Precision', 0)
             recall = metrics.get('Recall', 0)
             f1 = metrics.get('F1 Score', 0)
-            
-            avg_prec = metrics.get('Average_Precision', 0)
             num_valid_match = metrics.get('Valid Match Number', 0)
             if method in json_data:
                 total_runtime = json_data[method]['Total Runtime [s]'] * 1000
@@ -222,7 +205,7 @@ def summ(args):
                 num_query = float('nan')
                 
             csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
-                             f"{avg_prec:.3f},{num_valid_match}," + \
+                             f"{num_valid_match}," + \
                              f"{total_runtime:.1f},{num_query}")
         
         # Add empty line between sections
@@ -230,16 +213,19 @@ def summ(args):
 
     # Output Mean Results
     csv_lines.append("Mean Results")
-    csv_lines.append("Method,Mean Accuracy,Mean Precision,Mean Recall,Mean F1 Score")
+    csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score,Average Precision," + 
+                     "Total Valid Match Number,Total Query Number")
     for method in sorted_methods:
         metrics = result_method.get(method, {})
-        mean_accuracy = metrics.get('Mean Accuracy')
-        mean_precision = metrics.get('Mean Precision', 0)
-        mean_recall = metrics.get('Mean Recall', 0)
-        mean_f1 = metrics.get('Mean F1 Score', 0)
+        accuracy = metrics.get('Accuracy')
+        precision = metrics.get('Precision', 0)
+        recall = metrics.get('Recall', 0)
+        f1 = metrics.get('F1 Score', 0)
+        avg_precision = metrics.get('Average Precision', 0)
         total_valid = metrics.get('Total Valid Match Number', 0)
         total_query = metrics.get('Total Query Number', 0)   
-        csv_lines.append(f"{method},{mean_accuracy:.3f},{mean_precision:.3f},{mean_recall:.3f},{mean_f1:.3f}," + \
+        csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
+                         f"{avg_precision:.3f}," + \
                          f"{total_valid},{total_query}") 
 
     # Remove the last empty line to avoid trailing newline
@@ -273,8 +259,7 @@ if __name__ == '__main__':
                         default='warning', help='Logging level. Default: warning')
     parser.add_argument('--option', choices=('eval', 'summ'), 
                         default='eval', help='Running option. Default: eval')
-
-    args = parser.parse_args()      
-
+    
+    args = parser.parse_args()
     logging.basicConfig(level=args.log.upper())
     main(args)

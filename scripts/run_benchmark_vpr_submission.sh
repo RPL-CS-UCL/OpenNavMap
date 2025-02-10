@@ -24,14 +24,15 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     export DESC_DIMENSION="256"
 
     # Set evaluation methods
-    VPR_MODELS="cosplace"
-    VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
-    IMAGE_MATCH_MODELS="none master"
-    VPR_MATCH_SEQ_LENS="5 12 20"
-
     # VPR_MODELS="cosplace"
-    # VPR_MATCH_MODELS="sequence_match_ransac"
-    # IMAGE_MATCH_MODELS="none"
+    # VPR_MATCH_MODELS="single_match sequence_match sequence_match_ransac"
+    # IMAGE_MATCH_MODELS="none master"
+    # VPR_MATCH_SEQ_LENS="5 12 20"
+
+    VPR_MODELS="cosplace"
+    VPR_MATCH_MODELS="sequence_match sequence_match_ransac"
+    IMAGE_MATCH_MODELS="none master"
+    VPR_MATCH_SEQ_LENS="7 9"
 
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \
       --database_folder $DATABASE_PATH \
