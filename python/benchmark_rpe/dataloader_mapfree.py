@@ -9,10 +9,9 @@ import torch.utils.data as data
 import numpy as np
 from transforms3d.quaternions import qinverse, qmult, rotate_vector, quat2mat
 
-# sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../map_free_reloc"))
-# from lib.datasets.utils import read_color_image, read_depth_image, correct_intrinsic_scale
-
 SEED = 42 # Set constant random seed for reproducibility
+random.seed(SEED)
+np.random.seed(SEED)
 
 def correct_intrinsic_scale(K, scale_x, scale_y):
     """Given an intrinsic matrix (3x3) and two scale factors, returns the new intrinsic matrix corresponding to
@@ -36,7 +35,7 @@ class MapFreeScene(data.Dataset):
         super().__init__()
 
         self.scene_root = Path(scene_root)
-        self.resize = resize
+        self.resize = resize # WxH
         self.transforms = transforms
         self.test_scene = test_scene
 
@@ -66,7 +65,7 @@ class MapFreeScene(data.Dataset):
                 K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
                 K_ori[img_name] = K
                 im_size_ori[img_name] = np.array([W, H])
-                if resize is not None:
+                if resize is not None: # default: None
                     Ks[img_name] = correct_intrinsic_scale(K, resize[0] / W, resize[1] / H)
                     im_size[img_name] = np.array([resize[0], resize[1]])
                 else:
@@ -108,10 +107,9 @@ class MapFreeScene(data.Dataset):
         pairs: np.ndarray [Npairs, 4] with each column representing seaA, imA, seqB, imB, respectively.
         """
         # Generate random pairs
-        random.seed(SEED)
         random_idxs = np.zeros((N_query, top_K), dtype=np.uint16)
         for i in range(N_query):
-            random_idxs[i, :] = np.random.choice(len(self.poses) - 1, size=top_K, replace=False)
+            random_idxs[i, :] = np.random.choice(len(self.poses) - 1, size=top_K, replace=False) 
         idxs = np.zeros((N_query, 3 + top_K), dtype=np.uint16)
         idxs[:, 2] = 1
         idxs[:, 3:] = random_idxs
@@ -243,7 +241,11 @@ class MapFreeDataset(data.ConcatDataset):
         # Init dataset objects for each scene
         data_srcs = [
             MapFreeScene(
-                data_root / scene, resize=None, overlap_limits=None, 
-                N_query=cfg.DATASET.N_QUERY, top_K=cfg.DATASET.TOP_K, 
-                transforms=None, test_scene=test_scene) for scene in scenes]
+                data_root / scene, 
+                resize=None,
+                overlap_limits=None, 
+                N_query=cfg.DATASET.N_QUERY, 
+                top_K=cfg.DATASET.TOP_K, 
+                transforms=None, 
+                test_scene=test_scene) for scene in scenes]
         super().__init__(data_srcs)
