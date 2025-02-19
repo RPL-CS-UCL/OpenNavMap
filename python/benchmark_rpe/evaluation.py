@@ -25,7 +25,7 @@ def plot_perfect_curve(P):
         ratio_values.append(ratio_tmp)
     return prec_values, ratio_values
 
-def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: str):
+def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: str, n_query: int):
     metric_manager = MetricManager()
 
     # load intrinsics and poses
@@ -55,13 +55,10 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
     else:
         logging.info(f'Loaded estimated poses for scene {scene}')
 
-    # The val/test set is subsampled by a factor of 5
-    gt_poses = subsample_poses(gt_poses, subsample=1)
-
     # failures encode how many frames did not have an estimate
     # e.g. user/method did not provide an estimate for that frame
     # it's different from when an estimate is provided with low confidence!
-    failures = 0
+    failures = n_query - len(estimated_poses)
 
     # Results encoded as dict
     # key: metric name; value: list of values (one per frame).
@@ -69,18 +66,14 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
     results = defaultdict(list)
 
     # compute metrics per frame
-    for frame_num, (q_gt, t_gt, _) in gt_poses.items():
-        if frame_num not in estimated_poses:
-            failures += 1
-            continue
-
-        q_est, t_est, confidence = estimated_poses[frame_num]
+    for frame_name, (q_est, t_est, confidence) in estimated_poses.items():
+        query_frame_name = frame_name.split(',')[-1]
+        q_gt, t_gt, _ = gt_poses[query_frame_name]
         inputs = Inputs(q_gt=q_gt, t_gt=t_gt, q_est=q_est, t_est=t_est,
-                        confidence=confidence, K=K[frame_num], W=W, H=H)
+                        confidence=confidence, K=K[query_frame_name], W=W, H=H)
         metric_manager(inputs, results)
 
     return results, failures
-
 
 def aggregate_results(all_results, all_failures):
     # aggregate metrics
@@ -128,7 +121,6 @@ def aggregate_results(all_results, all_failures):
     output_metrics[f'Estimates for % of frames'] = len(all_metrics['trans_err']) / total_samples
     return output_metrics, curves_data
 
-
 def count_unexpected_scenes(scenes: tuple, submission_zip: ZipFile):
     submission_scenes = [fname[5:-4]
                          for fname in submission_zip.namelist() if fname.startswith("pose_")]
@@ -146,7 +138,7 @@ def main(args):
     all_results = dict()
     all_failures = 0
     for scene in scenes:
-        metrics, failures = compute_scene_metrics(dataset_path, submission_zip, scene)
+        metrics, failures = compute_scene_metrics(dataset_path, submission_zip, scene, args.n_query)
         all_results[scene] = metrics
         all_failures += failures
 
@@ -176,6 +168,8 @@ if __name__ == '__main__':
                         help='Path to the submission ZIP file')
     parser.add_argument('--split', choices=('val', 'test'), default='test',
                         help='Dataset split to use for evaluation. Default: test')
+    parser.add_argument('--n_query', type=int, default=1,
+                        help='Number of query images for each scene')
     parser.add_argument('--log', choices=('warning', 'info', 'error'),
                         default='warning', help='Logging level. Default: warning')
     parser.add_argument('--dataset_path', type=Path, default=None,

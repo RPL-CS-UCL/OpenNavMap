@@ -13,17 +13,22 @@ DATASET_NAME=$1
 # Export environment variables
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
-export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/$DATASET_NAME/map_free_eval/"
-# models=("master" "duster" "hloc_disk_dilg" "vpr_cosplace_resnet18_512")
-models=("master" "hloc_disk_dilg" "vpr_cosplace_resnet18_512")
+export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/"
+export N_QUERY=20
+export TOP_K=2
 
+# models=("master" "duster" "hloc_disk_dilg" "vpr_cosplace_resnet18_512")
+models=("duster" "duster_calib")
+
+# Run the Python script
 for model in "${models[@]}"
 do
   echo "Evaluate pose_estimation methods: $model"
   python $PROJECT_PATH/python/benchmark_rpe/evaluation.py \
-    --submission_path $DATASET_PATH/results_rpe/$model/submission_15.zip \
+    --submission_path $DATASET_PATH/results_rpe/$model/submission_$TOP_K.zip \
     --dataset_path $DATASET_PATH \
+    --n_query $N_QUERY \
     --split test \
-    --log error
+    --log warning
   echo ""
 done
