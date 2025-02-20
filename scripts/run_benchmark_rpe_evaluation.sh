@@ -14,11 +14,11 @@ DATASET_NAME=$1
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/"
-export N_QUERY=20
+export N_QUERY=10
 export TOP_K=2
 
 # models=("master" "duster" "hloc_disk_dilg" "vpr_cosplace_resnet18_512")
-models=("duster" "duster_calib")
+models=("duster" "duster_calib" "duster_lora")
 
 # Run the Python script
 for model in "${models[@]}"

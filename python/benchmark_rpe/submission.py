@@ -76,11 +76,13 @@ def predict(loader, estimator, str_estimator, cfg):
 			}
 
 			start_time = time.time()
-			est_result = estimator(scene_root,
-								   list_img0_name, img1_name, 
-								   list_img0_poses, 
-								   list_img0_intr, img1_intr,
-								   est_opts)
+			est_result = estimator(
+				scene_root,
+				list_img0_name, img1_name, 
+				list_img0_poses, 
+				list_img0_intr, img1_intr,
+				est_opts
+			)
 			est_time = time.time() - start_time                       
 			running_time.append(est_time)
 
@@ -147,7 +149,7 @@ def eval(args):
 	# Create dataloader for different datasets
 	if args.split == 'test':
 		cfg.TRAINING.BATCH_SIZE = 1
-		cfg.TRAINING.NUM_WORKERS = 1
+		cfg.TRAINING.NUM_WORKERS = 2
 		cfg.DATASET.TOP_K = args.top_k
 		cfg.DATASET.N_QUERY = args.n_query
 		dataloader = DataModule(cfg).test_dataloader()

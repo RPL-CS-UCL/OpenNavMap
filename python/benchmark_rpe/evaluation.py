@@ -116,9 +116,10 @@ def aggregate_results(all_results, all_failures):
     output_metrics['Average Median Reprojection Error'] = avg_median_metrics['reproj_err']
     output_metrics[f'Precision @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = prec_pose
     output_metrics[f'AUC @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = auc_pose
-    output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
-    output_metrics[f'AUC @ VCRE < {config.vcre_threshold}px'] = auc_vcre
+    # output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
+    # output_metrics[f'AUC @ VCRE < {config.vcre_threshold}px'] = auc_vcre
     output_metrics[f'Estimates for % of frames'] = len(all_metrics['trans_err']) / total_samples
+    output_metrics[f'Frames Number for Estimation'] = total_samples
     return output_metrics, curves_data
 
 def count_unexpected_scenes(scenes: tuple, submission_zip: ZipFile):

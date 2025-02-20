@@ -14,11 +14,12 @@ DATASET_NAME=$1
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/results_rpe"
-export N_QUERY=20
+export N_QUERY=10
 export TOP_K=2
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
-export MODELS="duster duster_calib"
+# export MODELS="duster duster_calib"
+export MODELS="duster_lora"
 
 # Run the Python script
 python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODELS \
