@@ -14,7 +14,7 @@ DATASET_NAME=$1
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/test_pseudo_depth"
-export N_QUERY=10
+export N_QUERY=60
 export TOP_K=2
 
 # export MODEL="master"

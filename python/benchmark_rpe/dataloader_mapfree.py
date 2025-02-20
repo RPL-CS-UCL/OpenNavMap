@@ -104,12 +104,12 @@ class MapFreeScene(data.Dataset):
 
         Returns:
         idxx: np.ndarray of shape [N+1,], containing indices [0, k1, k2, ..., kN].
-        pairs: np.ndarray [Npairs, 4] with each column representing seaA, imA, seqB, imB, respectively.
+        pairs: np.ndarray [Npairs, 4] with each column representing seqA, imA, seqB, imB1, imB2, ..., respectively.
         """
         # Generate random pairs
         random_idxs = np.zeros((N_query, top_K), dtype=np.uint16)
         for i in range(N_query):
-            random_idxs[i, :] = np.random.choice(len(self.poses) - 1, size=top_K, replace=False) 
+            random_idxs[i, :] = np.random.choice(np.arange(len(self.poses) - 1), size=top_K, replace=False) 
         idxs = np.zeros((N_query, 3 + top_K), dtype=np.uint16)
         idxs[:, 2] = 1
         idxs[:, 3:] = random_idxs
