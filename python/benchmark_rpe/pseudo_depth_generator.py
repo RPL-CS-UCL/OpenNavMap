@@ -12,7 +12,13 @@ from rpe_default import cfg  # Import configuration settings
 
 def process_data(loader, estimator, args):
 	"""Process data batches to estimate and save depth maps."""
-	existing_keys = set()	
+	existing_keys = set()
+	data_pairs = []
+	est_opts = {
+		'known_extrinsics': True,
+		'known_intrinsics': True,
+		'resize': 512,
+	}
 	for data in tqdm(loader):
 		try:
 			scene_root = Path(data['scene_root'][0])
@@ -20,77 +26,68 @@ def process_data(loader, estimator, args):
 			list_img0_name = [name[0] for name in data['list_image0_path']]
 			list_img0_poses = [pose.squeeze(0) for pose in data['list_image0_pose']]
 			list_img0_intr = [{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} \
-								for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
+							  for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
 
 			img1_name = data['image1_path'][0]
 			img1_intr = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
-
-			# Check whether these images are already generated depth
-			k = sum(1 for img_name in list_img0_name if str(scene_root / img_name) in existing_keys)
-			if k == len(list_img0_name): 
-				continue
-			existing_keys.update(str(scene_root / img_name) for img_name in list_img0_name)
-			print(list_img0_name, img1_name)
-
-			# Configure estimation options
-			est_opts = {
-				'known_extrinsics': True,
-				'known_intrinsics': False,
-				'resize': 512,
-			}
-
+		
 			# Run depth estimation
+			print(f"Running test {list_img0_name[0]} {list_img0_name[1]} {img1_name}")
 			estimator(
 				scene_root,
-				list_img0_name,
-				img1_name,
-				list_img0_poses,
-				list_img0_intr,
+				list_img0_name, img1_name,
+				list_img0_poses, list_img0_intr,
 				img1_intr,
 				est_opts
 			)
 			# estimator.show_reconstruction()
-
 		except Exception as e:
 			print(f"Error processing: {e}")
+			continue			
 
 		# Retrieve and process depth map
 		depth_maps = estimator.scene.get_depthmaps()
 		weight_i = estimator.scene.weight_i
 		weight_j = estimator.scene.weight_j
 
-		# Check consistency
-		list_img_name = list_img0_name + [img1_name]
-		assert len(list_img_name) == len(depth_maps)
+		# Store depth_map0 and depth_map1 for simplicity
+		list_img_name = list_img0_name[:2]
+		list_depth_name = [name.replace('.jpg', '.pdepth.png') for name in list_img_name]
+		list_intr = list_img0_intr[:2]
 
-		# Create output path and save
-		for idx, (depth_map, img_name) in enumerate(zip(depth_maps, list_img_name)):
-			if idx == 0:
-				if weight_i['0_1'].mean() > weight_j['1_0'].mean():
-					weight_map = weight_i['0_1'].detach().cpu().numpy()
-				else:
-					weight_map = weight_j['1_0'].detach().cpu().numpy()
+		depths = [(d.detach().cpu().numpy() * 1000.0).astype(np.uint16) for d in depth_maps[:2]]
+		weights = [weight_i['0_1'].detach().cpu().numpy(), weight_j['0_1'].detach().cpu().numpy()]
+		masks = [w < estimator.calib_params['pseudo_gt_thre'] for w in weights[:2]]
+
+		# Only add new paris with reliable match
+		if all(np.sum(m) < d.size * 0.5 for m, d in zip(masks, depths)):
+			# Avoid duplicate update on the depth map
+			key1 = f"{scene_root.name}/{list_img0_name[0]}"
+			key2 = f"{scene_root.name}/{list_img0_name[1]}"
+			if key1 not in existing_keys and key2 not in existing_keys:
+				existing_keys.add(key1)
+				existing_keys.add(key2)
 			else:
-				key1, key2 = f"{0}_{idx}", f"{idx}_{0}"
-				if weight_i[key2].mean() > weight_j[key1].mean():
-					weight_map = weight_i[key2].detach().cpu().numpy()
-				else:
-					weight_map = weight_j[key1].detach().cpu().numpy()
+				continue			
 
-			depth_map_np = depth_map.detach().cpu().numpy() if torch.is_tensor(depth_map) else depth_map
-			depth_map_np = (depth_map_np * 1000).astype(np.uint16)
+			for idx in range(len(list_img_name)):
+				depth = depths[idx]; depth[masks[idx]] = 0
+				new_size = tuple(list_intr[idx]['im_size'].cpu().numpy().astype(int)) # WxH
+				re_depth = cv2.resize(depth, new_size, interpolation=cv2.INTER_NEAREST)
+				output_path = Path(args.out_dir) / scene_root.name / list_depth_name[idx]
+				output_path.parent.mkdir(parents=True, exist_ok=True)
+				cv2.imwrite(str(output_path), re_depth)
 
-			# Remove depth values with low confidence
-			mask_depth_low_conf = weight_map < estimator.calib_params['pseudo_gt_thre']
-			depth_map_np[mask_depth_low_conf] = 0
-			
-			rel_path = Path(img_name)
-			output_dir = Path(args.out_dir) / scene_root.name / rel_path.parent
-			output_dir.mkdir(parents=True, exist_ok=True)
-			output_path = output_dir / f"{rel_path.stem}.pdepth.png"
-			if not os.path.exists(output_path):
-				cv2.imwrite(str(output_path), depth_map_np)
+			data_pairs.append((scene_root.name, list_img0_name[0], list_img0_name[1], list_depth_name[0], list_depth_name[1]))
 
+	dtype = [
+		('scene_name', 'U20'),   # Unicode string up to 20 chars
+		('img0', 'U50'),         # Image path field
+		('img1', 'U50'),
+		('depth0', 'U50'),
+		('depth1', 'U50')
+	]
+	np.save(os.path.join(args.out_dir, 'mapfree_pairs.npy'), np.array(data_pairs, dtype=dtype))
 
 def main(args):
 	"""Main pipeline setup and execution."""
@@ -106,6 +103,7 @@ def main(args):
 
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
+	estimator.verbose = False
 	assert (estimator.calib_params is not None), "Should use duster_calib or master_calib"
 
 	# Process all images
