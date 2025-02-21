@@ -14,17 +14,18 @@ DATASET_NAME=$1
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/results_rpe"
+export LORA_WEIGHT="$OUT_DIR/../train_pseudo_depth/lora.pt"
 export N_QUERY=10
 export TOP_K=2
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
 # export MODELS="duster duster_calib"
-export MODELS="duster_lora"
+export MODELS="duster_calib_lora"
 
 # Run the Python script
 python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODELS \
   --out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-  --split test --debug
+  --lora_weight $LORA_WEIGHT --split test --debug
 
 # Unzip files
 export TMP_MODELS=($MODELS)

@@ -165,11 +165,11 @@ def eval(args):
 	output_root = Path(args.out_dir)
 	output_root.mkdir(parents=True, exist_ok=True)
 	with open(output_root / "runtime_results.txt", "w") as f:
-		# for model in args.models:
 		for model in args.models:
 			estimator = get_estimator(model, 
 									  device=args.device, 
-									  out_dir=os.path.join(args.out_dir, f'{model}/preds'))
+									  out_dir=os.path.join(args.out_dir, f'{model}/preds'),
+									  lora_weight=args.lora_weight)
 			results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg)
 
 			if args.debug:
@@ -226,6 +226,11 @@ if __name__ == "__main__":
 		default="test",
 		help="Dataset split to use for evaluation. Choose from test or val. Default: test",
 	)
+	parser.add_argument(
+		"--lora_weight",
+		default="lora.pt",
+		help="Path to the finetuned LoRA weight",
+	)	
 	parser.add_argument(
 		'--top_k', 
 		type=int, 
