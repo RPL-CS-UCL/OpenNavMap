@@ -21,12 +21,12 @@ export TOP_K=2
 export MODELS=(
 	"duster_nocalib_pretrain"
 	"duster_calib_pretrain"
-	"duster_calib_ftlora_12gtdepth"
-	"duster_calib_ftlora_16gtdepth"
-	"duster_calib_ftlora_20gtdepth"
 	"duster_calib_ftlora_12pdepth"
+	"duster_calib_ftlora_12gtdepth"
 	"duster_calib_ftlora_16pdepth"
+	"duster_calib_ftlora_16gtdepth"
 	"duster_calib_ftlora_20pdepth"
+	"duster_calib_ftlora_20gtdepth"
 )
 
 # Run the Python script

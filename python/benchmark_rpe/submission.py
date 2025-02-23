@@ -149,7 +149,7 @@ def eval(args):
 	# Create dataloader for different datasets
 	if args.split == 'test':
 		cfg.TRAINING.BATCH_SIZE = 1
-		cfg.TRAINING.NUM_WORKERS = 2
+		cfg.TRAINING.NUM_WORKERS = 1
 		cfg.DATASET.TOP_K = args.top_k
 		cfg.DATASET.N_QUERY = args.n_query
 		dataloader = DataModule(cfg).test_dataloader()
