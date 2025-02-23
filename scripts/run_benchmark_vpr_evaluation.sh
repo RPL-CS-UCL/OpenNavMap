@@ -11,7 +11,7 @@ DATASET_PATH=$1
 
 # Export environment variables
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
-methods=(
+METHODS=(
          "cosplace_single_match_1_none" 
          "cosplace_single_match_1_master"
          "cosplace_sequence_match_2_none"
@@ -40,12 +40,12 @@ methods=(
          "cosplace_sequence_match_ransac_20_master"
         )
 
-# methods=(
+# METHODS=(
 #          "cosplace_sequence_match_12_master"
 #         )
 
 # Evaluation and generate report_evaluation.txt
-for method in "${methods[@]}"
+for method in "${METHODS[@]}"
 do
   echo "Evaluate VPR methods: $method"
   python $PROJECT_PATH/python/benchmark_vpr/evaluation.py \

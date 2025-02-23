@@ -14,14 +14,18 @@ def process_data(loader, estimator, args):
 	"""Process data batches to estimate and save depth maps."""
 	existing_keys = set()
 	data_pairs = []
+	scene_data_cnt = dict()
 	est_opts = {
 		'known_extrinsics': True,
-		'known_intrinsics': True,
+		'known_intrinsics': False,
 		'resize': 512,
 	}
 	for data in tqdm(loader):
 		try:
 			scene_root = Path(data['scene_root'][0])
+			# Generate a fixed number of data for each scene
+			if scene_root.name in scene_data_cnt and scene_data_cnt[scene_root.name] * 2 >= args.n_query:
+				continue
 
 			list_img0_name = [name[0] for name in data['list_image0_path']]
 			list_img0_poses = [pose.squeeze(0) for pose in data['list_image0_pose']]
@@ -32,7 +36,7 @@ def process_data(loader, estimator, args):
 			img1_intr = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
 		
 			# Run depth estimation
-			print(f"Running test {list_img0_name[0]} {list_img0_name[1]} {img1_name}")
+			print(f"Running test {list_img0_name} {img1_name}")
 			estimator(
 				scene_root,
 				list_img0_name, img1_name,
@@ -60,7 +64,7 @@ def process_data(loader, estimator, args):
 		masks = [w < estimator.calib_params['pseudo_gt_thre'] for w in weights[:2]]
 
 		# Only add new paris with reliable match
-		if all(np.sum(m) < d.size * 0.5 for m, d in zip(masks, depths)):
+		if all(np.sum(m) < d.size * 0.35 for m, d in zip(masks, depths)):
 			# Avoid duplicate update on the depth map
 			key1 = f"{scene_root.name}/{list_img0_name[0]}"
 			key2 = f"{scene_root.name}/{list_img0_name[1]}"
@@ -71,14 +75,21 @@ def process_data(loader, estimator, args):
 				continue			
 
 			for idx in range(len(list_img_name)):
+				# Filter out unreliable depth
 				depth = depths[idx]; depth[masks[idx]] = 0
+				# Resize the depth image to the original size
 				new_size = tuple(list_intr[idx]['im_size'].cpu().numpy().astype(int)) # WxH
 				re_depth = cv2.resize(depth, new_size, interpolation=cv2.INTER_NEAREST)
 				output_path = Path(args.out_dir) / scene_root.name / list_depth_name[idx]
 				output_path.parent.mkdir(parents=True, exist_ok=True)
 				cv2.imwrite(str(output_path), re_depth)
+				print(f'Saving pdepth to {str(output_path)}')
 
 			data_pairs.append((scene_root.name, list_img0_name[0], list_img0_name[1], list_depth_name[0], list_depth_name[1]))
+			if scene_root.name in scene_data_cnt:
+				scene_data_cnt[scene_root.name] += 1
+			else:
+				scene_data_cnt[scene_root.name] = 1
 
 	dtype = [
 		('scene_name', 'U20'),   # Unicode string up to 20 chars
@@ -87,7 +98,18 @@ def process_data(loader, estimator, args):
 		('depth0', 'U50'),
 		('depth1', 'U50')
 	]
-	np.save(os.path.join(args.out_dir, 'mapfree_pairs.npy'), np.array(data_pairs, dtype=dtype))
+	print(f"Total pairs are generated: {len(data_pairs)}")
+	np.save(os.path.join(args.out_dir, f"mapfree_pairs_{len(data_pairs)*2}pdepth.npy"), np.array(data_pairs, dtype=dtype))
+
+	data_pairs_gtdepth = []
+	for pair in data_pairs:
+		new_pair = (
+			pair[0], pair[1], pair[2],
+			pair[3].replace('.pdepth.png', '.zed.png'),
+			pair[4].replace('.pdepth.png', '.zed.png')
+		)
+		data_pairs_gtdepth.append(new_pair)
+		np.save(os.path.join(args.out_dir, f"mapfree_pairs_{len(data_pairs)*2}gtdepth.npy"), np.array(data_pairs_gtdepth, dtype=dtype))
 
 def main(args):
 	"""Main pipeline setup and execution."""
@@ -98,13 +120,13 @@ def main(args):
 	cfg.TRAINING.BATCH_SIZE = 1
 	cfg.TRAINING.NUM_WORKERS = 1
 	cfg.DATASET.TOP_K = args.top_k
-	cfg.DATASET.N_QUERY = args.n_query
-	dataloader = DataModule(cfg).test_dataloader()
+	cfg.DATASET.N_QUERY = args.n_query * 5
+	dataloader = DataModule(cfg).train_dataloader()
 
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
 	estimator.verbose = False
-	assert (estimator.calib_params is not None), "Should use duster_calib or master_calib"
+	assert (estimator.calib_params is not None), "Should use duster_calib_pretrain or master_calib_pretrain"
 
 	# Process all images
 	process_data(dataloader, estimator, args)
@@ -113,7 +135,7 @@ if __name__ == "__main__":
 	# Configure command-line arguments
 	parser = argparse.ArgumentParser(description="Pseudo Depth Map Generator")
 	parser.add_argument("--config", required=True, help="Path to config.yaml")
-	parser.add_argument("--model", choices=['duster_calib', 'master_calib'], required=True, help="Model selection")
+	parser.add_argument("--model", required=True, help="Model selection")
 	parser.add_argument("--out_dir", required=True, help="Output directory")
 	parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
 	parser.add_argument("--top_k", type=int, default=2, help="Number of reference images")

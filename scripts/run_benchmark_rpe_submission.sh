@@ -13,23 +13,48 @@ DATASET_NAME=$1
 # Export environment variables
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
-export OUT_DIR="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/results_rpe"
-export LORA_WEIGHT="$OUT_DIR/../train_pseudo_depth/lora.pt"
-export N_QUERY=10
+export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval"
+export OUT_DIR="$DATASET_PATH/results_rpe"
+export N_QUERY=20
 export TOP_K=2
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
-# export MODELS="duster duster_calib"
-export MODELS="duster_calib_lora"
+export MODELS=(
+	"duster_nocalib_pretrain"
+	"duster_calib_pretrain"
+	"duster_calib_ftlora_12gtdepth"
+	"duster_calib_ftlora_16gtdepth"
+	"duster_calib_ftlora_20gtdepth"
+	"duster_calib_ftlora_12pdepth"
+	"duster_calib_ftlora_16pdepth"
+	"duster_calib_ftlora_20pdepth"
+)
+
+export LORA_WEIGHT=(
+	"none"
+	"none"
+	"$DATASET_PATH/train/lora_12gtdepth.pt"
+	"$DATASET_PATH/train/lora_16gtdepth.pt"
+	"$DATASET_PATH/train/lora_20gtdepth.pt"
+	"$DATASET_PATH/train/lora_12pdepth.pt"
+	"$DATASET_PATH/train/lora_16pdepth.pt"
+	"$DATASET_PATH/train/lora_20pdepth.pt"
+)
 
 # Run the Python script
-python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODELS \
-  --out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-  --lora_weight $LORA_WEIGHT --split test --debug
+for i in "${!MODELS[@]}"; do
+		MODEL="${MODELS[$i]}"
+		LORA_WEIGHT="${LORA_WEIGHT[$i]}"
+		echo "Processing model: $MODEL with LoRA weight: $LORA_WEIGHT"
+
+		python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODEL \
+			--out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
+			--lora_weight $LORA_WEIGHT --split test --debug
+		echo ""
+done			
 
 # Unzip files
-export TMP_MODELS=($MODELS)
-for MODEL in "${TMP_MODELS[@]}"; do
+for MODEL in "${MODEL[@]}"; do
 		mkdir "$OUT_DIR/$MODEL/submission_$TOP_K"
 		if [ -f "$OUT_DIR/$MODEL/submission_$TOP_K.zip" ]; then
 				unzip -o "$OUT_DIR/$MODEL/submission_$TOP_K.zip" -d "$OUT_DIR/$MODEL/submission_$TOP_K"
