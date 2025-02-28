@@ -110,8 +110,8 @@ def predict(loader, estimator, str_estimator, cfg):
 								loss=loss)
 			results_dict[scene_id].append(estimated_pose)
 
+			print(Fore.GREEN + f'Estimated Pose: {tcw.T}' + Style.RESET_ALL)
 			if args.debug:
-				print(Fore.GREEN + f'Estimated Pose: {tcw.T}' + Style.RESET_ALL)
 				out_est_dir = Path(os.path.join(args.out_dir, f"{str_estimator}"))
 				out_est_dir.mkdir(parents=True, exist_ok=True)
 				Path(out_est_dir / "preds").mkdir(parents=True, exist_ok=True)
@@ -126,6 +126,7 @@ def predict(loader, estimator, str_estimator, cfg):
 				
 				if args.viz: estimator.show_reconstruction(cam_size=cfg.DATASET.VIZ_CAM_SIZE)
 				save_indice += 1
+		
 		except Exception as e:
 			scene = data['scene_id'][0]
 			img1_name = data['image1_path'][0]

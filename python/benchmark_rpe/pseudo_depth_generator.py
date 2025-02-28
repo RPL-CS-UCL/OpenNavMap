@@ -61,10 +61,15 @@ def process_data(loader, estimator, args):
 
 		depths = [(d.detach().cpu().numpy() * 1000.0).astype(np.uint16) for d in depth_maps[:2]]
 		weights = [weight_i['0_1'].detach().cpu().numpy(), weight_j['0_1'].detach().cpu().numpy()]
-		masks = [w < estimator.calib_params['pseudo_gt_thre'] for w in weights[:2]]
+		valid_masks = [w >= estimator.calib_params['pseudo_gt_thre'] for w in weights[:2]]
 
-		# Only add new paris with reliable match
-		if all(np.sum(m) < d.size * 0.35 for m, d in zip(masks, depths)):
+
+ 		# Only add new paris with reliable match
+		SIZE_THRE = 0.3 # outdoor setting: 0.5; indoor setting: 0.65
+		for m, d in zip(valid_masks, depths):
+			print(f"{np.sum(m):.3f}, {d.size}, {d.size * SIZE_THRE:.3f}")
+
+		if all(np.sum(m) >= d.size * SIZE_THRE for m, d in zip(valid_masks, depths)):
 			# Avoid duplicate update on the depth map
 			key1 = f"{scene_root.name}/{list_img0_name[0]}"
 			key2 = f"{scene_root.name}/{list_img0_name[1]}"
@@ -76,7 +81,7 @@ def process_data(loader, estimator, args):
 
 			for idx in range(len(list_img_name)):
 				# Filter out unreliable depth
-				depth = depths[idx]; depth[masks[idx]] = 0
+				depth = depths[idx]; depth[~valid_masks[idx]] = 0
 				# Resize the depth image to the original size
 				new_size = tuple(list_intr[idx]['im_size'].cpu().numpy().astype(int)) # WxH
 				re_depth = cv2.resize(depth, new_size, interpolation=cv2.INTER_NEAREST)
@@ -89,7 +94,7 @@ def process_data(loader, estimator, args):
 			if scene_root.name in scene_data_cnt:
 				scene_data_cnt[scene_root.name] += 1
 			else:
-				scene_data_cnt[scene_root.name] = 1
+				scene_data_cnt[scene_root.name]  = 1
 
 	dtype = [
 		('scene_name', 'U20'),   # Unicode string up to 20 chars
@@ -101,15 +106,16 @@ def process_data(loader, estimator, args):
 	print(f"Total pairs are generated: {len(data_pairs)}")
 	np.save(os.path.join(args.out_dir, f"mapfree_pairs_{len(data_pairs)*2}pdepth.npy"), np.array(data_pairs, dtype=dtype))
 
-	data_pairs_gtdepth = []
-	for pair in data_pairs:
-		new_pair = (
-			pair[0], pair[1], pair[2],
-			pair[3].replace('.pdepth.png', '.zed.png'),
-			pair[4].replace('.pdepth.png', '.zed.png')
-		)
-		data_pairs_gtdepth.append(new_pair)
-		np.save(os.path.join(args.out_dir, f"mapfree_pairs_{len(data_pairs)*2}gtdepth.npy"), np.array(data_pairs_gtdepth, dtype=dtype))
+	if args.save_gtpair:
+		data_pairs_gtdepth = []
+		for pair in data_pairs:
+			new_pair = (
+				pair[0], pair[1], pair[2],
+				pair[3].replace('.pdepth.png', '.zed.png'),
+				pair[4].replace('.pdepth.png', '.zed.png')
+			)
+			data_pairs_gtdepth.append(new_pair)
+			np.save(os.path.join(args.out_dir, f"mapfree_pairs_{len(data_pairs)*2}gtdepth.npy"), np.array(data_pairs_gtdepth, dtype=dtype))
 
 def main(args):
 	"""Main pipeline setup and execution."""
@@ -126,6 +132,7 @@ def main(args):
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
 	estimator.verbose = False
+	estimator.set_calib_params(dict(mu=1.0, conf_thre=0.5, pseudo_gt_thre=args.pseudo_gt_thre))
 	assert (estimator.calib_params is not None), "Should use duster_calib_pretrain or master_calib_pretrain"
 
 	# Process all images
@@ -140,6 +147,8 @@ if __name__ == "__main__":
 	parser.add_argument("--device", default="cuda", choices=["cpu", "cuda"])
 	parser.add_argument("--top_k", type=int, default=2, help="Number of reference images")
 	parser.add_argument("--n_query", type=int, default=1, help="Number of query images")
+	parser.add_argument("--save_gtpair", action="store_true")
+	parser.add_argument("--pseudo_gt_thre", type=float, default=1.5, help="Pseudo gt threshold for specific datasets")
 	
 	args = parser.parse_args()
 	main(args)

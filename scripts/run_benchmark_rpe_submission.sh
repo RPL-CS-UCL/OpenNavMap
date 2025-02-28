@@ -3,7 +3,7 @@
 # Check if DATASET_NAME is provided
 if [ -z "$1" ]; then
 	echo "Error: DATASET_NAME is not specified."
-	echo "Usage: ./run_benchmark_rpe_submission.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus, mapfree)"
+	echo "Usage: ./run_benchmark_rpe_submission.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus, mapfree, hkust_aria)"
 	exit 1
 fi
 
@@ -13,7 +13,7 @@ DATASET_NAME=$1
 # Export environment variables
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
-export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval"
+export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/hkust_P000_N001/map_free_eval"
 export OUT_DIR="$DATASET_PATH/results_rpe"
 export N_QUERY=20
 export TOP_K=2
@@ -22,23 +22,23 @@ export TOP_K=2
 export MODELS=(
 	"duster_nocalib_pretrain"
 	"duster_calib_pretrain"
-	"duster_calib_ftlora_12pdepth"
-	"duster_calib_ftlora_16pdepth"
-	"duster_calib_ftlora_20pdepth"
-	"duster_calib_ftlora_12gtdepth"
-	"duster_calib_ftlora_16gtdepth"
-	"duster_calib_ftlora_20gtdepth"
+	# "duster_calib_ftlora_12pdepth"
+	# "duster_calib_ftlora_16pdepth"
+	# "duster_calib_ftlora_20pdepth"
+	# "duster_calib_ftlora_12gtdepth"
+	# "duster_calib_ftlora_16gtdepth"
+	# "duster_calib_ftlora_20gtdepth"
 )
 
 export LORA_WEIGHT=(
 	"none"
 	"none"
-	"$DATASET_PATH/train/lora_12pdepth.pt"
-	"$DATASET_PATH/train/lora_16pdepth.pt"
-	"$DATASET_PATH/train/lora_20pdepth.pt"
-	"$DATASET_PATH/train/lora_12gtdepth.pt"
-	"$DATASET_PATH/train/lora_16gtdepth.pt"
-	"$DATASET_PATH/train/lora_20gtdepth.pt"
+	# "$DATASET_PATH/train/lora_12pdepth.pt"
+	# "$DATASET_PATH/train/lora_16pdepth.pt"
+	# "$DATASET_PATH/train/lora_20pdepth.pt"
+	# "$DATASET_PATH/train/lora_12gtdepth.pt"
+	# "$DATASET_PATH/train/lora_16gtdepth.pt"
+	# "$DATASET_PATH/train/lora_20gtdepth.pt"
 )
 
 # Run the Python script
@@ -49,7 +49,8 @@ for i in "${!MODELS[@]}"; do
 
 		python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODEL \
 			--out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-			--lora_weight $LORA_WEIGHT --split test --debug
+			--lora_weight $LORA_WEIGHT --split test
+			#  --debug --viz
 		echo ""
 done			
 
