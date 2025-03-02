@@ -13,6 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../uti
 from benchmark.utils import load_poses, subsample_poses, load_K, precision_recall
 from benchmark.metrics import MetricManager, Inputs
 import benchmark.config as config
+from rpe_default import cfg
 
 def plot_perfect_curve(P):
     total_bins = 1000
@@ -128,8 +129,10 @@ def count_unexpected_scenes(scenes: tuple, submission_zip: ZipFile):
     return len(set(submission_scenes) - set(scenes))
 
 def main(args):
+    cfg.merge_from_file(args.config)
+
     dataset_path = args.dataset_path / args.split
-    scenes = tuple(f.name for f in dataset_path.iterdir() if f.is_dir())
+    scenes = tuple(cfg.DATASET.SCENES)
     try:
         submission_zip = ZipFile(args.submission_path, 'r')
     except FileNotFoundError as e:
@@ -165,6 +168,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         'eval', description='Evaluate submissions for the MapFree dataset benchmark')
+    parser.add_argument("--config", help="path to config file")
     parser.add_argument('--submission_path', type=Path, default='',
                         help='Path to the submission ZIP file')
     parser.add_argument('--split', choices=('val', 'test'), default='test',

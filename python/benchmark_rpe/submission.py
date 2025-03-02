@@ -68,10 +68,10 @@ def predict(loader, estimator, str_estimator, cfg):
 			print(Fore.GREEN + f'Loading Target Image: {img1_name}' + Style.RESET_ALL)
 
 			"""Absolute Pose Estimation"""
-			# TODO(gogojjh): Resize images and intrinsics inside the estimator
+			# TODO(gogojjh): Images and intrinsics are resized inside the estimator
 			est_opts = {
 				'known_extrinsics': True,
-				'known_intrinsics': False,
+				'known_intrinsics': True,
 				'resize': 512,
 			}
 
@@ -170,7 +170,7 @@ def eval(args):
 			estimator = get_estimator(model, 
 									  device=args.device, 
 									  out_dir=os.path.join(args.out_dir, f'{model}/preds'),
-									  lora_weight=args.lora_weight)
+									  lora_path=args.lora_path)
 			results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg)
 
 			if args.debug:
@@ -197,7 +197,7 @@ if __name__ == "__main__":
 		type=str,
 		nargs="+",
 		default="all",
-		choices=available_models
+		help=f"Available models: {str(available_models)}"
 	)
 	parser.add_argument(
 		"--device", type=str, default="cuda", choices=["cpu", "cuda"]
@@ -228,7 +228,7 @@ if __name__ == "__main__":
 		help="Dataset split to use for evaluation. Choose from test or val. Default: test",
 	)
 	parser.add_argument(
-		"--lora_weight",
+		"--lora_path",
 		default="lora.pt",
 		help="Path to the finetuned LoRA weight",
 	)	

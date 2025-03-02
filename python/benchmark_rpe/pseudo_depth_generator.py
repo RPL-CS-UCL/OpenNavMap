@@ -28,6 +28,7 @@ def process_data(loader, estimator, args):
 			else:
 				data_pairs[scene_root.name] = []
 				existing_pairs[scene_root.name] = set()
+				# Not include seq0/frame_00000.jpg
 				existing_pairs[scene_root.name].add(f"{scene_root.name}/seq0/frame_00000.jpg")
 
 			list_img0_name = [name[0] for name in data['list_image0_path']]
@@ -35,11 +36,10 @@ def process_data(loader, estimator, args):
 			list_img0_intr = [{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} \
 							  for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
 
-			# Use seq0/frame_00000.jpg
 			img1_name = data['image1_path'][0]
 			img1_intr = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
 
-			# Avoid duplicate update on the depth map
+			# Avoid duplicate computation
 			key1 = f"{scene_root.name}/{list_img0_name[0]}"
 			key2 = f"{scene_root.name}/{list_img0_name[1]}"
 			if (key1 in existing_pairs[scene_root.name]) or (key2 in existing_pairs[scene_root.name]):
@@ -59,10 +59,6 @@ def process_data(loader, estimator, args):
 			print(f"Error processing: {e}")
 			continue			
 		
-		# conf_i['i_j']: the confidence of ith image with i_j pair
-		# conf_j['i_j']: the confidence of jth image with i_j pair
-		# conf_i, conf_j = estimator.scene.conf_i, estimator.scene.conf_j
-
 		# weight_i['i_j']: the calibrated confidence of ith image with i_j pair
 		# weight_j['i_j']: the calibrated confidence of jth image with i_j pair
 		# weight map for pair (0, 1) -> weight_i['0_1'], weight_j['0_1']
@@ -92,10 +88,13 @@ def process_data(loader, estimator, args):
 				print(f"{np.sum(m):.3f}, {d.size}, {d.size * SIZE_THRE:.3f}")
 
 			if all(np.sum(m) >= d.size * SIZE_THRE for m, d in zip(valid_masks, depths)):
-				# Avoid duplicate update on the depth map
+				# Avoid duplicate update on the depth map and seq0/frame_00000.jpg
 				key1 = f"{scene_root.name}/{list_img_name[edge[0]]}"
 				key2 = f"{scene_root.name}/{list_img_name[edge[1]]}"
-				if (key1 in existing_pairs[scene_root.name]) or (key2 in existing_pairs[scene_root.name]):
+				if (key1 not in existing_pairs[scene_root.name]) and (key2 not in existing_pairs[scene_root.name]):
+					existing_pairs[scene_root.name].add(key1)
+					existing_pairs[scene_root.name].add(key2)
+				else:
 					continue
 
 				for idx in range(len(edge)):

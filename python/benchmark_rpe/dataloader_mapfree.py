@@ -31,13 +31,13 @@ def correct_intrinsic_scale(K, scale_x, scale_y):
 class MapFreeScene(data.Dataset):
     def __init__(
             self, scene_root, resize, overlap_limits=None, N_query=1, top_K=2, 
-            transforms=None, test_scene=False):
+            transforms=None, test_set=False):
         super().__init__()
 
         self.scene_root = Path(scene_root)
         self.resize = resize # WxH
         self.transforms = transforms
-        self.test_scene = test_scene
+        self.test_set = test_set
 
         # load absolute poses
         self.poses = self.read_poses(self.scene_root)
@@ -169,8 +169,8 @@ class MapFreeScene(data.Dataset):
         im_size_tar = torch.from_numpy(self.im_size[im_path_tar])
         im_size_ori_tar = torch.from_numpy(self.im_size_ori[im_path_tar])
 
-        # Get absolute pose of reference_images and target_image
-        if self.test_scene:
+        # Test: ground-truth pose is unavailable
+        if self.test_set:
             list_img_ref_pose = []
             for im_path in list_im_path_ref:
                 q, t = self.poses[im_path]
@@ -180,9 +180,9 @@ class MapFreeScene(data.Dataset):
                 T[:3, 3] = c
                 list_img_ref_pose.append(torch.from_numpy(T))
 
-            q, t = np.zeros([4]), np.zeros([3])
-            T = np.zeros([4, 4])
+            T = np.eye(4)
             img_tar_pose = torch.from_numpy(T)
+        # Not Test: ground-truth pose is available
         else:
             list_img_ref_pose = []
             for im_path in list_im_path_ref:
@@ -232,7 +232,7 @@ class MapFreeDataset(data.ConcatDataset):
         assert cfg.DATASET.N_QUERY >= 1 # At least 1 query for localization
 
         data_root = Path(cfg.DATASET.DATA_ROOT) / mode
-        test_scene = (mode == 'test')
+        test_set = (mode == 'test')
         scenes = cfg.DATASET.SCENES
         if scenes is None:
             # Locate all scenes of the current dataset
@@ -247,5 +247,5 @@ class MapFreeDataset(data.ConcatDataset):
                 N_query=cfg.DATASET.N_QUERY, 
                 top_K=cfg.DATASET.TOP_K, 
                 transforms=None, 
-                test_scene=test_scene) for scene in scenes]
+                test_set=test_set) for scene in scenes]
         super().__init__(data_srcs)
