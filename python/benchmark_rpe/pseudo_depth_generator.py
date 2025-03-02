@@ -39,6 +39,12 @@ def process_data(loader, estimator, args):
 			img1_name = data['image1_path'][0]
 			img1_intr = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
 
+			# Avoid duplicate update on the depth map
+			key1 = f"{scene_root.name}/{list_img0_name[0]}"
+			key2 = f"{scene_root.name}/{list_img0_name[1]}"
+			if (key1 in existing_pairs[scene_root.name]) or (key2 in existing_pairs[scene_root.name]):
+				continue
+
 			# Run depth estimation
 			print(f"Running test {list_img0_name} {img1_name}")
 			estimator(
@@ -89,11 +95,8 @@ def process_data(loader, estimator, args):
 				# Avoid duplicate update on the depth map
 				key1 = f"{scene_root.name}/{list_img_name[edge[0]]}"
 				key2 = f"{scene_root.name}/{list_img_name[edge[1]]}"
-				if (key1 not in existing_pairs[scene_root.name]) and (key2 not in existing_pairs[scene_root.name]):
-					existing_pairs[scene_root.name].add(key1)
-					existing_pairs[scene_root.name].add(key2)
-				else:
-					continue			
+				if (key1 in existing_pairs[scene_root.name]) or (key2 in existing_pairs[scene_root.name]):
+					continue
 
 				for idx in range(len(edge)):
 					# Filter out unreliable depth
