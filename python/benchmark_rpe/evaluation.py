@@ -8,11 +8,11 @@ from io import TextIOWrapper
 import json
 import logging
 import numpy as np
+import importlib
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../utils"))
 from benchmark.utils import load_poses, subsample_poses, load_K, precision_recall
 from benchmark.metrics import MetricManager, Inputs
-import benchmark.config as config
 from rpe_default import cfg
 
 def plot_perfect_curve(P):
@@ -76,7 +76,9 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 
     return results, failures
 
-def aggregate_results(all_results, all_failures):
+def aggregate_results(all_results, all_failures, eval_config):
+    config = importlib.import_module(f"benchmark.{eval_config}")
+
     # aggregate metrics
     median_metrics = defaultdict(list)
     all_metrics = defaultdict(list)
@@ -160,7 +162,7 @@ def main(args):
             f'Submission does not have any valid pose estimates')
         return
 
-    output_metrics, curves_data = aggregate_results(all_results, all_failures)
+    output_metrics, curves_data = aggregate_results(all_results, all_failures, args.eval_config)
     output_json = json.dumps(output_metrics, indent=2)
     print(output_json)
 
@@ -179,6 +181,8 @@ if __name__ == '__main__':
                         default='warning', help='Logging level. Default: warning')
     parser.add_argument('--dataset_path', type=Path, default=None,
                         help='Path to the dataset folder')
+    parser.add_argument('--eval_config', type=str, default='config_025_5',
+                        help='Evaluation config: config_005_5, config_025_5, config_025_10, config_1_10')   
 
     args = parser.parse_args()      
 

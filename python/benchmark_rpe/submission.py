@@ -59,7 +59,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			list_img0_poses = [pose.squeeze(0) for pose in data['list_image0_pose']]
 			list_img0_intr = [{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} \
 								for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
-
+			
 			img1_name = data['image1_path'][0]
 			img1_intr = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
 
@@ -69,9 +69,10 @@ def predict(loader, estimator, str_estimator, cfg):
 
 			"""Absolute Pose Estimation"""
 			# TODO(gogojjh): Images and intrinsics are resized inside the estimator
+			# TODO(gogojjh): Joint optimization of intrinsics is better
 			est_opts = {
 				'known_extrinsics': True,
-				'known_intrinsics': True,
+				'known_intrinsics': False,
 				'resize': 512,
 			}
 
@@ -111,6 +112,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			results_dict[scene_id].append(estimated_pose)
 
 			print(Fore.GREEN + f'Estimated Pose: {tcw.T}' + Style.RESET_ALL)
+			if args.viz: estimator.show_reconstruction(cam_size=cfg.DATASET.VIZ_CAM_SIZE)
 			if args.debug:
 				out_est_dir = Path(os.path.join(args.out_dir, f"{str_estimator}"))
 				out_est_dir.mkdir(parents=True, exist_ok=True)
@@ -122,9 +124,7 @@ def predict(loader, estimator, str_estimator, cfg):
 				save_log = Path(os.path.join(out_est_dir, 'preds', scene_id))
 				save_log.mkdir(exist_ok=True, parents=True)
 				avg_depth_error, corr_score = estimator.save_results(save_log, scene_root, list_depth_img_name, save_indice)
-				results_debug_dict[scene_id].append([avg_depth_error, corr_score])
-				
-				if args.viz: estimator.show_reconstruction(cam_size=cfg.DATASET.VIZ_CAM_SIZE)
+				results_debug_dict[scene_id].append([avg_depth_error, corr_score])	
 				save_indice += 1
 		
 		except Exception as e:
