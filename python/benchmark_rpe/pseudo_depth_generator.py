@@ -101,12 +101,12 @@ def process_data(loader, estimator, args):
 					list_depth_name[edge[0]], 
 					list_depth_name[edge[1]])
 				)
-			
+
 	for scene_name, split in finetune_split.items():
 		print(f"The number of finetun split for scene {scene_name}: {len(split)}")
-		output_path = Path(args.out_dir, 'split', f"train_{scene_name}_split.npy")
+		output_path = Path(args.out_dir, 'split', f"train_{scene_name}_split.txt")
 		output_path.parent.mkdir(parents=True, exist_ok=True)
-		np.savetxt(str(output_path), np.array(list(split)))
+		np.savetxt(str(output_path), np.array(list(split)).reshape(-1, 1), fmt="%s")
 
 	dtype = [('scene_name', 'U20'), ('img0', 'U50'), ('img1', 'U50'), ('depth0', 'U50'), ('depth1', 'U50')]
 	for scene_name, pairs in data_pairs.items():
@@ -140,7 +140,7 @@ def main(args):
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
 	estimator.verbose = True
-	estimator.niter = 10
+	estimator.niter = 1
 	estimator.set_calib_params(dict(mu=1.0, conf_thre=0.5, pseudo_gt_thre=args.pseudo_gt_thre))
 	assert (estimator.calib_params is not None), "Should use duster_calib_pretrain or master_calib_pretrain"
 
