@@ -63,16 +63,23 @@ def process_data(loader, estimator, args):
 		msp_edges = estimator.get_minimum_spanning_tree()
 		print('MST edges: ', msp_edges)
 
+		edge_scores = estimator.get_similarity()
+		sorted_edge_scores = dict(sorted(edge_scores.items(), key=lambda item: item[1], reverse=True))
+		MIN_SCORE = next(iter(sorted_edge_scores.items()))[1] * 0.5
+
 		# Generate and Store depth_map
 		list_depth_name = [name.replace('.jpg', '.pdepth.png') for name in list_img_name]
 		depths = [(d.detach().cpu().numpy() * 1000.0).astype(np.uint16) for d in depth_maps]
 
-		for edge in msp_edges:
-			edge_str = estimator.get_edge_str(edge[0], edge[1])
+		for edge_str, score in sorted_edge_scores.items():
+			print(f'Edges: {edge_str}')
+			if score < MIN_SCORE:
+				break
+			
+			edge = [int(edge_str.split('_')[0]), int(edge_str.split('_')[1])]
 			weights = [weight_i[edge_str].detach().cpu().numpy(), weight_j[edge_str].detach().cpu().numpy()]
 			valid_masks = [w >= estimator.calib_params['pseudo_gt_thre'] for w in weights]
 
-			print(f'Edges: {edge_str}')
 			SIZE_THRE = 0.0 # reliable match threshold - outdoor setting: 0.3; indoor setting: 0.65
 			for m, d in zip(valid_masks, depths):
 				print(f"{np.sum(m):.3f}, {d.size}, {d.size * SIZE_THRE:.3f}")
@@ -140,7 +147,7 @@ def main(args):
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
 	estimator.verbose = True
-	estimator.niter = 1
+	estimator.niter = 300
 	estimator.set_calib_params(dict(mu=1.0, conf_thre=0.5, pseudo_gt_thre=args.pseudo_gt_thre))
 	assert (estimator.calib_params is not None), "Should use duster_calib_pretrain or master_calib_pretrain"
 
