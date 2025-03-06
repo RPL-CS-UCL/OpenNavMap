@@ -22,31 +22,17 @@ export TOP_K=2
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
 export MODELS=(
-	"master"
+	# "master"
 	"duster_nocalib_pretrain"
-	"duster_calib_pretrain"
-	"duster_nocalib_ftlora_20pdepth"
-	"duster_nocalib_ftlora_20gtdepth"
-	# "duster_calib_ftlora_12pdepth"
-	# "duster_calib_ftlora_16pdepth"
-	# "duster_calib_ftlora_20pdepth"
-	# "duster_calib_ftlora_12gtdepth"
-	# "duster_calib_ftlora_16gtdepth"
-	# "duster_calib_ftlora_20gtdepth"
+	"duster_nocalib_ftlora_10pdepth"
+	"duster_nocalib_ftlora_10gtdepth"
 )
 
 export LORA_PATHS=(
-	"none"
-	"none"
-	"none"
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/lora_s00000_20pdepth.pt"
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/lora_s00000_20gtdepth.pt"
-	# "$DATASET_PATH/train/lora_12pdepth.pt"
-	# "$DATASET_PATH/train/lora_16pdepth.pt"
-	# "$DATASET_PATH/train/lora_20pdepth.pt"
-	# "$DATASET_PATH/train/lora_12gtdepth.pt"
-	# "$DATASET_PATH/train/lora_16gtdepth.pt"
-	# "$DATASET_PATH/train/lora_20gtdepth.pt"
+	# "none"
+	"none"	
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_10pdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_10gtdepth.pt"
 )
 
 # Run the Python script
@@ -57,7 +43,7 @@ for i in "${!MODELS[@]}"; do
 
 		python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODEL \
 			--out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-			--lora_path $LORA_PATH --split $SPLIT
+			--lora_path $LORA_PATH --split $SPLIT 
 			#  --debug --viz
 		echo ""
 done			
