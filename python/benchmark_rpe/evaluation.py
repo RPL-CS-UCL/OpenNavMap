@@ -164,8 +164,8 @@ def main(args):
 
     output_metrics, curves_data = aggregate_results(all_results, all_failures, args.eval_config)
     output_json = json.dumps(output_metrics, indent=2)
+    # print(json.dumps(output_json, separators=(',', ':')))
     print(output_json)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

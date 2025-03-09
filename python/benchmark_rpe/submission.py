@@ -165,29 +165,30 @@ def eval(args):
 
 	output_root = Path(args.out_dir)
 	output_root.mkdir(parents=True, exist_ok=True)
-	with open(output_root / "runtime_results.txt", "w") as f:
-		for model in args.models:
-			estimator = get_estimator(model, 
-									  device=args.device, 
-									  out_dir=os.path.join(args.out_dir, f'{model}/preds'),
-									  lora_path=args.lora_path)
-			results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg)
+	for model in args.models:
+		estimator = get_estimator(model, 
+									device=args.device, 
+									out_dir=os.path.join(args.out_dir, f'{model}/preds'),
+									lora_path=args.lora_path)
+		results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg)
 
-			if args.debug:
-				for scene, values in results_debug_dict.items():
-					np.savetxt(os.path.join(args.out_dir, f'{model}/preds', f'debug_{scene}.txt'), np.array(values), fmt='%.5f %.5f')
+		if args.debug:
+			for scene, values in results_debug_dict.items():
+				np.savetxt(os.path.join(args.out_dir, f'{model}/preds', f'debug_{scene}.txt'), np.array(values), fmt='%.5f %.5f')
 
-			print(Fore.GREEN + f"Running APE Method: {model}" + Style.RESET_ALL)
+		print(Fore.GREEN + f"Running APE Method: {model}" + Style.RESET_ALL)
 
-			# Save runtimes to txt
-			runtime_str = f"{model}: {avg_runtime:.3f}s"
+		log_dir = Path(output_root / f"{model}")
+		log_dir.mkdir(parents=True, exist_ok=True)
+
+		# Save runtimes to txt
+		runtime_str = f"{model}: {avg_runtime:.3f}s"
+		with open(log_dir / "runtime_results.txt", "w") as f:
 			f.write(runtime_str + "\n")
-			tqdm.write(runtime_str)
+		tqdm.write(runtime_str)
 
-			# Save predictions to txt per scene within zip
-			log_dir = Path(output_root / f"{model}")
-			log_dir.mkdir(parents=True, exist_ok=True)
-			save_submission(results_dict, log_dir / f"submission_{args.top_k}.zip")
+		# Save predictions to txt per scene within zip
+		save_submission(results_dict, log_dir / f"submission_{args.top_k}.zip")
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()

@@ -5,6 +5,8 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 import torch
+import matplotlib
+import matplotlib.pyplot as plt
 
 from datamodules import DataModule
 from estimator import get_estimator
@@ -54,10 +56,16 @@ def process_data(loader, estimator, args):
 		# weight_i['i_j']: the calibrated confidence of ith image with i_j pair
 		# weight_j['i_j']: the calibrated confidence of jth image with i_j pair
 		# weight map for pair (0, 1) -> weight_i['0_1'], weight_j['0_1']
+		conf_i, conf_j = estimator.scene.conf_i, estimator.scene.conf_j
 		weight_i, weight_j = estimator.scene.weight_i, estimator.scene.weight_j
+
+		# Color
+		colors = [(c.clip(min=0, max=1) * 255).astype(np.uint8) for c in estimator.scene.imgs]
 
 		# Retrieve and process depth map
 		depth_maps = estimator.scene.get_depthmaps()
+		depths = [(d.detach().cpu().numpy() * 1000.0).astype(np.uint16) for d in depth_maps]
+		list_depth_name = [name.replace('.jpg', '.pdepth.png') for name in list_img_name]
 
 		# The connectivity graph for computation
 		msp_edges = estimator.get_minimum_spanning_tree()
@@ -65,22 +73,16 @@ def process_data(loader, estimator, args):
 
 		edge_scores = estimator.get_similarity()
 		sorted_edge_scores = dict(sorted(edge_scores.items(), key=lambda item: item[1], reverse=True))
-		MIN_SCORE = next(iter(sorted_edge_scores.items()))[1] * 0.5
-
-		# Generate and Store depth_map
-		list_depth_name = [name.replace('.jpg', '.pdepth.png') for name in list_img_name]
-		depths = [(d.detach().cpu().numpy() * 1000.0).astype(np.uint16) for d in depth_maps]
 
 		for edge_str, score in sorted_edge_scores.items():
 			print(f'Edges: {edge_str}')
-			if score < MIN_SCORE:
-				break
 			
 			edge = [int(edge_str.split('_')[0]), int(edge_str.split('_')[1])]
+			confs = [conf_i[edge_str].detach().cpu().numpy(), conf_j[edge_str].detach().cpu().numpy()]
 			weights = [weight_i[edge_str].detach().cpu().numpy(), weight_j[edge_str].detach().cpu().numpy()]
 			valid_masks = [w >= estimator.calib_params['pseudo_gt_thre'] for w in weights]
 
-			SIZE_THRE = 0.0 # reliable match threshold - outdoor setting: 0.3; indoor setting: 0.65
+			SIZE_THRE = 0.00 # reliable match threshold - outdoor setting: 0.3; indoor setting: 0.65
 			for m, d in zip(valid_masks, depths):
 				print(f"{np.sum(m):.3f}, {d.size}, {d.size * SIZE_THRE:.3f}")
 
@@ -94,9 +96,43 @@ def process_data(loader, estimator, args):
 					
 					output_path = Path(args.out_dir) / 'pairs' / scene_root.name / list_depth_name[edge[idx]]
 					output_path.parent.mkdir(parents=True, exist_ok=True)
-					if not os.path.exists(str(output_path)):
+					if list_depth_name[edge[idx]] not in existing_pairs[scene_root.name]:
+						existing_pairs[scene_root.name].add(list_depth_name[edge[idx]])
+
 						cv2.imwrite(str(output_path), re_depth)
 						print(f'Saving pdepth to {str(output_path)}')
+
+						# Plot and save confidence map
+						output_path = Path(args.out_dir) / 'confs' / scene_root.name / list_depth_name[edge[idx]].replace('.pdepth.png', '.raw_conf.jpg')
+						output_path.parent.mkdir(parents=True, exist_ok=True)
+						conf_map = confs[idx]
+						fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+						im = ax.imshow(conf_map, cmap='jet')
+						ax.set_title('Confidence Map')
+						fig.colorbar(im, ax=ax)
+						plt.savefig(str(output_path))
+						plt.close(fig)  # Close the figure to free memory
+
+						# Plot and save weight map
+						output_path = Path(args.out_dir) / 'confs' / scene_root.name / list_depth_name[edge[idx]].replace('.pdepth.png', '.calib_conf.jpg')
+						output_path.parent.mkdir(parents=True, exist_ok=True)
+						weight_map = weights[idx]
+						fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+						im = ax.imshow(weight_map, cmap='jet')
+						ax.set_title('Weight Map')
+						fig.colorbar(im, ax=ax)
+						plt.savefig(str(output_path))
+						plt.close(fig)  # Close the figure to free memory
+
+						color = colors[edge[idx]]
+						jet = matplotlib.colormaps['jet']
+						weight_map[weight_map > 3] = 0
+						weight_map_normalized = weight_map.clip(min=0, max=3)
+						weight_map_rgba = jet(weight_map_normalized)
+						weight_map_rgb = 255 - (weight_map_rgba[..., :3] * 255).astype(np.uint8)						
+						color_weight = (0.5 * color + 0.5 * weight_map_rgb).astype(np.uint8)
+						output_path = Path(args.out_dir) / 'confs' / scene_root.name / list_depth_name[edge[idx]].replace('.pdepth.png', '.color_calib_conf.jpg')
+						cv2.imwrite(str(output_path), color_weight)
 
 				finetune_split[scene_root.name].add(list_img_name[edge[0]])
 				finetune_split[scene_root.name].add(list_img_name[edge[1]])
@@ -131,6 +167,15 @@ def process_data(loader, estimator, args):
 				pair[4].replace('.pdepth.png', f'.{cfg.DATASET.ESTIMATED_DEPTH}.png')) for pair in pairs
 			]
 			np.save(str(output_path).replace('pdepth', 'gtdepth'), np.array(pairs_gtdepth, dtype=dtype))
+
+			pairs_m3ddepth = [(
+				pair[0], 
+				pair[1], 
+				pair[2],
+				pair[3].replace('.pdepth.png', f'.metric3d.png'),
+				pair[4].replace('.pdepth.png', f'.metric3d.png')) for pair in pairs
+			]
+			np.save(str(output_path).replace('pdepth', 'm3ddepth'), np.array(pairs_m3ddepth, dtype=dtype))
 
 def main(args):
 	"""Main pipeline setup and execution."""
