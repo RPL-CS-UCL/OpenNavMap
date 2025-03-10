@@ -17,22 +17,22 @@ export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
-export N_QUERY=20
+export N_QUERY=30
 export TOP_K=2
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
 export MODELS=(
-	# "master"
+	"master"
 	"duster_nocalib_pretrain"
-	"duster_nocalib_ftlora_10pdepth"
-	"duster_nocalib_ftlora_10gtdepth"
+	"duster_nocalib_ftlora_pdepth"
+	"duster_nocalib_ftlora_gtdepth"
 )
 
 export LORA_PATHS=(
-	# "none"
+	"none"
 	"none"	
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_10pdepth.pt"
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_10gtdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_pdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_gtdepth.pt"
 )
 
 # Run the Python script

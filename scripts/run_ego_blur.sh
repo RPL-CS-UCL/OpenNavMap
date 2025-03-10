@@ -3,7 +3,7 @@
 export EGOBLUR_PATH="/Titan/code/robohike_ws/src/EgoBlur"
 export FACE_MODEL_PATH="/Rocket_ssd/image_matching_model_weights/ego_blur_face.jit"
 export LP_MODEL_PATH="/Rocket_ssd/image_matching_model_weights/ego_blur_lp.jit"
-export DATA_PATH="/Titan/dataset/data_litevloc/data_icra2025/map_free_eval/ucl_campus/map_free_eval/"
+export DATA_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/hkustgz_campus/map_free_eval/"
 
 # Create output root directory
 mkdir -p "$DATA_PATH/test_blur"
@@ -32,7 +32,7 @@ for SCENE in "$DATA_PATH"/test/*/; do
             python "$EGOBLUR_PATH/script/demo_ego_blur.py" \
                 --face_model_path "$FACE_MODEL_PATH" \
                 --lp_model_path "$LP_MODEL_PATH" \
-                --face_model_score_threshold 0.5 \
+                --face_model_score_threshold 0.2 \
                 --lp_model_score_threshold 0.5 \
                 --input_image_path "$INPUT_IMAGE" \
                 --output_image_path "$OUTPUT_IMAGE"

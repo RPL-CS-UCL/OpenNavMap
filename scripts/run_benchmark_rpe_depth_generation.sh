@@ -23,5 +23,5 @@ export MODEL="duster_calib_pretrain"
 # Run the Python script
 python $PROJECT_PATH/python/benchmark_rpe/pseudo_depth_generator.py --config $CONFIG_FILE --model $MODEL \
   --out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-  --pseudo_gt_thre 1.0 --save_gtpair \
+  --pseudo_gt_thre 1.5 	 --save_gtpair \
 	--device cuda
