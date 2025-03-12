@@ -33,8 +33,7 @@ class DataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         transforms = ColorJitter() if self.cfg.DATASET.AUGMENTATION_TYPE == 'colorjitter' else None
-        transforms = Grayscale(
-            num_output_channels=3) if self.cfg.DATASET.BLACK_WHITE else transforms
+        transforms = Grayscale(num_output_channels=3) if self.cfg.DATASET.BLACK_WHITE else transforms
 
         dataset = self.dataset_type(self.cfg, 'train', transforms=transforms)
         sampler = self.get_sampler(dataset)

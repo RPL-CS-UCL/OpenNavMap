@@ -116,12 +116,6 @@ class MapFreeScene(data.Dataset):
         pairs = idxs.copy()
         return pairs
 
-    def get_pair_path(self, pair):
-        seqA_id, imgA_id, seqB_id, list_imgB_id = pair[0], pair[1], pair[2], pair[3:]
-        tar_img_name = f'seq{seqA_id}/frame_{imgA_id:05}.jpg'
-        list_ref_img_name = [f'seq{seqB_id}/frame_{imgB_id:05}.jpg' for imgB_id in list_imgB_id]
-        return tar_img_name, list_ref_img_name
-
     def __len__(self):
         return self.pairs.shape[0] # Number of query
 
@@ -156,7 +150,12 @@ class MapFreeScene(data.Dataset):
                 - 'pair_id': ID of the pair.
         """
         
-        im_path_tar, list_im_path_ref = self.get_pair_path(self.pairs[index, :])
+        pair = self.pairs[index, :]
+        seqA_id, imgA_id, seqB_id, list_imgB_id = pair[0], pair[1], pair[2], pair[3:]
+        key_list = list(self.K.keys())
+
+        im_path_tar = key_list[0]
+        list_im_path_ref = sorted([key_list[imgB_id + 1] for imgB_id in list_imgB_id])
 
         # load intrinsics
         list_K_ref = [torch.from_numpy(self.K[im_path_ref]) for im_path_ref in list_im_path_ref]
@@ -233,7 +232,8 @@ class MapFreeDataset(data.ConcatDataset):
 
         data_root = Path(cfg.DATASET.DATA_ROOT) / mode
         test_set = (mode == 'test')
-        scenes = cfg.DATASET.SCENES
+
+        scenes = getattr(cfg.DATASET, f"{mode.upper()}_SCENES")
         if scenes is None:
             # Locate all scenes of the current dataset
             scenes = [s.name for s in data_root.iterdir() if s.is_dir()]
