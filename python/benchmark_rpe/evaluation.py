@@ -116,7 +116,7 @@ def aggregate_results(all_results, all_failures, eval_config):
     output_metrics = dict()
     output_metrics['Average Median Translation Error'] = avg_median_metrics['trans_err']
     output_metrics['Average Median Rotation Error'] = avg_median_metrics['rot_err']
-    output_metrics['Average Median Reprojection Error'] = avg_median_metrics['reproj_err']
+    # output_metrics['Average Median Reprojection Error'] = avg_median_metrics['reproj_err']
     output_metrics[f'Precision @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = prec_pose
     output_metrics[f'AUC @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = auc_pose
     # output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
@@ -134,7 +134,7 @@ def main(args):
     cfg.merge_from_file(args.config)
 
     dataset_path = args.dataset_path / args.split
-    scenes = tuple(cfg.DATASET.SCENES)
+    scenes = tuple(cfg.DATASET.TEST_SCENES)
     try:
         submission_zip = ZipFile(args.submission_path, 'r')
     except FileNotFoundError as e:
