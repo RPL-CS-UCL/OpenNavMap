@@ -18,7 +18,7 @@ def process_data(loader, estimator, args):
 	finetune_split = dict() # finetune_split[scene_name] store the list of finetune name of a scene
 	data_pairs = dict()     # data_pairs[scene_name] store the list of finetune pairs of a scene
 	est_opts = {
-		'known_extrinsics': True,
+		'known_extrinsics': False,
 		'known_intrinsics': False,
 		'resize': 512,
 	}
@@ -48,7 +48,7 @@ def process_data(loader, estimator, args):
 				None,
 				est_opts
 			)
-			# estimator.show_reconstruction()
+			estimator.show_reconstruction()
 		except Exception as e:
 			print(f"Error processing: {e}")
 			continue
@@ -60,7 +60,7 @@ def process_data(loader, estimator, args):
 		weight_i, weight_j = estimator.scene.weight_i, estimator.scene.weight_j
 
 		# Color
-		colors = [(c.clip(min=0, max=1) * 255).astype(np.uint8) for c in estimator.scene.imgs]
+		# colors = [(c.clip(min=0, max=1) * 255).astype(np.uint8) for c in estimator.scene.imgs]
 
 		# Retrieve and process depth map
 		depth_maps = estimator.scene.get_depthmaps()
@@ -69,35 +69,40 @@ def process_data(loader, estimator, args):
 
 		# The connectivity graph for computation
 		msp_edges = estimator.get_minimum_spanning_tree()
-		print('MST edges: ', msp_edges)
+		print('MST edges for Pose Estimation: ', msp_edges)
 
 		edge_scores = estimator.get_similarity()
 		sorted_edge_scores = dict(sorted(edge_scores.items(), key=lambda item: item[1], reverse=True))
+		max_score = next(iter(sorted_edge_scores.values()))
 
 		for edge_str, score in sorted_edge_scores.items():
-			print(f'Edges: {edge_str}')
+			if score < max_score * 0.3:
+				continue
 			
+			print(f'Edges: {edge_str}')
+
 			edge = [int(edge_str.split('_')[0]), int(edge_str.split('_')[1])]
 			confs = [conf_i[edge_str].detach().cpu().numpy(), conf_j[edge_str].detach().cpu().numpy()]
 			weights = [weight_i[edge_str].detach().cpu().numpy(), weight_j[edge_str].detach().cpu().numpy()]
 			valid_masks = [w >= estimator.calib_params['pseudo_gt_thre'] for w in weights]
 
-			SIZE_THRE = 0.00 # reliable match threshold - outdoor setting: 0.3; indoor setting: 0.65
+			SIZE_THRE = 0.1 # reliable match threshold - outdoor setting: 0.3; indoor setting: 0.65
 			for m, d in zip(valid_masks, depths):
 				print(f"{np.sum(m):.3f}, {d.size}, {d.size * SIZE_THRE:.3f}")
 
 			if all(np.sum(m) >= d.size * SIZE_THRE for m, d in zip(valid_masks, depths)):
 				for idx in range(len(edge)):
-					# Filter out unreliable depth
-					depth = depths[edge[idx]]; depth[~valid_masks[idx]] = 0
-					# Resize the depth image to the original size
-					new_size = tuple(list_img_intr[edge[idx]]['im_size'].cpu().numpy().astype(int)) # WxH
-					re_depth = cv2.resize(depth, new_size, interpolation=cv2.INTER_NEAREST)
-					
-					output_path = Path(args.out_dir) / 'pairs' / scene_root.name / list_depth_name[edge[idx]]
-					output_path.parent.mkdir(parents=True, exist_ok=True)
 					if list_depth_name[edge[idx]] not in existing_pairs[scene_root.name]:
 						existing_pairs[scene_root.name].add(list_depth_name[edge[idx]])
+
+						# Filter out unreliable depth
+						depth = depths[edge[idx]]; depth[~valid_masks[idx]] = 0
+						# Resize the depth image to the original size
+						new_size = tuple(list_img_intr[edge[idx]]['im_size'].cpu().numpy().astype(int)) # WxH
+						re_depth = cv2.resize(depth, new_size, interpolation=cv2.INTER_NEAREST)
+						
+						output_path = Path(args.out_dir) / 'pairs' / scene_root.name / list_depth_name[edge[idx]]
+						output_path.parent.mkdir(parents=True, exist_ok=True)
 
 						cv2.imwrite(str(output_path), re_depth)
 						print(f'Saving pdepth to {str(output_path)}')
@@ -124,16 +129,6 @@ def process_data(loader, estimator, args):
 						plt.savefig(str(output_path))
 						plt.close(fig)  # Close the figure to free memory
 
-						color = colors[edge[idx]]
-						jet = matplotlib.colormaps['jet']
-						weight_map[weight_map > 3] = 0
-						weight_map_normalized = weight_map.clip(min=0, max=3)
-						weight_map_rgba = jet(weight_map_normalized)
-						weight_map_rgb = 255 - (weight_map_rgba[..., :3] * 255).astype(np.uint8)						
-						color_weight = (0.5 * color + 0.5 * weight_map_rgb).astype(np.uint8)
-						output_path = Path(args.out_dir) / 'confs' / scene_root.name / list_depth_name[edge[idx]].replace('.pdepth.png', '.color_calib_conf.jpg')
-						cv2.imwrite(str(output_path), color_weight)
-
 				finetune_split[scene_root.name].add(list_img_name[edge[0]])
 				finetune_split[scene_root.name].add(list_img_name[edge[1]])
 
@@ -147,7 +142,7 @@ def process_data(loader, estimator, args):
 
 	for scene_name, split in finetune_split.items():
 		print(f"The number of finetun split for scene {scene_name}: {len(split)}")
-		output_path = Path(args.out_dir, 'split', f"train_{scene_name}_split.txt")
+		output_path = Path(args.out_dir, 'split', f"finetune_{scene_name}_split.txt")
 		output_path.parent.mkdir(parents=True, exist_ok=True)
 		np.savetxt(str(output_path), np.array(list(split)).reshape(-1, 1), fmt="%s")
 
@@ -187,7 +182,7 @@ def main(args):
 	cfg.TRAINING.NUM_WORKERS = 1
 	cfg.DATASET.TOP_K = args.top_k
 	cfg.DATASET.N_QUERY = args.n_query
-	dataloader = DataModule(cfg).test_dataloader()
+	dataloader = DataModule(cfg).train_dataloader()
 
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
