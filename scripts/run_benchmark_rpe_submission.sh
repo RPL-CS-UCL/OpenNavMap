@@ -18,7 +18,7 @@ export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
 export N_QUERY=30
-export TOP_K=2
+export TOP_K=4
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
 export MODELS=(
@@ -31,8 +31,8 @@ export MODELS=(
 export LORA_PATHS=(
 	"none"
 	"none"	
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_pdepth.pt"
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_s00000_gtdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_pdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_gtdepth.pt"
 )
 
 # Run the Python script

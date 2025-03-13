@@ -17,7 +17,7 @@ export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export N_QUERY=30 # same to submission
-export TOP_K=2
+export TOP_K=4
 # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
 export EVAL_CONFIGS=("config_025_5" "config_05_10")
 
@@ -26,7 +26,7 @@ export MODELS=(
   "master"
 	"duster_nocalib_pretrain"
   "duster_nocalib_ftlora_pdepth"
-  "duster_nocalib_ftlora_gtdepth"
+  # "duster_nocalib_ftlora_gtdepth"
 )
 
 for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"
