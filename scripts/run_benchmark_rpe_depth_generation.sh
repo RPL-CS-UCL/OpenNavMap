@@ -16,10 +16,10 @@ MODEL=$3
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/finetune_$MODEL"
-export TOP_K=5
+export TOP_K=10
 
 # Run the Python script
 python $PROJECT_PATH/python/benchmark_rpe/pseudo_depth_generator.py --config $CONFIG_FILE --model $MODEL \
   --out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-  --pseudo_gt_thre 1.0 --save_gtpair \
+  --pseudo_gt_thre 1.5 --save_gtpair \
 	--device cuda
