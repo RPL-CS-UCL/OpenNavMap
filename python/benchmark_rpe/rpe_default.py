@@ -69,6 +69,9 @@ _CN.PNP.CONFIDENCE = None
 _CN.DATASET = CN()
 # 1. data config
 _CN.DATASET.DATA_SOURCE = None # options: ['ScanNet', '7Scenes', 'MapFree']
+_CN.DATASET.TRAIN_SCENES = None      # scenes to use (for 7Scenes/MapFree); should be a list []; If none, use all scenes.
+_CN.DATASET.VAL_SCENES = None      # scenes to use (for 7Scenes/MapFree); should be a list []; If none, use all scenes.
+_CN.DATASET.TEST_SCENES = None      # scenes to use (for 7Scenes/MapFree); should be a list []; If none, use all scenes.
 _CN.DATASET.SCENES = None      # scenes to use (for 7Scenes/MapFree); should be a list []; If none, use all scenes.
 _CN.DATASET.DATA_ROOT = None   # path to dataset folder
 _CN.DATASET.NPZ_ROOT = None    # path to npz files containing pairs of frame indices per sample
