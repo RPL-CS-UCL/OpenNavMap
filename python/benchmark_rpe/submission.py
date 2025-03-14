@@ -160,6 +160,12 @@ def eval(args):
 		cfg.DATASET.TOP_K = args.top_k
 		cfg.DATASET.N_QUERY = args.n_query        
 		dataloader = DataModule(cfg).val_dataloader()
+	elif args.split == 'train':
+		cfg.TRAINING.BATCH_SIZE = 1
+		cfg.TRAINING.NUM_WORKERS = 1
+		cfg.DATASET.TOP_K = args.top_k
+		cfg.DATASET.N_QUERY = args.n_query        
+		dataloader = DataModule(cfg).train_dataloader()
 	else:
 		raise NotImplemented(f'Invalid split: {args.split}')
 
@@ -224,7 +230,7 @@ if __name__ == "__main__":
 	)    
 	parser.add_argument(
 		"--split",
-		choices=("val", "test"),
+		choices=("train", "val", "test"),
 		default="test",
 		help="Dataset split to use for evaluation. Choose from test or val. Default: test",
 	)

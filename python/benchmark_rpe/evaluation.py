@@ -134,7 +134,10 @@ def main(args):
     cfg.merge_from_file(args.config)
 
     dataset_path = args.dataset_path / args.split
-    scenes = tuple(cfg.DATASET.TEST_SCENES)
+    if args.split == 'test':
+        scenes = tuple(cfg.DATASET.TEST_SCENES)
+    elif args.split == 'train':
+        scenes = tuple(cfg.DATASET.TRAIN_SCENES)
     try:
         submission_zip = ZipFile(args.submission_path, 'r')
     except FileNotFoundError as e:
@@ -173,7 +176,7 @@ if __name__ == '__main__':
     parser.add_argument("--config", help="path to config file")
     parser.add_argument('--submission_path', type=Path, default='',
                         help='Path to the submission ZIP file')
-    parser.add_argument('--split', choices=('val', 'test'), default='test',
+    parser.add_argument('--split', choices=('train', 'val', 'test'), default='test',
                         help='Dataset split to use for evaluation. Default: test')
     parser.add_argument('--n_query', type=int, default=1,
                         help='Number of query images for each scene')

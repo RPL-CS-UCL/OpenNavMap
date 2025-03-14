@@ -18,7 +18,7 @@ export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
 export N_QUERY=30
-export TOP_K=4
+export TOP_K=2
 
 # export MODELS="master hloc_disk_dilg vpr_cosplace_resnet18_512"
 export MODELS=(
@@ -31,8 +31,8 @@ export MODELS=(
 export LORA_PATHS=(
 	"none"
 	"none"	
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_pdepth.pt"
-	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune/weights/duster_lora_gtdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune_duster_calib_pretrain/weights/duster_lora_pdepth.pt"
+	"$DATASET_PATH/$DATASET_NAME/map_free_eval/finetune_duster_calib_pretrain/weights/duster_lora_gtdepth.pt"
 )
 
 # Run the Python script
@@ -43,7 +43,7 @@ for i in "${!MODELS[@]}"; do
 
 		python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODEL \
 			--out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-			--lora_path $LORA_PATH --split $SPLIT 
+			--lora_path $LORA_PATH --split $SPLIT
 			#  --debug --viz
 		echo ""
 done			
