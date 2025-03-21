@@ -203,7 +203,7 @@ def main(args):
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)
 	estimator.verbose = True
-	estimator.set_calib_params(dict(mu=1.0, conf_thre=0.5, pseudo_gt_thre=args.pseudo_gt_thre))
+	estimator.set_calib_params(dict(mu=1.0, conf_thre=0.5, pseudo_gt_thre=args.pseudo_gt_thre, use_weight_opt=True))
 	assert (estimator.calib_params is not None), "Should use duster_calib_pretrain or master_calib_pretrain"
 
 	# Process all images

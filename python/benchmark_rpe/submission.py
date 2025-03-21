@@ -20,19 +20,17 @@ from transforms3d.quaternions import mat2quat
 
 from estimator import available_models, get_estimator
 
-from pycpptools.src.python.utils_sensor.utils import correct_intrinsic_scale
-
 from rpe_default import cfg
 from datamodules import DataModule
 
 @dataclass
 class Pose:
 	top_k: int
-	list_img0_name: list
-	img1_name: str
+	reference_image_names: list
+	query_image: str
 	q: np.ndarray
 	t: np.ndarray
-	loss: float
+	conf: float
 
 	def __str__(self) -> str:
 		formatter = {"float": lambda v: f"{v:.6f}"}
@@ -43,8 +41,8 @@ class Pose:
 		t_str = np.array2string(
 			self.t, formatter=formatter, max_line_width=max_line_width
 		)[1:-1]
-		str_img0_names = " ".join(img0_name for img0_name in self.list_img0_name)
-		return f"{self.top_k} {str_img0_names} {self.img1_name} {q_str} {t_str} {self.loss:.3f}"
+		str_reference_names = " ".join(reference_name for reference_name in self.reference_image_names)
+		return f"{self.top_k} {str_reference_names} {self.query_image} {q_str} {t_str} {self.conf:.3f}"
 
 def predict(loader, estimator, str_estimator, cfg):
 	results_dict = defaultdict(list)
@@ -54,92 +52,107 @@ def predict(loader, estimator, str_estimator, cfg):
 	for data in tqdm(loader):
 		try:
 			scene_root = Path(data['scene_root'][0])
+			scene_id = data['scene_id'][0]
+			if scene_id not in results_dict:
+				results_dict[scene_id] = []
 
-			list_img0_name = [name[0] for name in data['list_image0_path']]
-			list_img0_poses = [pose.squeeze(0) for pose in data['list_image0_pose']]
-			list_img0_intr = [{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} \
-								for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
+			reference_image_names = [name[0] for name in data['list_image0_path']]
+			reference_image_poses = [pose.squeeze(0) for pose in data['list_image0_pose']]
+			reference_image_intrinsics = [{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} \
+										for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
 			
-			img1_name = data['image1_path'][0]
-			img1_intr = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
+			query_image = data['image1_path'][0]
+			query_image_intrinsic = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
 
 			print(Fore.GREEN + f'Scene Root: {scene_root}' + Style.RESET_ALL)
-			print(Fore.GREEN + f'Loading Reference Image:', ', '.join(list_img0_name) + Style.RESET_ALL)
-			print(Fore.GREEN + f'Loading Target Image: {img1_name}' + Style.RESET_ALL)
+			print(Fore.GREEN + f'Loading Reference Images:', ', '.join(reference_image_names) + Style.RESET_ALL)
+			print(Fore.GREEN + f'Loading Query Image: {query_image}' + Style.RESET_ALL)
 
 			"""Absolute Pose Estimation"""
 			# TODO(gogojjh): Images and intrinsics are resized inside the estimator
 			# TODO(gogojjh): Joint optimization of intrinsics is better
-			est_opts = {
+			estimation_options = {
 				'known_extrinsics': True,
-				'known_intrinsics': False,
+				'known_intrinsics': True,
 				'resize': 512,
 			}
 
 			start_time = time.time()
-			est_result = estimator(
+			estimation_result = estimator(
 				scene_root,
-				list_img0_name, img1_name, 
-				list_img0_poses, 
-				list_img0_intr, img1_intr,
-				est_opts
+				reference_image_names, query_image, 
+				reference_image_poses, 
+				reference_image_intrinsics, query_image_intrinsic,
+				estimation_options
 			)
-			est_time = time.time() - start_time                       
-			running_time.append(est_time)
+			estimation_time = time.time() - start_time                       
+			running_time.append(estimation_time)
 
 			"""Definition of solver output"""
 			# Rwc (numpy.ndarray): Estimated rotation matrix from world (reference frame) to camera
 			# twc (numpy.ndarray): Estimated translation vector. Shape: [3, 1] that translate depth_img1 to depth_img0.
-			im_pose, loss = est_result["im_pose"], est_result["loss"]
-			if im_pose is None: 
+			image_pose, loss_value = estimation_result["im_pose"], estimation_result["loss"]
+			if image_pose is None: 
 				raise ValueError(f"{str_estimator} - Estimated pose is None.")
-			elif np.isnan(im_pose).any():
+			elif np.isnan(image_pose).any():
 				raise ValueError("Estimated pose is NaN or infinite.")
-			
+					   
 			"""Save Results"""
-			scene_id = data['scene_id'][0]
-			Twc = np.eye(4); Twc[:3, :3] = im_pose[:3, :3]; Twc[:3, 3] = im_pose[:3, 3]
-			Tcw = np.linalg.inv(Twc); Rcw = Tcw[:3, :3]; tcw = Tcw[:3,  3].reshape(3, 1)
+			tf_world_to_cam = np.eye(4); tf_world_to_cam[:3, :3] = image_pose[:3, :3]; tf_world_to_cam[:3, 3] = image_pose[:3, 3]
+			tf_cam_to_world = np.linalg.inv(tf_world_to_cam); rot_cam_to_world = tf_cam_to_world[:3, :3]; trans_cam_to_world = tf_cam_to_world[:3,  3].reshape(3, 1)
 
 			# populate results_dict
-			top_k = len(list_img0_name)
-			estimated_pose = Pose(top_k=top_k,
-								list_img0_name=list_img0_name, 
-								img1_name=img1_name,
-								q=mat2quat(Rcw).reshape(-1),
-								t=tcw.reshape(-1),
-								loss=loss)
+			top_k_matches = len(reference_image_names)
+			if hasattr(estimator, 'get_minimum_spanning_tree'):
+				msp_edges = estimator.get_minimum_spanning_tree()
+				weight_i, weight_j = estimator.scene.weight_i, estimator.scene.weight_j
+				for edge in msp_edges:
+					if edge[0] == top_k_matches or edge[1] == top_k_matches:
+						edge_str = f"{edge[0]}_{edge[1]}"
+						conf = weight_i[edge_str].detach().cpu().numpy().mean() * weight_j[edge_str].detach().cpu().numpy().mean()
+			else:
+				conf = 0.0
+
+			estimated_pose = Pose(top_k=top_k_matches,
+								  reference_image_names=reference_image_names, 
+								  query_image=query_image,
+								  q=mat2quat(rot_cam_to_world).reshape(-1),
+								  t=trans_cam_to_world.reshape(-1),
+								  conf=conf)
 			results_dict[scene_id].append(estimated_pose)
 
-			print(Fore.GREEN + f'Estimated Pose: {tcw.T}' + Style.RESET_ALL)
-			if args.viz: estimator.show_reconstruction(cam_size=cfg.DATASET.VIZ_CAM_SIZE)
+			print(Fore.GREEN + f'Estimated Pose: {trans_cam_to_world.T}' + Style.RESET_ALL)
 			if args.debug:
-				out_est_dir = Path(os.path.join(args.out_dir, f"{str_estimator}"))
-				out_est_dir.mkdir(parents=True, exist_ok=True)
-				Path(out_est_dir / "preds").mkdir(parents=True, exist_ok=True)
-		
-				list_depth_img_name = \
-					[name.replace('.jpg', '.zed.png') for name in list_img0_name] + \
-					[img1_name.replace('.jpg', '.zed.png')]
-				save_log = Path(os.path.join(out_est_dir, 'preds', scene_id))
-				save_log.mkdir(exist_ok=True, parents=True)
-				avg_depth_error, corr_score = estimator.save_results(save_log, scene_root, list_depth_img_name, save_indice)
-				results_debug_dict[scene_id].append([avg_depth_error, corr_score])	
+				output_estimator_directory = Path(os.path.join(args.out_dir, f"{str_estimator}"))
+				output_estimator_directory.mkdir(parents=True, exist_ok=True)
+				Path(output_estimator_directory / "preds").mkdir(parents=True, exist_ok=True)
+				estimator.save_results(output_estimator_directory)
+
+				# depth_image_names = \
+				# 	[name.replace('.jpg', '.zed.png') for name in reference_image_names] + \
+				# 	[query_image.replace('.jpg', '.zed.png')]
+				# save_log_directory = Path(os.path.join(output_estimator_directory, 'preds', scene_id))
+				# save_log_directory.mkdir(exist_ok=True, parents=True)
+				# average_depth_error, correlation_score = estimator.save_results(save_log_directory, scene_root, depth_image_names, save_indice)
+				# results_debug_dict[scene_id].append([average_depth_error, correlation_score])	
 				save_indice += 1
+		
+			if args.viz:
+				estimator.show_reconstruction()
 		
 		except Exception as e:
 			scene = data['scene_id'][0]
-			img1_name = data['image1_path'][0]
+			query_image = data['image1_path'][0]
 			tqdm.write(Fore.RED + f"Error with {str_estimator}: {e}" + Style.RESET_ALL)
-			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{img1_name}." + Style.RESET_ALL)
+			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image}." + Style.RESET_ALL)
 
-	avg_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
-	return results_dict, results_debug_dict, avg_runtime
+	average_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
+	return results_dict, results_debug_dict, average_runtime
 
 def save_submission(results_dict: dict, output_path: Path):
 	with ZipFile(output_path, "w") as zip:
 		for scene, poses in results_dict.items():
-			poses_str = "#N img0_name1 img0_name2 ... img0_nameN img1_name qw qx qy qz tx ty tz loss\n"
+			poses_str = "#N img0_name1 img0_name2 ... img0_nameN query_image qw qx qy qz tx ty tz confidence\n"
 			poses_str += "\n".join((str(pose) for pose in poses))
 			zip.writestr(f"pose_{scene}.txt", poses_str.encode("utf-8"))
 
