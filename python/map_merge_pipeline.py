@@ -3,26 +3,28 @@
 import os
 import sys
 import torch
-import cv2
 import pathlib
 import numpy as np
-import time
-import copy
 import logging
 import gtsam
-import random
+# import cv2
+# import time
+# import copy
+# import random
 
 import rospy
-from std_msgs.msg import Header
-from nav_msgs.msg import Odometry, Path
-from sensor_msgs.msg import Image
-from geometry_msgs.msg import PoseArray
-from visualization_msgs.msg import MarkerArray
-import tf2_ros
+# from std_msgs.msg import Header
+# from nav_msgs.msg import Odometry, Path
+# from sensor_msgs.msg import Image
+# from geometry_msgs.msg import PoseArray
+# from visualization_msgs.msg import MarkerArray
+# import tf2_ros
 import matplotlib
-import matplotlib.pyplot as plt
-from PIL import Image
-from tqdm import tqdm
+# import matplotlib.pyplot as plt
+# from PIL import Image
+# from tqdm import tqdm
+
+from typing import List, Tuple
 
 # import rospkg
 # rospkg = rospkg.RosPack()
@@ -32,22 +34,14 @@ from tqdm import tqdm
 
 # from estimator.utils import to_tensor, to_numpy
 
-from utils.utils_vpr_method import perform_knn_search
+from utils.utils_vpr_method import initialize_match_model
 from utils.utils_map_merging import *
-from utils.utils_image import load_rgb_image, load_depth_image
+from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, convert_vec_gtsam_pose3, compute_pose_error
 from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
-from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
-from utils.vpr_single_matching import PlaceRecognitionSingleMatching
-from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
-
-import pycpptools.src.python.utils_math as pytool_math
-import pycpptools.src.python.utils_ros as pytool_ros
-import pycpptools.src.python.utils_sensor as pytool_sensor
 
 from gtsam_pose_graph import PoseGraph
-
 from codetiming import Timer
 
 from colorama import Fore, init
@@ -63,14 +57,9 @@ class MergePipeline:
 		self.frame_id_map = 'map'
 		self.submaps = []
 
-		if args.vpr_match_model == 'single_match':
-			self.vpr_match_model = PlaceRecognitionSingleMatching()
-		elif args.vpr_match_model == 'topo_filter':
-			self.vpr_match_model = PlaceRecognitionTopologicalFilter()
-		elif args.vpr_match_model == 'sequence_match':
-			self.vpr_match_model = PlaceRecognitionSeqMatching()
-		else:
-			raise ValueError(f"Invalid VPR Match Model: {args.vpr_match_model}")
+	def init_vpr_match_model(self):
+		self.vpr_match_model = initialize_match_model(self.args.vpr_match_model, self.args.vpr_match_seq_len)		
+		logging.info(f"VPR Match Model: {self.args.vpr_match_model}")
 
 	def init_pose_estimator(self):
 		self.pose_estimator = initialize_pose_estimator(self.args.pose_estimation_method, self.args.device)
@@ -109,13 +98,15 @@ class MergePipeline:
 	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB, std_rot_deg=1.0, std_tsl=0.01):
 		# Convert the base graph to a gtsam pose graph
 		pose_graph = PoseGraph()
-		prior_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
-		odom_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
-		loop_sigma = np.array([np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), np.deg2rad(std_rot_deg), std_tsl, std_tsl, std_tsl])
+		
+		sigma = np.array([np.deg2rad(std_rot_deg)] * 3 + [std_tsl] * 3)
+		prior_sigma = np.array(sigma)
+		odom_sigma = np.array(sigma)
+		loop_sigma = np.array(sigma)
 
 		# Create a pose graph from submapA by adding internal edges of submapA
 		for node in submapA.nodes.values():
-			curr_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(node.trans, node.quat)
+			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id, curr_pose3)
 			# Add prior factor
 			if node.id == 0: pose_graph.add_prior_factor(node.id, curr_pose3, prior_sigma)
@@ -124,29 +115,29 @@ class MergePipeline:
 				next_node = edge[0]
 				# Avoid duplicate factors
 				if node.id < next_node.id:
-					next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
 
 		# Expand the pose graph from submapB by adding internal edges of submapA
 		id_offset = max(submapA.get_all_id()) + 1
 		print(f"id offset: {id_offset}")
 		for node in submapB.nodes.values():
-			curr_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(node.trans, node.quat)
+			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id + id_offset, curr_pose3)
 			# Add odometry factor
 			for edge in node.edges:
 				next_node = edge[0]
 				# Avoid duplicate factors
 				if node.id < next_node.id:				
-					next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
 
 		# Add the loop factor
 		for edge in edges_nodeA_to_nodeB:
 			nodeA, nodeB = edge[0], edge[1]
-			I_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(np.zeros(3), np.array([0, 0, 0, 1]))
-			trans, quat = pytool_math.tools_eigen.convert_matrix_to_vec(edge[2], 'xyzw')
-			next_pose3 = pytool_math.tools_eigen.convert_vec_gtsam_pose3(trans, quat)
+			I_pose3 = convert_vec_gtsam_pose3(np.zeros(3), np.array([0, 0, 0, 1]))
+			trans, quat = convert_matrix_to_vec(edge[2], 'xyzw')
+			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, loop_sigma)
 
 		return pose_graph					
@@ -176,6 +167,167 @@ class MergePipeline:
 
 		print(f"Final Map Info: {submapA}")
 
+def perform_global_loc(
+	merger: MergePipeline,
+	final_map: ImageGraph,
+	cur_submap: ImageGraph,
+	cur_submap_id: int
+) -> List[Tuple[ImageNode, ImageNode, np.ndarray, float]]:
+	"""Performs coarse localization between a reference map and a query submap.
+	
+	This function uses a VPR model to find coarse correspondences between nodes
+	in the reference map and the query submap. It optionally applies RANSAC-based
+	outlier rejection and saves visualization results.
+	
+	Args:
+		merger: The merger object containing the VPR model and configuration.
+		final_map: The reference map containing database nodes.
+		cur_submap: The query submap to localize within the reference map.
+		cur_submap_id: Identifier for the current submap for logging purposes.
+		
+	Returns:
+		A list of edges representing potential matches between database and query
+		nodes. Each edge is a tuple (db_node, query_node, T_A2B, score).
+	"""
+	# Load descriptors from database and query nodes
+	db_descriptors = np.array(
+		[node.get_descriptor() for node in final_map.nodes.values()], dtype=np.float32)
+	query_descriptors = np.array(
+		[node.get_descriptor() for node in cur_submap.nodes.values()], dtype=np.float32)
+	
+	# Initialize the VPR model with database descriptors
+	merger.vpr_match_model.initialize_model(db_descriptors)
+	
+	# Perform global localization with timing
+	with Timer(name="Global Localization", 
+			text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
+		
+		# Perform initial VPR matching for all query nodes
+		connected_indices = []
+		for query_node in cur_submap.nodes.values():
+			start_idx = max(0, query_node.id - merger.vpr_match_model.seqLen + 1)
+			query_descs = query_descriptors[start_idx : query_node.id + 1]
+			_, pred, score = merger.vpr_match_model.match(query_descs)
+			connected_indices.append((pred, query_node.id, score))
+		
+		# Apply RANSAC-based outlier rejection if enabled
+		best_indices = connected_indices
+		lines_coeff = cluster_data = cluster_labels = None
+		if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
+			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
+			filtered_indices, lines_coeff, cluster_data, cluster_labels = \
+				merger.vpr_match_model.ransac_check_match(
+					D_all, 
+					connected_indices[merger.vpr_match_model.seqLen:]
+				)
+			best_indices = connected_indices[:merger.vpr_match_model.seqLen] + filtered_indices
+		
+		# Perform Geomtric Verification
+		edges = []
+		for db_idx, query_idx, score in best_indices:
+			db_node = final_map.get_node(db_idx)	
+			query_node = cur_submap.get_node(query_idx)
+
+			result = merger.pose_estimator.get_matched_kpts(merger.scene_root, db_node.rgb_image, query_node.rgb_image)
+			num_inlier = result['num_inliers']
+			print(Fore.GREEN + f"DB {db_node.id} - Query {query_node.id} - Number of matched kpts: {num_inlier}")
+
+			if num_inlier > REFINE_GV_SCORE_THRESHOLD: 
+				edges.append((db_node, query_node, np.eye(4), score))
+	
+	# Save visualization and debug data
+	save_dir = f"{merger.log_dir}/preds"
+	if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
+		merger.vpr_match_model.save_diff_matrix_fitting(
+			save_dir, connected_indices, best_indices, D_all, final_map,
+			cur_submap, lines_coeff, cluster_data, cluster_labels)
+	save_vis_pose_graph(
+		save_dir, final_map, cur_submap, cur_submap_id, edges,
+		suffix=f'{merger.args.vpr_match_model}_coarse')
+	
+	return edges
+
+def perform_local_loc(
+	edges_nodeA_to_nodeB_coarse: List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
+	merger: MergePipeline,
+	final_map: ImageGraph,
+	cur_submap: ImageGraph,
+) -> List[Tuple[ImageNode, ImageNode, np.ndarray, float]]:
+	"""Performs fine-grained localization using pose estimation on coarse matches.
+	
+	Args:
+		edges_nodeA_to_nodeB_coarse: List of coarse matches (db_node, query_node, T_A2B, score)
+		final_map: Reference map containing database nodes
+		cur_submap: Query submap to localize
+		merger: Merger object with pose estimator and configuration
+		
+	Returns:
+		List of refined matches with relative pose estimates
+	"""
+	est_opts = dict(known_extrinsics=True, known_intrinsics=False, resize=512)
+	refined_edges = []
+
+	for edge in edges_nodeA_to_nodeB_coarse:
+		db_node, query_node, _, score = edge
+		if not db_node.edges: continue
+		try:
+			# Prepare database references
+			db_node_pair = [db_node, db_node.edges[0][0]]
+			db_names = [f"{final_map.map_root.split('/')[-1]}/{n.rgb_img_name}" for n in db_node_pair]
+			db_poses = [torch.from_numpy(convert_vec_to_matrix(
+				n.trans, n.quat, 'xyzw')) for n in db_node_pair]
+			db_intrs = [{
+				'K': torch.from_numpy(n.raw_K),
+				'im_size': torch.from_numpy(n.raw_img_size)
+			} for n in db_node_pair]
+
+			# Prepare query data
+			query_name = f"{cur_submap.map_root.split('/')[-1]}/{query_node.rgb_img_name}"
+			query_intr = {
+				'K': torch.from_numpy(query_node.raw_K),
+				'im_size': torch.from_numpy(query_node.raw_img_size)
+			}
+
+			# Perform pose estimation with timing
+			with Timer(name="Pose Estimation", 
+			  text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
+				result = merger.pose_estimator(
+					merger.scene_root,
+					db_names,
+					query_name,
+					db_poses,
+					db_intrs,
+					query_intr,
+					est_opts
+				)
+				
+				T_db_est = convert_vec_to_matrix(
+					db_node.trans, db_node.quat, 'xyzw')
+				T_rel_est = np.linalg.inv(T_db_est) @ result['im_pose']
+
+				##############################
+				##### DEBUG(gogojjh):				
+				T_nodeA_gt = convert_vec_to_matrix(db_node.trans_gt, db_node.quat_gt, 'xyzw')
+				T_query_gt = convert_vec_to_matrix(query_node.trans_gt, query_node.quat_gt, 'xyzw')
+				T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
+				print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
+				print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
+				dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
+				print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
+				print(Fore.GREEN + f"Reference: {', '.join(name for name in db_names)}")
+				print(Fore.GREEN + f"Target: {query_name}")
+				##############################
+
+			# Add to refined matches if score exceeds threshold
+			if score > REFINE_EDGE_SCORE_THRESHOLD:
+				refined_edges.append((db_node, query_node, T_rel_est, score))
+				
+		except Exception as e:
+			print(f"{Fore.RED} Pose estimation failed: {str(e)}")
+			continue
+
+	return refined_edges
+
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
 	assert len(merger.submaps) > 0, "No submaps loaded."
@@ -183,173 +335,22 @@ def perform_submap_merging(merger: MergePipeline, args):
 	
 	# Initialize the final submap
 	final_map = ImageGraph(merger.log_dir)
+	merger.scene_root = pathlib.Path(final_map.map_root + '/../')
+
 	# Incrementally merge each submap to the final map, only care about the first two submaps
 	for cur_submap_id, cur_submap in merger.submaps:
 		if final_map.get_num_node() > 0:
-			##### Perform Coarse Localization #####
-			# Load global descriptors and poses from the reference map 
-			db_descriptors = np.array([node.get_descriptor() for _, node in final_map.nodes.items()], dtype="float32")
-			db_poses = np.array([np.hstack((node.trans, node.quat)) for node in final_map.nodes.values()])
-			query_descriptors = np.array([node.get_descriptor() for _, node in cur_submap.nodes.items()], dtype="float32")
-			query_poses = np.array([np.hstack((node.trans, node.quat)) for node in cur_submap.nodes.values()])
-			
-			# Initialize the VPR match model
-			merger.vpr_match_model.initialize_model(db_descriptors)
-			
-			##############################
-			###### DEBUG(gogojjh):
-			query_result_info = np.zeros((cur_submap.get_num_node(), 4), dtype="float32")
-			##############################
-			connected_indices = [] # [(pred_db_id, query_node_id, score)]
-			timer_global_loc = Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms")
-			timer_global_loc.start()
-			for query_node in tqdm(cur_submap.nodes.values()):
-				query_descs = query_descriptors[max(0, query_node.id-merger.vpr_match_model.seqLen+1) : query_node.id+1]
-				_, pred, score = merger.vpr_match_model.match(query_descs, backward=False)
-				connected_indices.append((pred, query_node.id, score))
-				query_result_info[query_node.id, 0] = score
-			
-			D_all = merger.vpr_match_model._compute_diff_matrix(query_descriptors)
-			best_indices, lines_coeff, cluster_data, cluster_labels = \
-				merger.vpr_match_model.ransac_check_match(D_all, connected_indices)
-			timer_global_loc.stop()
-			
-			edges_nodeA_to_nodeB_coarse = [(
-				final_map.get_node(ind[0]), cur_submap.get_node(ind[1]), np.eye(4), ind[2]) 
-				for ind in best_indices
-			]  # [(pred_db_node, query_node, T_A2B, score)]
-
-			##############################
-			###### DEBUG(gogojjh):
-			print(f"Sequence Matching found {len(best_indices)} edges")
-			tp, fp = 0, 0
-			for edge in edges_nodeA_to_nodeB_coarse:
-				db_node, query_node = edge[0], edge[1]
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-				)
-				if dis_tsl < 20.0:
-					tp += 1
-					print(f"Correct prediction: Query {query_node.id} - DB: {db_node.id}")
-				else:
-					fp += 1
-					print(f"Wrong prediction: Query {query_node.id} - DB: {db_node.id}")
-			if tp + fp < 1:
-				precision = 0
-			else:
-				precision = tp / (tp+fp)
-			print(f"Precision: {precision:.3f} - {tp}/{tp+fp}")
-			# save_vis_vpr(
-			# 	f"{merger.log_dir}/preds", 
-			# 	final_map, 
-			# 	cur_submap, 
-			# 	cur_submap_id, 
-			# 	np.array(preds), 
-			# 	suffix=f'{args.vpr_match_model}_coarse'
-			# )
-			save_vis_pose_graph(
-				f"{merger.log_dir}/preds",
-				final_map, 
-				cur_submap, 
-				cur_submap_id, 
-				edges_nodeA_to_nodeB_coarse, 
-				suffix=f'{args.vpr_match_model}_coarse'
-			)
-			merger.vpr_match_model.save_diff_matrix_fitting(
-				f"{merger.log_dir}/preds", 
-				connected_indices, 
-				best_indices,
-				D_all, 
-				final_map, 
-				cur_submap, 
-				lines_coeff, 
-				cluster_data, 
-				cluster_labels
-			)
-			################################################
-			# exit()
-			################################################
-
-			##### Perform Fine Localization #####
-			est_opts = {
-				'known_extrinsics': True,
-				'known_intrinsics': True,
-				'resize': 512,
-			}
-			edges_nodeA_to_nodeB_refine = [] # [(db_node, query_node, T_A2B)]
-			for edge_nodeA_to_nodeB in edges_nodeA_to_nodeB_coarse:
-				nodeA, nodeB = edge_nodeA_to_nodeB[0], edge_nodeA_to_nodeB[1]
-				if len(nodeA.edges) == 0: continue 
-				try:
-					# Generate paths of images and intrinsics
-					nodeA_list = [nodeA, nodeA.edges[0][0]]
-					list_img0_name = [f"{final_map.map_root.split('/')[-1]}/{node.rgb_img_name}" for node in nodeA_list]
-					img1_name = f"{cur_submap.map_root.split('/')[-1]}/{nodeB.rgb_img_name}"
-					list_img0_poses = [torch.from_numpy(pytool_math.tools_eigen.convert_vec_to_matrix(node.trans, node.quat, 'xyzw')) 
-									   for node in nodeA_list]
-					list_img0_intr = [{'K': torch.from_numpy(node.raw_K), 'im_size': torch.from_numpy(node.raw_img_size)} for node in nodeA_list]
-					img1_intr = {'K': torch.from_numpy(nodeB.raw_K), 'im_size': torch.from_numpy(nodeB.raw_img_size)}
-					scene_root = pathlib.Path(final_map.map_root + '/../')
-
-					# Perform Geomtric Verification
-					timer_gv = Timer(name="Geometric Verification", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms")
-					timer_gv.start()
-					result = merger.pose_estimator.get_matched_kpts(scene_root, nodeA_list[0].rgb_image, nodeB.rgb_image)
-					num_inlier0 = result['num_inliers']
-					print(Fore.GREEN + f"DB {nodeA_list[0].id} - Query {nodeB.id} - Number of matched kpts: {num_inlier0}")
-					result = merger.pose_estimator.get_matched_kpts(scene_root, nodeA_list[1].rgb_image, nodeB.rgb_image)
-					num_inlier1 = result['num_inliers']
-					print(Fore.GREEN + f"DB {nodeA_list[1].id} - Query {nodeB.id} - Number of matched kpts: {num_inlier1}")
-					timer_gv.stop()
-					max_num_inliers = max(num_inlier0, num_inlier1)
-					if max_num_inliers < REFINE_GV_SCORE_THRESHOLD: continue
-
-					# Perform pose estimation
-					timer_pe = Timer(name="Pose Estimation", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms")
-					timer_pe.start()
-					result = merger.pose_estimator(scene_root, list_img0_name, img1_name, list_img0_poses, list_img0_intr, img1_intr, est_opts)
-					edge_scores = merger.pose_estimator.get_similarity(option='mean')
-					max_edge_score_nodeA_nodeA_next = max(edge_scores['0_1'], edge_scores['1_0'])
-					max_edge_score_nodeA_nodeB = max((value for key, value in edge_scores.items() if '2' in key), default=0)
-					T_nodeA_est = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
-					T_query_est = result['im_pose']
-					T_rel_est = np.linalg.inv(T_nodeA_est) @ T_query_est
-					timer_pe.stop()
-
-					##############################
-					##### DEBUG(gogojjh):
-					query_result_info[nodeB.id, 1] = max_edge_score_nodeA_nodeB
-					print(edge_scores)
-					print(Fore.GREEN + f"Max score for query: {max_edge_score_nodeA_nodeB:.3f}")
-					T_nodeA_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
-					T_query_gt = pytool_math.tools_eigen.convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
-					T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
-					print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
-					print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
-					dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis_TF(T_rel_est, T_rel_gt)
-					print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
-					print(Fore.GREEN + f"Reference: {', '.join(name for name in list_img0_name)}")
-					print(Fore.GREEN + f"Target: {img1_name}")
-					##############################
-
-					# NOTE(gogojjh): not use edge score to determine good refinement
-					if max_edge_score_nodeA_nodeB > REFINE_EDGE_SCORE_THRESHOLD:
-						edges_nodeA_to_nodeB_refine.append((nodeA, nodeB, T_rel_est, max_edge_score_nodeA_nodeB))
-						print(Fore.RED + f"Good Refinement (visual similarity > threshold)")
-						query_result_info[nodeB.id, 2] = 1.0
-							# merger.pose_estimator.show_reconstruction()
-					# input()
-				except Exception as e:
-					print(f"Error in pose estimation: {e}")
-					continue
-				print()
+			edges_nodeA_to_nodeB_coarse = perform_global_loc(merger, final_map, cur_submap, cur_submap_id)
+			exit()
+			edges_nodeA_to_nodeB_refine = perform_local_loc(edges_nodeA_to_nodeB_coarse, merger, final_map, cur_submap)
+			print()
 
 			##################
 			###### DEBUG(gogojjh):
-			print(Fore.GREEN + f"Fine Localization Results with the Submap {cur_submap_id} with Edge {len(edges_nodeA_to_nodeB_refine)}")
-			save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine, suffix='refine')
-			save_query_result(merger.log_dir, query_result_info, cur_submap_id)
-			##################
+			# print(Fore.GREEN + f"Fine Localization Results with the Submap {cur_submap_id} with Edge {len(edges_nodeA_to_nodeB_refine)}")
+			# save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine, suffix='refine')
+			# save_query_result(merger.log_dir, query_result_info, cur_submap_id)
+			# ##################
 
 			##### Perform Pose Graph Optimization #####
 			pose_graph = merger.create_pose_graph_from_submaps(final_map, cur_submap, edges_nodeA_to_nodeB_refine)
@@ -379,6 +380,7 @@ if __name__ == '__main__':
 	# Initialize the map merging pipeline
 	merger = MergePipeline(args, log_dir)
 	rospy.loginfo('Initialize Pose Estimator')
+	merger.init_vpr_match_model()
 	merger.init_pose_estimator()
 	merger.read_map_from_file()
 
