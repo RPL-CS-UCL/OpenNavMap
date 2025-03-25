@@ -362,7 +362,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 			
 			result_pgo = optimize_pose_graph(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), True)
 			for key in result_pgo.keys():
-				print(key)
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
 			g2o_path = os.path.join(merger.log_dir, "preds/refine_pose_graph.g2o")
