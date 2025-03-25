@@ -36,12 +36,14 @@ from typing import List, Tuple
 
 from utils.utils_vpr_method import initialize_match_model
 from utils.utils_map_merging import *
-from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, convert_vec_gtsam_pose3, compute_pose_error
+from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error
+from utils.utils_geom import convert_vec_gtsam_pose3, convert_matrix_gtsam_pose3
+from utils.gtsam_pose_graph import PoseGraph
+
 from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
 
-from gtsam_pose_graph import PoseGraph
 from codetiming import Timer
 
 from colorama import Fore, init
@@ -94,22 +96,20 @@ class MergePipeline:
 			self.submaps.append((submap_id, image_graph))
 			print(f"Loaded {submap_id}th {image_graph} from {submap_path}")
 
-	# TODO(gogojjh): Adjust the noise model
-	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB, std_rot_deg=1.0, std_tsl=0.01):
-		# Convert the base graph to a gtsam pose graph
-		pose_graph = PoseGraph()
-		
-		sigma = np.array([np.deg2rad(std_rot_deg)] * 3 + [std_tsl] * 3)
-		prior_sigma = np.array(sigma)
-		odom_sigma = np.array(sigma)
-		loop_sigma = np.array(sigma)
+	def create_pose_graph_from_submaps(self, submapA, submapB, edges_nodeA_to_nodeB):
+		# Set basic std for factors
+		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
+		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
+		loop_sigma = np.array([np.deg2rad(3.0)] * 3 + [1.0] * 3)
 
+		pose_graph = PoseGraph()
 		# Create a pose graph from submapA by adding internal edges of submapA
-		for node in submapA.nodes.values():
+		for _, node in submapA.nodes.items():
 			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id, curr_pose3)
 			# Add prior factor
-			if node.id == 0: pose_graph.add_prior_factor(node.id, curr_pose3, prior_sigma)
+			if node.id == 0:
+				pose_graph.add_prior_factor(node.id, curr_pose3, prior_sigma)
 			# Add odometry factor
 			for edge in node.edges:
 				next_node = edge[0]
@@ -120,8 +120,7 @@ class MergePipeline:
 
 		# Expand the pose graph from submapB by adding internal edges of submapA
 		id_offset = max(submapA.get_all_id()) + 1
-		print(f"id offset: {id_offset}")
-		for node in submapB.nodes.values():
+		for _, node in submapB.nodes.items():
 			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id + id_offset, curr_pose3)
 			# Add odometry factor
@@ -134,11 +133,12 @@ class MergePipeline:
 
 		# Add the loop factor
 		for edge in edges_nodeA_to_nodeB:
-			nodeA, nodeB = edge[0], edge[1]
-			I_pose3 = convert_vec_gtsam_pose3(np.zeros(3), np.array([0, 0, 0, 1]))
-			trans, quat = convert_matrix_to_vec(edge[2], 'xyzw')
+			nodeA, nodeB, T_AB, conf = edge
+			I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
+			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
-			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, loop_sigma)
+			update_loop_sigma = loop_sigma / conf
+			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, update_loop_sigma)
 
 		return pose_graph					
 
@@ -194,64 +194,62 @@ def perform_global_loc(
 		[node.get_descriptor() for node in final_map.nodes.values()], dtype=np.float32)
 	query_descriptors = np.array(
 		[node.get_descriptor() for node in cur_submap.nodes.values()], dtype=np.float32)
-	
-	# Initialize the VPR model with database descriptors
+
 	merger.vpr_match_model.initialize_model(db_descriptors)
 	
-	# Perform global localization with timing
-	with Timer(name="Global Localization", 
-			text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
-		
-		# Perform initial VPR matching for all query nodes
+	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
+		# VPR matching for all query nodes
 		connected_indices = []
 		for query_node in cur_submap.nodes.values():
 			start_idx = max(0, query_node.id - merger.vpr_match_model.seqLen + 1)
 			query_descs = query_descriptors[start_idx : query_node.id + 1]
 			_, pred, score = merger.vpr_match_model.match(query_descs)
 			connected_indices.append((pred, query_node.id, score))
+
+		if hasattr(merger.vpr_match_model, 'compute_diff_matrix'):
+			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
+		else:
+			D_all = None
 		
-		# Apply RANSAC-based outlier rejection if enabled
+		# RANSAC-based outlier rejection on the difference matrix if enabled
 		best_indices = connected_indices
 		lines_coeff = cluster_data = cluster_labels = None
 		if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
-			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
 			filtered_indices, lines_coeff, cluster_data, cluster_labels = \
 				merger.vpr_match_model.ransac_check_match(
-					D_all, 
-					connected_indices[merger.vpr_match_model.seqLen:]
-				)
+					D_all, connected_indices[merger.vpr_match_model.seqLen:]
+				 )
 			best_indices = connected_indices[:merger.vpr_match_model.seqLen] + filtered_indices
 		
-		# Perform Geomtric Verification
-		edges = []
+		# Geomtric Verification
+		coarse_edges = []
 		for db_idx, query_idx, score in best_indices:
 			db_node = final_map.get_node(db_idx)	
 			query_node = cur_submap.get_node(query_idx)
-
 			result = merger.pose_estimator.get_matched_kpts(merger.scene_root, db_node.rgb_image, query_node.rgb_image)
 			num_inlier = result['num_inliers']
 			print(Fore.GREEN + f"DB {db_node.id} - Query {query_node.id} - Number of matched kpts: {num_inlier}")
-
 			if num_inlier > REFINE_GV_SCORE_THRESHOLD: 
-				edges.append((db_node, query_node, np.eye(4), score))
+				coarse_edges.append((db_node, query_node, np.eye(4), score))
 	
-	# Save visualization and debug data
+	##### Save visualization and debug data
 	save_dir = f"{merger.log_dir}/preds"
-	if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
+	if D_all is not None:
 		merger.vpr_match_model.save_diff_matrix_fitting(
 			save_dir, connected_indices, best_indices, D_all, final_map,
 			cur_submap, lines_coeff, cluster_data, cluster_labels)
 	save_vis_pose_graph(
-		save_dir, final_map, cur_submap, cur_submap_id, edges,
+		save_dir, final_map, cur_submap, cur_submap_id, coarse_edges,
 		suffix=f'{merger.args.vpr_match_model}_coarse')
 	
-	return edges
+	return coarse_edges
 
 def perform_local_loc(
 	edges_nodeA_to_nodeB_coarse: List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
 	merger: MergePipeline,
 	final_map: ImageGraph,
 	cur_submap: ImageGraph,
+	cur_submap_id: int,
 ) -> List[Tuple[ImageNode, ImageNode, np.ndarray, float]]:
 	"""Performs fine-grained localization using pose estimation on coarse matches.
 	
@@ -268,14 +266,15 @@ def perform_local_loc(
 	refined_edges = []
 
 	for edge in edges_nodeA_to_nodeB_coarse:
-		db_node, query_node, _, score = edge
-		if not db_node.edges: continue
+		db_node, query_node, _, _ = edge
+		# Check whether the node has more than one edge
+		if not db_node.edges: 
+			continue
 		try:
 			# Prepare database references
 			db_node_pair = [db_node, db_node.edges[0][0]]
 			db_names = [f"{final_map.map_root.split('/')[-1]}/{n.rgb_img_name}" for n in db_node_pair]
-			db_poses = [torch.from_numpy(convert_vec_to_matrix(
-				n.trans, n.quat, 'xyzw')) for n in db_node_pair]
+			db_poses = [torch.from_numpy(convert_vec_to_matrix(n.trans, n.quat, 'xyzw')) for n in db_node_pair]
 			db_intrs = [{
 				'K': torch.from_numpy(n.raw_K),
 				'im_size': torch.from_numpy(n.raw_img_size)
@@ -289,8 +288,7 @@ def perform_local_loc(
 			}
 
 			# Perform pose estimation with timing
-			with Timer(name="Pose Estimation", 
-			  text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
+			with Timer(name="Pose Estimation", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 				result = merger.pose_estimator(
 					merger.scene_root,
 					db_names,
@@ -301,8 +299,7 @@ def perform_local_loc(
 					est_opts
 				)
 				
-				T_db_est = convert_vec_to_matrix(
-					db_node.trans, db_node.quat, 'xyzw')
+				T_db_est = convert_vec_to_matrix(db_node.trans, db_node.quat, 'xyzw')
 				T_rel_est = np.linalg.inv(T_db_est) @ result['im_pose']
 
 				##############################
@@ -314,17 +311,35 @@ def perform_local_loc(
 				print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
 				dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
 				print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
-				print(Fore.GREEN + f"Reference: {', '.join(name for name in db_names)}")
-				print(Fore.GREEN + f"Target: {query_name}")
 				##############################
 
-			# Add to refined matches if score exceeds threshold
-			if score > REFINE_EDGE_SCORE_THRESHOLD:
-				refined_edges.append((db_node, query_node, T_rel_est, score))
+				# Add to refined matches if score exceeds threshold
+				top_k_matches = len(db_names) # default: 2
+				if hasattr(merger.pose_estimator, 'get_minimum_spanning_tree'):
+					msp_edges = merger.pose_estimator.get_minimum_spanning_tree()
+					weight_i, weight_j = merger.pose_estimator.scene.weight_i, merger.pose_estimator.scene.weight_j
+					for edge in msp_edges:
+						if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
+							edge_str = f"{edge[0]}_{edge[1]}"
+							conf = weight_i[edge_str].detach().cpu().numpy().mean() * \
+								weight_j[edge_str].detach().cpu().numpy().mean()
+
+					print(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
+					if conf > REFINE_CONF_THRESHOLD:
+						refined_edges.append((db_node, query_node, T_rel_est, conf))
+				else:
+					conf = 10.0 - result["loss"]
+					refined_edges.append((db_node, query_node, T_rel_est, conf))
 				
 		except Exception as e:
 			print(f"{Fore.RED} Pose estimation failed: {str(e)}")
 			continue
+
+	##### Save visualization and debug data
+	save_dir = f"{merger.log_dir}/preds"
+	save_vis_pose_graph(
+		save_dir, final_map, cur_submap, cur_submap_id, refined_edges,
+		suffix=f'{merger.args.vpr_match_model}_refine')
 
 	return refined_edges
 
@@ -340,31 +355,21 @@ def perform_submap_merging(merger: MergePipeline, args):
 	# Incrementally merge each submap to the final map, only care about the first two submaps
 	for cur_submap_id, cur_submap in merger.submaps:
 		if final_map.get_num_node() > 0:
-			edges_nodeA_to_nodeB_coarse = perform_global_loc(merger, final_map, cur_submap, cur_submap_id)
-			exit()
-			edges_nodeA_to_nodeB_refine = perform_local_loc(edges_nodeA_to_nodeB_coarse, merger, final_map, cur_submap)
-			print()
-
-			##################
-			###### DEBUG(gogojjh):
-			# print(Fore.GREEN + f"Fine Localization Results with the Submap {cur_submap_id} with Edge {len(edges_nodeA_to_nodeB_refine)}")
-			# save_vis_pose_graph(merger.log_dir, final_map, cur_submap, cur_submap_id, edges_nodeA_to_nodeB_refine, suffix='refine')
-			# save_query_result(merger.log_dir, query_result_info, cur_submap_id)
-			# ##################
+			edges_nodeAB_coarse = perform_global_loc(merger, final_map, cur_submap, cur_submap_id)
+			edges_nodeAB_refine = perform_local_loc(edges_nodeAB_coarse, merger, final_map, cur_submap, cur_submap_id)
 
 			##### Perform Pose Graph Optimization #####
-			pose_graph = merger.create_pose_graph_from_submaps(final_map, cur_submap, edges_nodeA_to_nodeB_refine)
+			print(Fore.GREEN + f'Performing Pose Graph Optimization for Submap {cur_submap_id}' + Fore.RESET)
+			pose_graph = merger.create_pose_graph_from_submaps(final_map, cur_submap, edges_nodeAB_refine)
 			g2o_file_path = os.path.join(merger.log_dir, "preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_file_path)
-			# NOTE(gogojjh): add optimization
-			# pose_graph.perform_optimization()
 
 			##### Merge the Pose Graph and Update Poses of Each Node #####
-			edges_nodeA_nodeB_weight = []
-			for edge in edges_nodeA_to_nodeB_refine:
+			edges_nodeAB_weight = []
+			for edge in edges_nodeAB_refine:
 				weight = np.linalg.norm(edge[2][:3, 3])
-				edges_nodeA_nodeB_weight.append([edge[0], edge[1], weight])
-			merger.merge_and_update_submaps(final_map, cur_submap, edges_nodeA_nodeB_weight)
+				edges_nodeAB_weight.append([edge[0], edge[1], weight])
+			merger.merge_and_update_submaps(final_map, cur_submap, edges_nodeAB_weight)
 		else:
 			merger.merge_and_update_submaps(final_map, cur_submap, [])
 	

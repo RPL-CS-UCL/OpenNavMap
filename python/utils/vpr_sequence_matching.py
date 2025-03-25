@@ -11,8 +11,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.cluster import MeanShift, DBSCAN, AffinityPropagation
 from matplotlib import pyplot as plt
 
-import copy
-import pycpptools.src.python.utils_math as pytool_math
+from utils.utils_geom import compute_pose_error
 
 class PlaceRecognitionSeqMatching:
 	def __init__(self, seqLen, enable_ransac=False):
@@ -244,16 +243,21 @@ class PlaceRecognitionSeqMatching:
 		return recall_preds, pred, mu
 
 	def save_diff_matrix_fitting(self, out_dir, connected_indices, best_indices, 
-								 D_all, db_map, query_map, lines_coeff, cluster_data, cluster_labels):
-		fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(18, 4))
+								 D_all, db_map, query_map, 
+								 lines_coeff=None, 
+								 cluster_data=None, 
+								 cluster_labels=None):
+		fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13, 4))
 
 		im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
 		for edge in connected_indices:
 			if db_map is not None and query_map is not None:
 				db_node = db_map.get_node(edge[0])
 				query_node = query_map.get_node(edge[1])
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
+				dis_tsl, _ = compute_pose_error(
+					(query_node.trans_gt, query_node.quat_gt), 
+					(db_node.trans_gt, db_node.quat_gt),
+					mode='vector'
 				)
 				if dis_tsl < 20.0:
 					ax1.plot(edge[1], edge[0], 'go', markersize=5)
@@ -267,53 +271,48 @@ class PlaceRecognitionSeqMatching:
 		ax1.set_ylabel('Database Desc Index')
 		ax1.set_title("Diff Matrix [Before RANSAC]")
 
-		im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-		for edge in best_indices:
-			if db_map is not None and query_map is not None:
-				db_node = db_map.get_node(edge[0])
-				query_node = query_map.get_node(edge[1])
-				dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(
-					query_node.trans_gt, query_node.quat_gt, db_node.trans_gt, db_node.quat_gt
-				)
-				if dis_tsl < 20.0:
-					ax2.plot(edge[1], edge[0], 'go', markersize=5)
+		if lines_coeff is not None:
+			im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+			for edge in best_indices:
+				if db_map is not None and query_map is not None:
+					db_node = db_map.get_node(edge[0])
+					query_node = query_map.get_node(edge[1])
+					dis_tsl, _ = compute_pose_error(
+						(query_node.trans_gt, query_node.quat_gt), 
+						(db_node.trans_gt, db_node.quat_gt),
+						mode='vector'
+					)
+					if dis_tsl < 20.0:
+						ax2.plot(edge[1], edge[0], 'go', markersize=5)
+					else:
+						ax2.plot(edge[1], edge[0], 'ro', markersize=5)
 				else:
 					ax2.plot(edge[1], edge[0], 'ro', markersize=5)
-			else:
-				ax2.plot(edge[1], edge[0], 'ro', markersize=5)
 
-		for line_coeff in lines_coeff:
-			m, b = line_coeff
-			x_vals = np.linspace(0, D_all.shape[1], 100)
-			y_vals = m * x_vals + b
-			ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
+			for line_coeff in lines_coeff:
+				m, b = line_coeff
+				x_vals = np.linspace(0, D_all.shape[1], 100)
+				y_vals = m * x_vals + b
+				ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
 
-		fig.colorbar(im2, ax=ax2)
-		ax2.set_xlabel('Query Desc Index')
-		ax2.set_ylabel('Database Desc Index')
-		ax2.set_title(f"Diff Matrix [After RANSAC]")
-		ax2.set_xlim(0, D_all.shape[1])
-		ax2.set_ylim(0, D_all.shape[0])
-		ax2.invert_yaxis()
+			fig.colorbar(im2, ax=ax2)
+			ax2.set_xlabel('Query Desc Index')
+			ax2.set_ylabel('Database Desc Index')
+			ax2.set_title(f"Diff Matrix [After RANSAC]")
+			ax2.set_xlim(0, D_all.shape[1])
+			ax2.set_ylim(0, D_all.shape[0])
+			ax2.invert_yaxis()
 
-		im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-		scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
-		fig.colorbar(scatter, ax=ax3)
-		ax3.set_xlabel('Query Desc Index')
-		ax3.set_ylabel('Database Desc Index')
-		ax3.set_title(f"Cluster")
-		ax3.set_xlim(0, D_all.shape[1])
-		ax3.set_ylim(0, D_all.shape[0])
-		ax3.invert_yaxis()
-
-		im4 = ax4.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-		fig.colorbar(im4, ax=ax4)
-		ax4.set_xlabel('Query Desc Index')
-		ax4.set_ylabel('Database Desc Index')
-		ax4.set_title(f"Cluster")
-		ax4.set_xlim(0, D_all.shape[1])
-		ax4.set_ylim(0, D_all.shape[0])
-		ax4.invert_yaxis()
+		if cluster_data is not None:
+			im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
+			scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
+			fig.colorbar(scatter, ax=ax3)
+			ax3.set_xlabel('Query Desc Index')
+			ax3.set_ylabel('Database Desc Index')
+			ax3.set_title(f"Cluster")
+			ax3.set_xlim(0, D_all.shape[1])
+			ax3.set_ylim(0, D_all.shape[0])
+			ax3.invert_yaxis()
 
 		plt.savefig(f"{out_dir}/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
 		plt.close()

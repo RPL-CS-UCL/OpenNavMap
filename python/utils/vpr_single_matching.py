@@ -28,8 +28,8 @@ if __name__ == "__main__":
 	sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 	import argparse
 	from image_graph import ImageGraphLoader as GraphLoader
-	import pycpptools.src.python.utils_math as pytool_math
 	from tqdm import tqdm
+	from utils.utils_geom import compute_pose_error
 
 	# Parse arguments
 	parser = argparse.ArgumentParser()
@@ -66,8 +66,11 @@ if __name__ == "__main__":
 	succ = 0
 	for i, node in enumerate(query_map.nodes.values()):
 		ref_map_node = db_map.nodes[preds[i][0]]
-		dis_tsl, dis_angle = pytool_math.tools_eigen.compute_relative_dis(\
-			node.trans_gt, node.quat_gt, ref_map_node.trans_gt, ref_map_node.quat_gt)
+		dis_tsl, dis_angle = compute_pose_error(
+			(node.trans_gt, node.quat_gt), 
+			(ref_map_node.trans_gt, ref_map_node.quat_gt),
+			mode='vector'
+		)
 		if dis_tsl < 10.0 and dis_angle < 90.0:
 			succ += 1
 			print(f"Correct prediction: Query {node.id} - DB: {preds[i][0]}")

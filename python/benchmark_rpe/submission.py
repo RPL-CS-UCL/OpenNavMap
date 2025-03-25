@@ -78,7 +78,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			}
 
 			start_time = time.time()
-			estimation_result = estimator(
+			result = estimator(
 				scene_root,
 				reference_image_names, query_image, 
 				reference_image_poses, 
@@ -91,15 +91,16 @@ def predict(loader, estimator, str_estimator, cfg):
 			"""Definition of solver output"""
 			# Rwc (numpy.ndarray): Estimated rotation matrix from world (reference frame) to camera
 			# twc (numpy.ndarray): Estimated translation vector. Shape: [3, 1] that translate depth_img1 to depth_img0.
-			image_pose, loss_value = estimation_result["im_pose"], estimation_result["loss"]
+			image_pose, loss_value = result["im_pose"], result["loss"]
 			if image_pose is None: 
 				raise ValueError(f"{str_estimator} - Estimated pose is None.")
 			elif np.isnan(image_pose).any():
 				raise ValueError("Estimated pose is NaN or infinite.")
 					   
 			"""Save Results"""
-			tf_world_to_cam = np.eye(4); tf_world_to_cam[:3, :3] = image_pose[:3, :3]; tf_world_to_cam[:3, 3] = image_pose[:3, 3]
-			tf_cam_to_world = np.linalg.inv(tf_world_to_cam); rot_cam_to_world = tf_cam_to_world[:3, :3]; trans_cam_to_world = tf_cam_to_world[:3,  3].reshape(3, 1)
+			# Pose that transforms camera point into world
+			T_w2c = np.eye(4); T_w2c[:3, :3] = image_pose[:3, :3]; T_w2c[:3, 3] = image_pose[:3, 3]
+			T_c2w = np.linalg.inv(T_w2c); rot_c2w = T_c2w[:3, :3]; trans_c2w = T_c2w[:3,  3].reshape(3, 1)
 
 			# populate results_dict
 			top_k_matches = len(reference_image_names)
@@ -107,7 +108,7 @@ def predict(loader, estimator, str_estimator, cfg):
 				msp_edges = estimator.get_minimum_spanning_tree()
 				weight_i, weight_j = estimator.scene.weight_i, estimator.scene.weight_j
 				for edge in msp_edges:
-					if edge[0] == top_k_matches or edge[1] == top_k_matches:
+					if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
 						edge_str = f"{edge[0]}_{edge[1]}"
 						conf = weight_i[edge_str].detach().cpu().numpy().mean() * weight_j[edge_str].detach().cpu().numpy().mean()
 			else:
@@ -116,12 +117,12 @@ def predict(loader, estimator, str_estimator, cfg):
 			estimated_pose = Pose(top_k=top_k_matches,
 								  reference_image_names=reference_image_names, 
 								  query_image=query_image,
-								  q=mat2quat(rot_cam_to_world).reshape(-1),
-								  t=trans_cam_to_world.reshape(-1),
+								  q=mat2quat(rot_c2w).reshape(-1),
+								  t=trans_c2w.reshape(-1),
 								  conf=conf)
 			results_dict[scene_id].append(estimated_pose)
 
-			print(Fore.GREEN + f'Estimated Pose: {trans_cam_to_world.T}' + Style.RESET_ALL)
+			print(Fore.GREEN + f'Estimated Pose: {trans_c2w.T}' + Style.RESET_ALL)
 			if args.debug:
 				output_estimator_directory = Path(os.path.join(args.out_dir, f"{str_estimator}"))
 				output_estimator_directory.mkdir(parents=True, exist_ok=True)
