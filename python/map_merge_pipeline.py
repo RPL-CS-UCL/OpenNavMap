@@ -357,15 +357,16 @@ def perform_submap_merging(merger: MergePipeline, args):
 			print(Fore.GREEN + f'Performing Pose Graph Optimization for Submap {cur_submap_id}' + Fore.RESET)
 			pose_graph = merger.create_pose_graph_from_map(final_map, edges_nodeAB_refine)
 			
-			g2o_file_path = os.path.join(merger.log_dir, "preds/initial_pose_graph.g2o")
-			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_file_path)
+			g2o_path = os.path.join(merger.log_dir, "preds/initial_pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
 			result_pgo = optimize_pose_graph(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), True)
 			for key in result_pgo.keys():
+				print(key)
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
-			g2o_file_path = os.path.join(merger.log_dir, "preds/refine_pose_graph.g2o")
-			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_file_path)		
+			g2o_path = os.path.join(merger.log_dir, "preds/refine_pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)		
 
 			if args.viz:
 				save_dir = f"{merger.log_dir}/preds"
