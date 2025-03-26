@@ -99,7 +99,7 @@ class MergePipeline:
 
 	def create_pose_graph_from_map(self, final_map, edges_nodeAB):
 		# Set basic std for factors
-		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
+		prior_sigma = np.array([1e-3] * 3 + [1e-2] * 3)
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
 		loop_sigma = np.array([np.deg2rad(3.0)] * 3 + [1.0] * 3)
 
@@ -365,7 +365,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
 			g2o_path = os.path.join(merger.log_dir, "preds/refine_pose_graph.g2o")
-			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)		
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 
 			if args.viz:
 				save_dir = f"{merger.log_dir}/preds"
