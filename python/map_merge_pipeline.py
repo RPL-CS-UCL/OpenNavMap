@@ -97,15 +97,15 @@ class MergePipeline:
 			self.submaps.append((submap_id, image_graph))
 			print(f"Loaded {submap_id}th {image_graph} from {submap_path}")
 
-	def create_pose_graph_from_map(self, final_map, edges_nodeAB):
+	def create_pose_graph_from_map(self, submapA, submapB, edges_nodeAB):
 		# Set basic std for factors
 		prior_sigma = np.array([1e-3] * 3 + [1e-2] * 3)
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
 		loop_sigma = np.array([np.deg2rad(3.0)] * 3 + [1.0] * 3)
-
 		pose_graph = PoseGraph()
+
 		# Create a pose graph from submapA by adding internal edges of submapA
-		for _, node in final_map.nodes.items():
+		for _, node in submapA.nodes.items():
 			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id, curr_pose3)
 			# Add prior factor
@@ -119,6 +119,18 @@ class MergePipeline:
 					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
 
+		id_offset = max(submapA.get_all_id()) + 1
+		for _, node in submapB.nodes.items():
+			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
+			pose_graph.add_init_estimate(node.id + id_offset, curr_pose3)
+			# Add odometry factor
+			for edge in node.edges:
+				next_node = edge[0]
+				# Avoid duplicate factors
+				if node.id + id_offset < next_node.id + id_offset:
+					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+					pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
+
 		# Add the loop factor
 		for edge in edges_nodeAB:
 			nodeA, nodeB, T_AB, conf = edge
@@ -126,15 +138,23 @@ class MergePipeline:
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			update_loop_sigma = loop_sigma / conf
-			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id, next_pose3, update_loop_sigma)
+			pose_graph.add_odometry_factor(nodeA.id, I_pose3, nodeB.id + id_offset, next_pose3, update_loop_sigma)
 
 		return pose_graph					
 
-	def merge_and_update_submaps(self, submapA, submapB, edges_nodeAB):
-		id_offset = 0 if not submapA.get_all_id() else max(submapA.get_all_id()) + 1
-		for node in submapB.nodes.values():
-			node.id += id_offset
+	def merge_and_update_submaps(self, submapA, submapB, edges_nodeAB, estimate_pose):
+		# Update pose estimates
+		id_offset = 0
+		for map in [submapA, submapB]:
+			for node in map.nodes.values():
+				node.id += id_offset
+				trans, quat = convert_matrix_to_vec(estimate_pose.atPose3(node.id).matrix())
+				node.set_pose(trans, quat)
 
+			id_offset += max(map.get_all_id()) + 1
+
+		# Merge map info: copy sensor data
+		for node in submapB.nodes.values():
 			if os.path.exists(os.path.join(submapB.map_root, node.rgb_img_name)):
 				rgb_img_path = os.path.join(submapB.map_root, node.rgb_img_name)
 				node.rgb_img_name = f"seq/{node.id:06d}.color.jpg"
@@ -149,14 +169,10 @@ class MergePipeline:
 
 			submapA.add_node(node)
 
+		# Update edge info
 		for edge in edges_nodeAB:
-			nodeA, nodeB, T_nodeAB = edge[0], edge[1], edge[2]
-			weight = np.linalg.norm(T_nodeAB[:, 3])
-
-			T_nodeA = convert_vec_to_matrix(nodeA.trans, nodeA.quat, 'xyzw')
-			T_nodeB = T_nodeA @ T_nodeAB
-			trans, quat = convert_matrix_to_vec(T_nodeB, 'xyzw')
-			nodeB.set_pose(trans, quat)
+			nodeA, nodeB = edge[0], edge[1]
+			weight = np.linalg.norm(nodeA.trans - nodeB.trans)
 			submapA.add_edge_undirected(nodeA, nodeB, weight)
 
 		print(f"Final Map Info: {submapA}")
@@ -351,30 +367,35 @@ def perform_submap_merging(merger: MergePipeline, args):
 		if final_map.get_num_node() > 0:
 			edges_nodeAB_coarse = perform_global_loc(merger, final_map, cur_submap, cur_submap_id)
 			edges_nodeAB_refine = perform_local_loc(edges_nodeAB_coarse, merger, final_map, cur_submap, cur_submap_id)
-			merger.merge_and_update_submaps(final_map, cur_submap, edges_nodeAB_refine)
 
 			##### Perform Pose Graph Optimization #####
 			print(Fore.GREEN + f'Performing Pose Graph Optimization for Submap {cur_submap_id}' + Fore.RESET)
-			pose_graph = merger.create_pose_graph_from_map(final_map, edges_nodeAB_refine)
-			
+			# Initialize the pose graph
+			pose_graph = merger.create_pose_graph_from_map(final_map, cur_submap, edges_nodeAB_refine)	
 			g2o_path = os.path.join(merger.log_dir, "preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
+			# Optimize the pose graph
 			result_pgo = optimize_pose_graph(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), True)
 			print("PGO: initial error = ", pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()))
 			print("PGO: final error = ", pose_graph.get_factor_graph().error(result_pgo))
-
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
 			g2o_path = os.path.join(merger.log_dir, "preds/refine_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 
+			# Merge two submap into one with optimized poses
+			merger.merge_and_update_submaps(final_map, cur_submap, edges_nodeAB_refine, pose_graph.get_initial_estimate())
+
 			if args.viz:
 				save_dir = f"{merger.log_dir}/preds"
 				pose_graph.plot_pose_graph(save_dir, pose_graph.get_factor_graph(), result_pgo)
 		else:
-			merger.merge_and_update_submaps(final_map, cur_submap, [])
+			pose_graph = merger.create_pose_graph_from_map(final_map, cur_submap, [])
+			g2o_path = os.path.join(merger.log_dir, "preds/initial_pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+			merger.merge_and_update_submaps(final_map, cur_submap, [], pose_graph.get_initial_estimate())
 	
 	final_map.save_to_file()
 
