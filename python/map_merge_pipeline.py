@@ -361,6 +361,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
 			result_pgo = optimize_pose_graph(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), True)
+			print("PGO: initial error = ", pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()))
+			print("PGO: final error = ", pose_graph.get_factor_graph().error(result_pgo))
+
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
