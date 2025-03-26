@@ -119,17 +119,34 @@ class MergePipeline:
 					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
 
+		# Add factors from submapB by adding internal edges of submapB
+		# transform submapB into submapA using the initial transformation
+		if not edges_nodeAB:
+			T_wB_B0 = T_offset = np.eye(4)
+		else:
+			edge = edges_nodeAB[0]
+			T_wA_A0 = convert_vec_to_matrix(edge[0].trans, edge[0].quat)
+			T_wB_B0 = convert_vec_to_matrix(edge[1].trans, edge[1].quat)
+			T_AB = edges_nodeAB[0][2]
+			T_offset = T_wA_A0 @ T_AB
 		id_offset = max(submapA.get_all_id()) + 1
+
 		for _, node in submapB.nodes.items():
-			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
+			T_wB_Bt = convert_vec_to_matrix(node.trans, node.quat)
+			trans, quat = convert_matrix_to_vec(T_offset @ np.linalg.inv(T_wB_B0) @ T_wB_Bt)
+			curr_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			pose_graph.add_init_estimate(node.id + id_offset, curr_pose3)
 			# Add odometry factor
 			for edge in node.edges:
 				next_node = edge[0]
 				# Avoid duplicate factors
-				if node.id + id_offset < next_node.id + id_offset:
-					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
-					pose_graph.add_odometry_factor(node.id + id_offset, curr_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
+				if node.id < next_node.id:
+					I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
+					T_wB_Bt_next = convert_vec_to_matrix(next_node.trans, next_node.quat)
+					T_Bt_Bt_next = np.linalg.inv(T_wB_Bt) @ T_wB_Bt_next
+					trans, quat = convert_matrix_to_vec(T_Bt_Bt_next)
+					next_pose3 = convert_vec_gtsam_pose3(trans, quat)
+					pose_graph.add_odometry_factor(node.id + id_offset, I_pose3, next_node.id + id_offset, next_pose3, odom_sigma)
 
 		# Add the loop factor
 		for edge in edges_nodeAB:
