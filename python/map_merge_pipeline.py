@@ -250,14 +250,14 @@ def perform_global_loc(
 		
 		# Geomtric Verification
 		coarse_edges = []
-		for db_idx, query_idx, score in best_indices:
+		for db_idx, query_idx, _ in best_indices:
 			db_node = final_map.get_node(db_idx)	
 			query_node = cur_submap.get_node(query_idx)
 			result = merger.pose_estimator.get_matched_kpts(merger.scene_root, db_node.rgb_image, query_node.rgb_image)
 			num_inlier = result['num_inliers']
 			print(Fore.GREEN + f"DB {db_node.id} - Query {query_node.id} - Number of matched kpts: {num_inlier}")
 			if num_inlier > REFINE_GV_SCORE_THRESHOLD: 
-				coarse_edges.append((db_node, query_node, np.eye(4), score))
+				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
 	
 	##### Save visualization and debug data
 	save_dir = f"{merger.log_dir}/preds"
