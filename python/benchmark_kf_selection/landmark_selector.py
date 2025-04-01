@@ -133,8 +133,6 @@ class LandmarkSelector:
                 print(f"Delete {node.id}")
                 graph.remove_node(node)
 
-            input()
-
     def select_keyframes(self, timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database, max_frames=100):
         """
         Main method to select keyframes from provided data.

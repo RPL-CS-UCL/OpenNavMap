@@ -22,6 +22,8 @@ from estimator import THIRD_PARTY_DIR, get_estimator, add_to_path
 add_to_path(THIRD_PARTY_DIR.joinpath("mast3r/dust3r"))
 from dust3r.utils.geometry import inv, geotrf
 
+DB_Raio = 0.75
+
 class SubmapManager:
     def __init__(self, time_threshold=300.0):
         self.submaps = []
@@ -182,6 +184,7 @@ def pre_compute(scene_path):
         cams = inv(estimator.scene.get_im_poses())
         depthmaps = estimator.scene.get_depthmaps()
         all_pts3d = estimator.scene.get_pts3d() # all pts3d in the world frame
+        msk_conf = estimator.scene.get_masks()
         H, W = depthmaps[0].shape
 
         assert len(all_pts3d) == 2
@@ -204,7 +207,7 @@ def pre_compute(scene_path):
             proj_depth = proj_depth[valid_mask]
             msk = torch.abs(proj_depth - depthmaps[j][v, u].reshape(1, -1)) < 0.5 * depthmaps[j][v, u].reshape(1, -1)
 
-            ratio_A2B[(i, j)] = np.sum(msk.detach().cpu().numpy()) / (H * W)
+            ratio_A2B[(i, j)] = np.sum(msk.detach().cpu().numpy()) / (len(pts3d_flat))
 
             viz_flag = False
             if viz_flag:
@@ -225,7 +228,7 @@ def pre_compute(scene_path):
         print(f'(A to B) Info Redu: {ratio_A2B[(0, 1)]:.3f}, Info Gain: {1.0-ratio_A2B[(0, 1)]:.3f}')        
         print(f'(B to A) Info Redu: {ratio_A2B[(1, 0)]:.3f}, Info Gain: {1.0-ratio_A2B[(1, 0)]:.3f}')
 
-        # input()
+        input()
 
     np.save(os.path.join(scene_path, 'information_redundancy.npy'), info_redu)
     np.save(os.path.join(scene_path, 'information_gain.npy'), info_gain)
@@ -237,9 +240,8 @@ def pre_compute(scene_path):
     shutil.copy2(timestamp_file, destination_file)
     print(f"Copied {timestamp_file} to {destination_file}")    
 
-def load_scene_data(dataset_path, scene):
+def load_scene_data(scene_path):
     """Improved data loading with submap structure conversion"""
-    scene_path = os.path.join(dataset_path, scene)
     required_files = ['iqa.txt', 'information_redundancy.npy', 'information_gain.npy', 'submap_split.npy', 'timestamps.txt', 'descriptors.txt']
     
     if not all(os.path.exists(os.path.join(scene_path, f)) for f in required_files):
@@ -276,7 +278,8 @@ def select_keyframes(scene_data, args):
     info_redu = scene_data['info_redu'].item()  
     info_gain = scene_data['info_gain'].item()  
     submap_splits = scene_data['submap_splits']
-    submap_database = submap_splits[:-1]
+    submap_database = submap_splits[:int(len(submap_splits) * DB_Raio)]
+    print(f"Split database and query map: {int(len(submap_splits) * DB_Raio)} - {int(len(submap_splits) * (1 - DB_Raio))}")
     
     if args.method == 'landmark':
         kf_selector = LandmarkSelector()
@@ -287,10 +290,12 @@ def select_keyframes(scene_data, args):
 
 def main():
     args = parse_arguments()
-    scene_data = load_scene_data(args.dataset_path, args.scene)
+    scene_path = os.path.join(args.dataset_path, args.scene)
+    scene_data = load_scene_data(scene_path)
     print(f"Loaded data with {len(scene_data['submap_splits'])} submaps")
 
     keyframes = select_keyframes(scene_data, args)
+    np.savetxt(os.path.join(scene_path, 'keyframes.txt'), np.array(keyframes, dtype=object), fmt='%s')
 
 if __name__ == "__main__":
     main()
