@@ -50,7 +50,7 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 	try:
 		K, W, H = load_K(dataset_path / scene / 'intrinsics.txt')
 		with (dataset_path / scene / 'poses.txt').open('r', encoding='utf-8') as gt_poses_file:
-			gt_poses = load_poses(gt_poses_file, load_score=False, is_multi_frame=False)
+			gt_poses = load_poses(gt_poses_file, load_confidence=False, is_multi_frame=False)
 	except FileNotFoundError as e:
 		logging.error(f'Could not find ground-truth dataset files: {e}')
 		raise
@@ -62,7 +62,7 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 	try:
 		with submission_zip.open(f'pose_{scene}.txt') as estimated_poses_file:
 			estimated_poses_file_wrapper = TextIOWrapper(estimated_poses_file, encoding='utf-8')
-			estimated_poses = load_poses(estimated_poses_file_wrapper, load_score=True, is_multi_frame=True)
+			estimated_poses = load_poses(estimated_poses_file_wrapper, load_confidence=True, is_multi_frame=True)
 	except KeyError as e:
 		logging.warning(
 			f'Submission does not have estimates for scene {scene}.')

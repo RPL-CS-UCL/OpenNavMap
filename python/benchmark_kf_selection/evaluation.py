@@ -71,12 +71,12 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 	results = defaultdict(list)
 
 	# compute metrics per frame
-	for frame_num, (q_gt, t_gt, _) in gt_poses.items():
-		if frame_num not in estimated_poses:
+	for frame_num, (q_est, t_est, confidence) in estimated_poses.items():
+		if confidence is None or confidence < 0:
 			failures += 1
 			continue
 
-		q_est, t_est, confidence = estimated_poses[frame_num]
+		q_gt, t_gt = gt_poses[frame_num]
 		inputs = Inputs(q_gt=q_gt, t_gt=t_gt, q_est=q_est, t_est=t_est,
 						confidence=confidence, K=K[frame_num], W=W, H=H)
 		metric_manager(inputs, results)

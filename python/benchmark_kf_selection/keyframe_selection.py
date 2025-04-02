@@ -22,7 +22,7 @@ from estimator import THIRD_PARTY_DIR, get_estimator, add_to_path
 add_to_path(THIRD_PARTY_DIR.joinpath("mast3r/dust3r"))
 from dust3r.utils.geometry import inv, geotrf
 
-DB_Raio = 0.75
+DB_Ratio = 0.75
 
 class SubmapManager:
     def __init__(self, time_threshold=300.0):
@@ -278,8 +278,8 @@ def select_keyframes(scene_data, args):
     info_redu = scene_data['info_redu'].item()  
     info_gain = scene_data['info_gain'].item()  
     submap_splits = scene_data['submap_splits']
-    submap_database = submap_splits[:int(len(submap_splits) * DB_Raio)]
-    print(f"Split database and query map: {int(len(submap_splits) * DB_Raio)} - {int(len(submap_splits) * (1 - DB_Raio))}")
+    submap_database = submap_splits[:int(len(submap_splits) * DB_Ratio)]
+    print(f"Split database and query map: {int(len(submap_splits) * DB_Ratio)} - {int(len(submap_splits) * (1 - DB_Ratio))}")
     
     if args.method == 'landmark':
         kf_selector = LandmarkSelector()

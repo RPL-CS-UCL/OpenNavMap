@@ -24,7 +24,7 @@ from rpe_default import cfg
 from datamodules import DataModule
 
 @dataclass
-class Pose:
+class PoseResult:
 	top_k: int
 	reference_image_names: list
 	query_image: str
@@ -41,8 +41,8 @@ class Pose:
 		t_str = np.array2string(
 			self.t, formatter=formatter, max_line_width=max_line_width
 		)[1:-1]
-		str_reference_names = " ".join(reference_name for reference_name in self.reference_image_names)
-		return f"{self.top_k} {str_reference_names} {self.query_image} {q_str} {t_str} {self.conf:.3f}"
+		ref_img_names = " ".join(ref_name for ref_name in self.reference_image_names)
+		return f"{self.top_k} {ref_img_names} {self.query_image} {q_str} {t_str} {self.conf:.3f}"
 
 def predict(loader, estimator, str_estimator, cfg):
 	results_dict = defaultdict(list)
@@ -114,12 +114,14 @@ def predict(loader, estimator, str_estimator, cfg):
 			else:
 				conf = 0.0
 
-			estimated_pose = Pose(top_k=top_k_matches,
-								  reference_image_names=reference_image_names, 
-								  query_image=query_image,
-								  q=mat2quat(rot_c2w).reshape(-1),
-								  t=trans_c2w.reshape(-1),
-								  conf=conf)
+			estimated_pose = PoseResult(
+				top_k=top_k_matches,
+				reference_image_names=reference_image_names, 
+				query_image=query_image,
+				q=mat2quat(rot_c2w).reshape(-1),
+				t=trans_c2w.reshape(-1),
+				conf=conf
+			)
 			results_dict[scene_id].append(estimated_pose)
 
 			print(Fore.GREEN + f'Estimated Pose: {trans_c2w.T}' + Style.RESET_ALL)
