@@ -76,7 +76,7 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 			failures += 1
 			continue
 
-		q_gt, t_gt = gt_poses[frame_num]
+		q_gt, t_gt, _ = gt_poses[frame_num]
 		inputs = Inputs(q_gt=q_gt, t_gt=t_gt, q_est=q_est, t_est=t_est,
 						confidence=confidence, K=K[frame_num], W=W, H=H)
 		metric_manager(inputs, results)
@@ -85,7 +85,8 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 
 
 def aggregate_results(all_results, all_failures, eval_config):
-	config = importlib.import_module(f"benchmark.{eval_config}")
+	config = importlib.import_module(f"utils.benchmark.{eval_config}")
+	logging.info(config)
 
 	# aggregate metrics
 	median_metrics = defaultdict(list)
