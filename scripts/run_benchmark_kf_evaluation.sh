@@ -42,17 +42,25 @@ export MODELS=(
   # "xfeat_pnp"
 )
 
+export KF_SELECTORS=(
+  "full_kf"
+  "3dlandmark"
+)
+
 for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"
 do
-  for model in "${MODELS[@]}"
+  for kf_selector in "${KF_SELECTORS[@]}"
   do
-    echo "Evaluate image matching methods with pose solver: $model"
-    python $PROJECT_PATH/python/benchmark_kf_selection/evaluation.py \
-      --submission_path $DATASET_PATH/results_kf/$model/submission.zip \
-      --dataset_path $DATASET_PATH \
-      --eval_config $EVAL_CONFIG \
-      --split test \
-      --log info
-    echo ""
+    for model in "${MODELS[@]}"
+    do
+      echo "Evaluate image matching methods with pose solver: $model and $kf_selector"
+      python $PROJECT_PATH/python/benchmark_kf_selection/evaluation.py \
+        --submission_path $DATASET_PATH/results_kf/"$model"_"$kf_selector"/submission.zip \
+        --dataset_path $DATASET_PATH \
+        --eval_config $EVAL_CONFIG \
+        --split test \
+        --log info
+      echo ""
+    done
   done
 done

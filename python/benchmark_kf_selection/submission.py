@@ -157,7 +157,7 @@ def eval(args):
 
 		# Load base data
 		poses, intrinsics, descs, keyframes, submap_splits = \
-			load_data(scene_path, keyframe_path)
+			load_data(scene_path, keyframe_path, args)
 		
 		# Split database and query sets
 		db_submaps = submap_splits[:int(len(submap_splits) * DB_Ratio)]
@@ -174,6 +174,8 @@ def eval(args):
 						descs[img_name], intrinsics[img_name], poses[img_name]
 					)
 					graph.add_node(node)
+		print(f'Map with {graph.get_num_node()} Nodes')
+		print(', '.join([node.id for node in graph.nodes.values()]))
 
 		# Prepare query set
 		queries = []
@@ -191,7 +193,7 @@ def eval(args):
 				matcher = get_matcher(model, args.device)
 				solver = get_solver(args.pose_solver, cfg)
 				
-				model_dir = output_root/ f"{model}_{args.pose_solver}"
+				model_dir = output_root / f"{model}_{args.pose_solver}_{args.keyframe_selector}"
 				model_dir.mkdir(exist_ok=True)
 				results, avg_time = predict(graph, queries, matcher, solver, scene, model_dir, args)
 				
@@ -199,16 +201,16 @@ def eval(args):
 				save_submission(results, model_dir/"submission.zip")
 				
 				# Record timing
-				timing_str = f"{model}_{args.pose_solver}: {avg_time:.2f}s"
+				timing_str = f"{model}_{args.pose_solver}_{args.keyframe_selector}: {avg_time:.2f}s"
 				timing_file.write(timing_str + "\n")
 				tqdm.write(timing_str)
 
-def load_data(scene_path, keyframe_path):
+def load_data(scene_path, keyframe_path, args):
 	return (
 		read_poses(Path(scene_path)/"poses.txt"),
 		read_intrinsics(Path(scene_path)/"intrinsics.txt"),
 		read_descriptors(Path(keyframe_path)/"descriptors.txt"),
-		read_img_names(Path(keyframe_path)/"keyframes.txt"),
+		read_img_names(Path(keyframe_path)/f"keyframes_{args.keyframe_selector}.txt"),
 		np.load(Path(keyframe_path)/"submap_split.npy", allow_pickle=True)
 	)
 
@@ -241,6 +243,7 @@ def main():
 	parser.add_argument("--config", help="path to config file")
 	parser.add_argument("--dataset_dir", required=True, help="Dataset root directory")
 	parser.add_argument("--keyframe_dir", required=True, help="Keyframe directory")
+	parser.add_argument("--keyframe_selector", required=True, choices=["full_kf", "3dlandmark"])
 	parser.add_argument("--split", required=True, choices=["train", "val", "test"])
 	parser.add_argument("--image_match_models", nargs="+", default=["duster"], choices=available_models)
 	parser.add_argument("--pose_solver", default="essentialmatrixmetricmean", choices=available_solvers)

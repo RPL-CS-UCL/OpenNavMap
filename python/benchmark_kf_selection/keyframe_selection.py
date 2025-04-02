@@ -16,6 +16,7 @@ import pyiqa
 
 from utils.utils_geom import read_intrinsics, read_poses, read_timestamps, read_descriptors
 from utils.utils_vpr_method import *
+from full_kf_selector import FullKFSelector
 from landmark_selector import LandmarkSelector
 
 from estimator import THIRD_PARTY_DIR, get_estimator, add_to_path
@@ -64,7 +65,7 @@ def parse_arguments():
     parser.add_argument('--scene', type=str, required=True, 
                        help='Scene name to process')
     parser.add_argument('--method', type=str, required=True, 
-                       help='landmark, random')
+                       help='3dlandmark, full_kf')
     return parser.parse_args()
 
 def save_point_cloud(pts3d, save_path, save_flag=False):
@@ -281,10 +282,12 @@ def select_keyframes(scene_data, args):
     submap_database = submap_splits[:int(len(submap_splits) * DB_Ratio)]
     print(f"Split database and query map: {int(len(submap_splits) * DB_Ratio)} - {int(len(submap_splits) * (1 - DB_Ratio))}")
     
-    if args.method == 'landmark':
+    if args.method == 'full_kf':
+        kf_selector = FullKFSelector()
+        keyframes = kf_selector.select_keyframes(submap_database)
+    elif args.method == '3dlandmark':
         kf_selector = LandmarkSelector()
-
-    keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database)
+        keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database)
 
     return keyframes
 
@@ -295,7 +298,7 @@ def main():
     print(f"Loaded data with {len(scene_data['submap_splits'])} submaps")
 
     keyframes = select_keyframes(scene_data, args)
-    np.savetxt(os.path.join(scene_path, 'keyframes.txt'), np.array(keyframes, dtype=object), fmt='%s')
+    np.savetxt(os.path.join(scene_path, f"keyframes_{args.method}.txt"), np.array(keyframes, dtype=object), fmt='%s')
 
 if __name__ == "__main__":
     main()
