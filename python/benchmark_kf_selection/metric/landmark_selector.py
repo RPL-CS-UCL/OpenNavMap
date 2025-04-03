@@ -103,8 +103,9 @@ class LandmarkSelector:
                 closest_node.add_edge(curr_node, edge_info)
             
             # Check whether old keyframe should be deleted
-            node_list_rm = []
+            nodes_to_remove = []
             for db_node in graph.nodes.values():
+                # The newest keyframe is not considered for deletion
                 if not db_node.edges:
                     continue
                 
@@ -115,7 +116,7 @@ class LandmarkSelector:
                 print(f"{P_keep:.3f} Keep prob : {db_node.id}")
 
                 if P_keep < self.P_keep_th:
-                    node_list_rm.append(db_node)
+                    nodes_to_remove.append(db_node)
                 
                 for edge in db_node.edges:
                     P_Q = self.quality_probability(db_node.iqa_score)
@@ -129,7 +130,7 @@ class LandmarkSelector:
 
                 print()
 
-            for node in node_list_rm:
+            for node in nodes_to_remove:
                 print(f"Delete {node.id}")
                 graph.remove_node(node)
 

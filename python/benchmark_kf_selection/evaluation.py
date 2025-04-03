@@ -25,7 +25,7 @@ def plot_perfect_curve(P):
 		ratio_values.append(ratio_tmp)
 	return prec_values, ratio_values
 
-def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: str):
+def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: str, enable_scale: bool):
 	metric_manager = MetricManager()
 
 	# load intrinsics and poses
@@ -77,8 +77,15 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 			continue
 
 		q_gt, t_gt, _ = gt_poses[frame_num]
-		inputs = Inputs(q_gt=q_gt, t_gt=t_gt, q_est=q_est, t_est=t_est,
-						confidence=confidence, K=K[frame_num], W=W, H=H)
+
+		# NOTE: enable_scale=True meaning that the predicted poses have real scale
+		if enable_scale:
+			inputs = Inputs(q_gt=q_gt, t_gt=t_gt, q_est=q_est, t_est=t_est,
+							confidence=confidence, K=K[frame_num], W=W, H=H)
+		else:
+			inputs = Inputs(q_gt=q_gt, t_gt=t_gt/np.linalg.norm(t_gt), 
+							q_est=q_est, t_est=t_est/np.linalg.norm(t_est),
+							confidence=confidence, K=K[frame_num], W=W, H=H)
 		metric_manager(inputs, results)
 
 	return results, failures
@@ -134,7 +141,6 @@ def aggregate_results(all_results, all_failures, eval_config):
 	output_metrics[f'Estimates for % of frames'] = len(all_metrics['trans_err']) / total_samples
 	return output_metrics, curves_data
 
-
 def count_unexpected_scenes(scenes: tuple, submission_zip: ZipFile):
 	submission_scenes = [fname[5:-4]
 						 for fname in submission_zip.namelist() if fname.startswith("pose_")]
@@ -154,7 +160,7 @@ def main(args):
 	all_failures = 0
 	for scene in scenes:
 		metrics, failures = compute_scene_metrics(
-			dataset_path, submission_zip, scene)
+			dataset_path, submission_zip, scene, args.enable_scale)
 		all_results[scene] = metrics
 		all_failures += failures
 
@@ -189,6 +195,8 @@ if __name__ == '__main__':
 						help='Path to the dataset folder')
 	parser.add_argument('--eval_config', type=str, default='config_025_5',
 						help='Evaluation config: config_005_5, config_025_5, config_025_10, config_1_10')   
+	parser.add_argument('--enable_scale', required=True, action='store_true',
+						help='Estimated poses have scale or not')
 
 	args = parser.parse_args()
 

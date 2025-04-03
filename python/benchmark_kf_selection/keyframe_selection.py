@@ -16,17 +16,20 @@ import pyiqa
 
 from utils.utils_geom import read_intrinsics, read_poses, read_timestamps, read_descriptors
 from utils.utils_vpr_method import *
-from full_kf_selector import FullKFSelector
-from landmark_selector import LandmarkSelector
+
+from metric.full_kf_selector import FullKFSelector
+from metric.landmark_selector import LandmarkSelector
+from metric.pose_density_selector import PoseDensitySelector
+from metric.feature_selector import FeatureSelector
 
 from estimator import THIRD_PARTY_DIR, get_estimator, add_to_path
 add_to_path(THIRD_PARTY_DIR.joinpath("mast3r/dust3r"))
 from dust3r.utils.geometry import inv, geotrf
 
-DB_Ratio = 0.75
+DB_Ratio = 0.5
 
 class SubmapManager:
-    def __init__(self, time_threshold=300.0):
+    def __init__(self, time_threshold=60.0):
         self.submaps = []
         self.current_submap = None
         self.time_threshold = time_threshold
@@ -57,16 +60,6 @@ class SubmapManager:
         if self.current_submap:
             self.current_submap['duration'] = \
                 self.current_submap['end_time'] - self.current_submap['start_time']
-
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='Keyframe Selection Algorithm')
-    parser.add_argument('--dataset_path', type=str, required=True, 
-                       help='Path to the dataset')
-    parser.add_argument('--scene', type=str, required=True, 
-                       help='Scene name to process')
-    parser.add_argument('--method', type=str, required=True, 
-                       help='3dlandmark, full_kf')
-    return parser.parse_args()
 
 def save_point_cloud(pts3d, save_path, save_flag=False):
     """
@@ -101,6 +94,7 @@ def visualize_proj_depth(output_dir, depthmap, proj_depthmap, i, j):
 def pre_compute(scene_path):
     """Enhanced pre-computation with structured submap handling"""
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    resize = (512, 288)
     
     # Load raw data
     original_scene_path = scene_path.replace('keyframe_selection_eval', 'map_free_eval')
@@ -152,7 +146,7 @@ def pre_compute(scene_path):
     transformations = [
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        transforms.Resize(size=[512, 288], antialias=True)
+        transforms.Resize(size=resize, antialias=True)
     ]
     transform = transforms.Compose(transformations)
     all_descriptors = np.empty((len(poses), desc_dimenson + 1), dtype=object)
@@ -171,8 +165,8 @@ def pre_compute(scene_path):
     output_dir = os.path.join(scene_path, 'preds')
     os.makedirs(output_dir, exist_ok=True)
 
-    # Compute overlapping
-    info_redu, info_gain = {}, {}
+    # Compute the number of overlapping landmarks
+    lm_redu, lm_gain = {}, {}
     for img_name_0, img_name_1 in itertools.combinations(poses.keys(), 2):
         print(f"{img_name_0} - {img_name_1}")
 
@@ -220,19 +214,35 @@ def pre_compute(scene_path):
                 )
                 save_point_cloud(all_pts3d[i].detach().cpu().numpy(), os.path.join(output_dir, f'pts3d_{i}.pcd'), True)
 
-        info_redu[(img_name_0, img_name_1)] = ratio_A2B[(0, 1)]          # how much information is redundant of img_0
-        info_gain[(img_name_0, img_name_1)] = 1.0 - ratio_A2B[(0, 1)]    # how much information is gained of img_0 
-        info_redu[(img_name_1, img_name_0)] = ratio_A2B[(1, 0)]          # how much information is redundant of img_1
-        info_gain[(img_name_1, img_name_0)] = 1.0 - ratio_A2B[(1, 0)]    # how much information is gained of img_1
+        lm_redu[(img_name_0, img_name_1)] = ratio_A2B[(0, 1)]          # how much information is redundant of img_0
+        lm_gain[(img_name_0, img_name_1)] = 1.0 - ratio_A2B[(0, 1)]    # how much information is gained of img_0 
+        lm_redu[(img_name_1, img_name_0)] = ratio_A2B[(1, 0)]          # how much information is redundant of img_1
+        lm_gain[(img_name_1, img_name_0)] = 1.0 - ratio_A2B[(1, 0)]    # how much information is gained of img_1
 
         print(f'Info Redu: larger, the more of A is observed by B')
         print(f'(A to B) Info Redu: {ratio_A2B[(0, 1)]:.3f}, Info Gain: {1.0-ratio_A2B[(0, 1)]:.3f}')        
         print(f'(B to A) Info Redu: {ratio_A2B[(1, 0)]:.3f}, Info Gain: {1.0-ratio_A2B[(1, 0)]:.3f}')
 
-        input()
+    np.save(os.path.join(scene_path, 'landmark_redundancy.npy'), lm_redu)
+    np.save(os.path.join(scene_path, 'landmark_gain.npy'), lm_gain)
 
-    np.save(os.path.join(scene_path, 'information_redundancy.npy'), info_redu)
-    np.save(os.path.join(scene_path, 'information_gain.npy'), info_gain)
+    # Compute the number of matched keypoints
+    kpts_match = {}
+    for img_name_0, img_name_1 in itertools.combinations(poses.keys(), 2):
+        print(f"{img_name_0} - {img_name_1}")
+
+        img_path_0 = os.path.join(original_scene_path, img_name_0)
+        img_path_1 = os.path.join(original_scene_path, img_name_1)
+        result = estimator.get_matched_kpts(Path(scene_path), img_path_0, img_path_1, resize)
+        num_matches_kpts0 = len(result['matched_kpts0'])
+        num_matches_kpts1 = len(result['matched_kpts1'])
+        assert num_matches_kpts0 == num_matches_kpts1
+
+        kpts_match[(img_name_0, img_name_1)] = num_matches_kpts0
+        kpts_match[(img_name_1, img_name_0)] = num_matches_kpts1
+        print(f'Matched keypoints between {img_name_0} and {img_name_1}: {num_matches_kpts0}')
+        
+    np.save(os.path.join(scene_path, 'keypoint_matched.npy'), kpts_match)    
 
     # Copy timestamps
     import shutil
@@ -241,10 +251,19 @@ def pre_compute(scene_path):
     shutil.copy2(timestamp_file, destination_file)
     print(f"Copied {timestamp_file} to {destination_file}")    
 
+    # Copy poses
+    import shutil
+    pose_file = os.path.join(original_scene_path, 'poses.txt')
+    destination_file = os.path.join(scene_path, 'poses.txt')
+    shutil.copy2(pose_file, destination_file)
+    print(f"Copied {pose_file} to {destination_file}")    
+
 def load_scene_data(scene_path):
     """Improved data loading with submap structure conversion"""
-    required_files = ['iqa.txt', 'information_redundancy.npy', 'information_gain.npy', 'submap_split.npy', 'timestamps.txt', 'descriptors.txt']
-    
+    required_files = ['iqa.txt', 'landmark_redundancy.npy', 'landmark_gain.npy', 'keypoint_matched.npy', 
+                      'submap_split.npy', 'timestamps.txt', 'descriptors.txt', 'poses.txt']
+    Path(scene_path).mkdir(parents=True, exist_ok=True)
+
     if not all(os.path.exists(os.path.join(scene_path, f)) for f in required_files):
         print("Pre-computed files not found. Computing...")
         pre_compute(scene_path)
@@ -259,10 +278,12 @@ def load_scene_data(scene_path):
     
     return {
         'timestamps': read_timestamps(os.path.join(scene_path, 'timestamps.txt')),
+        'poses': read_poses(os.path.join(scene_path, 'poses.txt')),
         'descriptors': read_descriptors(os.path.join(scene_path, 'descriptors.txt')),
         'iqa_scores': read_timestamps(os.path.join(scene_path, 'iqa.txt')),
-        'info_redu': np.load(os.path.join(scene_path, 'information_redundancy.npy'), allow_pickle=True),
-        'info_gain': np.load(os.path.join(scene_path, 'information_gain.npy'), allow_pickle=True),
+        'lm_redu': np.load(os.path.join(scene_path, 'landmark_redundancy.npy'), allow_pickle=True),
+        'lm_gain': np.load(os.path.join(scene_path, 'landmark_gain.npy'), allow_pickle=True),
+        'num_mkpts': np.load(os.path.join(scene_path, 'keypoint_matched.npy'), allow_pickle=True),
         'submap_splits': submap_splits,
     }
 
@@ -270,35 +291,62 @@ def select_keyframes(scene_data, args):
     ###### Definition
     ###### timestamps[img_name] = timestamp
     ###### iqa_scores[img_name] = iqa_score 
-    ###### info_redu[img_name0, img_name1] = info_redu
-    ###### info_gain[img_name0, img_name1] = info_gain
+    ###### lm_redu[img_name0, img_name1] = lm_redu
+    ###### lm_gain[img_name0, img_name1] = lm_gain
     ###### submap_splits[i] = {'start': start_time, 'end': end_time, 'frames': [img_name0, img_name1, ...]}
-    timestamps = scene_data['timestamps']       
+    timestamps = scene_data['timestamps']
+    poses = scene_data['poses']
     descriptors = scene_data['descriptors']
     iqa_scores = scene_data['iqa_scores']       
-    info_redu = scene_data['info_redu'].item()  
-    info_gain = scene_data['info_gain'].item()  
+    lm_redu = scene_data['lm_redu'].item()  
+    lm_gain = scene_data['lm_gain'].item()  
+    num_mkpts = scene_data['num_mkpts'].item()
     submap_splits = scene_data['submap_splits']
-    submap_database = submap_splits[:int(len(submap_splits) * DB_Ratio)]
-    print(f"Split database and query map: {int(len(submap_splits) * DB_Ratio)} - {int(len(submap_splits) * (1 - DB_Ratio))}")
-    
-    if args.method == 'full_kf':
+
+    num_query = max(1, int(len(submap_splits) * (1 - DB_Ratio)))
+    num_database = len(submap_splits) - num_query
+    submap_database = submap_splits[:num_database]
+    submap_query = submap_splits[num_database:]
+    print(f"Split database and query map number: {num_database} - {num_query}")
+
+    keyframes = []
+    if args.method == 'full_kf':         # not select keyframes
         kf_selector = FullKFSelector()
         keyframes = kf_selector.select_keyframes(submap_database)
-    elif args.method == '3dlandmark':
+    elif args.method == 'pose_density':  # pose density
+        kf_selector = PoseDensitySelector()
+        keyframes = kf_selector.select_keyframes(poses, submap_database)
+    elif args.method == 'feature':       # 2D feature
+        kf_selector = FeatureSelector()
+        keyframes = kf_selector.select_keyframes(descriptors, num_mkpts, submap_database)
+    elif args.method == 'landmark':      # 3D landmark
         kf_selector = LandmarkSelector()
-        keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database)
-
+        keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)
+        
     return keyframes
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Keyframe Selection Algorithm')
+    parser.add_argument('--dataset_path', type=str, required=True, 
+                       help='Path to the dataset')
+    parser.add_argument('--scenes', type=str, required=True, nargs='+',
+                       help='Scenes name to process')
+    parser.add_argument('--method', type=str, default=None, 
+                       help='full_kf, pose_density, feature, landmark')
+    return parser.parse_args()
 
 def main():
     args = parse_arguments()
-    scene_path = os.path.join(args.dataset_path, args.scene)
-    scene_data = load_scene_data(scene_path)
-    print(f"Loaded data with {len(scene_data['submap_splits'])} submaps")
+    for scene in args.scenes:
+        print(f"Processing scene {scene}")
 
-    keyframes = select_keyframes(scene_data, args)
-    np.savetxt(os.path.join(scene_path, f"keyframes_{args.method}.txt"), np.array(keyframes, dtype=object), fmt='%s')
+        scene_path = os.path.join(args.dataset_path, scene)
+        scene_data = load_scene_data(scene_path)
+        print(f"Loaded data with {len(scene_data['submap_splits'])} submaps")
+
+        if args.method is not None:
+            keyframes = select_keyframes(scene_data, args)
+            np.savetxt(os.path.join(scene_path, f"keyframes_{args.method}.txt"), np.array(keyframes, dtype=object), fmt='%s')
 
 if __name__ == "__main__":
     main()

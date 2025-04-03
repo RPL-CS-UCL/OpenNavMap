@@ -44,23 +44,39 @@ export MODELS=(
 
 export KF_SELECTORS=(
   "full_kf"
-  "3dlandmark"
+  "pose_density"
+  "feature"
+  "landmark"
 )
 
+# Set evaluation based on dataset
 for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"
 do
   for kf_selector in "${KF_SELECTORS[@]}"
   do
     for model in "${MODELS[@]}"
     do
-      echo "Evaluate image matching methods with pose solver: $model and $kf_selector"
-      python $PROJECT_PATH/python/benchmark_kf_selection/evaluation.py \
-        --submission_path $DATASET_PATH/results_kf/"$model"_"$kf_selector"/submission.zip \
-        --dataset_path $DATASET_PATH \
-        --eval_config $EVAL_CONFIG \
-        --split test \
-        --log info
-      echo ""
+      if [ "$DATASET_NAME" = "matterport3d" ] || [ "$DATASET_NAME" = "hkustgz_campus" ]; then
+        echo "Evaluate image matching methods with pose solver: $model and $kf_selector with scale"
+        python $PROJECT_PATH/python/benchmark_kf_selection/evaluation.py \
+          --submission_path $DATASET_PATH/results_kf/"$model"_"$kf_selector"/submission.zip \
+          --dataset_path $DATASET_PATH \
+          --eval_config $EVAL_CONFIG \
+          --enable_scale \
+          --split test \
+          --log error
+        echo ""
+      else
+        echo "Evaluate image matching methods with pose solver: $model and $kf_selector without scale"
+        python $PROJECT_PATH/python/benchmark_kf_selection/evaluation.py \
+          --submission_path $DATASET_PATH/results_kf/"$model"_"$kf_selector"/submission.zip \
+          --dataset_path $DATASET_PATH \
+          --eval_config $EVAL_CONFIG \
+          --split test \
+          --log error
+        echo ""
+      fi
     done
   done
 done
+

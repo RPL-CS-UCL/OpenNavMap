@@ -11,6 +11,8 @@ import time
 import numpy as np
 from tqdm import tqdm
 from transforms3d.quaternions import mat2quat
+from multiprocessing import Pool
+from collections import defaultdict
 
 # Custom module imports
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../"))
@@ -117,16 +119,18 @@ def predict(graph, queries, matcher, solver, scene, out_dir, args):
 
 			# Visualization
 			if args.debug:
-				print(f"Match number: {inliers} between {map_node.id} and {query_node.id}")
-				print(f"GT: {query_node.trans_gt}")
-				print(f"EST: {T_w_curr[:3, 3].T}")
+				print(f"{args.keyframe_selector}-Match number: {inliers} between {map_node.id} and {query_node.id}")
+				print(f"{args.keyframe_selector}-GT: {query_node.trans_gt}")
+				print(f"{args.keyframe_selector}-EST: {T_w_curr[:3, 3].T}")
 
 				Path(out_dir/"preds").mkdir(exist_ok=True, parents=True)
 				save_visualization(
 					query_node.rgb_image, map_node.rgb_image,
 					mkpts0, mkpts1,
 					out_dir,
-					query_node.id.replace('/', '_'), n_viz=100
+					f"{map_node.id.replace('/', '_').replace('.jpg', '')}_" + \
+					f"{query_node.id.replace('/', '_').replace('.jpg', '')}",
+					n_viz=100
 				)
 
 		except Exception as e:
@@ -153,15 +157,17 @@ def eval(args):
 			continue
 		
 		scene_path = Path(args.dataset_dir) / args.split / scene
-		print(f'Processing scene: {scene}')
+		# print(f'Processing scene: {scene}')
 
 		# Load base data
 		poses, intrinsics, descs, keyframes, submap_splits = \
 			load_data(scene_path, keyframe_path, args)
 		
 		# Split database and query sets
-		db_submaps = submap_splits[:int(len(submap_splits) * DB_Ratio)]
-		query_submaps = submap_splits[int(len(submap_splits) * DB_Ratio):]
+		num_query = max(1, int(len(submap_splits) * (1 - DB_Ratio)))
+		num_database = len(submap_splits) - num_query
+		db_submaps = submap_splits[:num_database]
+		query_submaps = submap_splits[num_database:]
 
 		# Build database graph
 		graph = ImageGraph(scene_path)
@@ -174,8 +180,8 @@ def eval(args):
 						descs[img_name], intrinsics[img_name], poses[img_name]
 					)
 					graph.add_node(node)
-		print(f'Map with {graph.get_num_node()} Nodes')
-		print(', '.join([node.id for node in graph.nodes.values()]))
+		# print(f'Map with {graph.get_num_node()} Nodes')
+		# print(', '.join([node.id for node in graph.nodes.values()]))
 
 		# Prepare query set
 		queries = []
@@ -243,7 +249,7 @@ def main():
 	parser.add_argument("--config", help="path to config file")
 	parser.add_argument("--dataset_dir", required=True, help="Dataset root directory")
 	parser.add_argument("--keyframe_dir", required=True, help="Keyframe directory")
-	parser.add_argument("--keyframe_selector", required=True, choices=["full_kf", "3dlandmark"])
+	parser.add_argument("--keyframe_selector", required=True, choices=["full_kf", "pose_density", "feature", "landmark"])
 	parser.add_argument("--split", required=True, choices=["train", "val", "test"])
 	parser.add_argument("--image_match_models", nargs="+", default=["duster"], choices=available_models)
 	parser.add_argument("--pose_solver", default="essentialmatrixmetricmean", choices=available_solvers)

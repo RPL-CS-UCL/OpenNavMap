@@ -20,8 +20,8 @@ import pandas as pd
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 from sklearn.metrics import precision_recall_curve, average_precision_score
 
-from python.utils.utils_geom import *
 from utils.utils_vpr_method import save_prec_recall_curve
+from utils.utils_geom import read_poses
 from utils.utils_geom import compute_pose_error, convert_vec_to_matrix, convert_matrix_to_vec
 
 def is_same_place(poseA, poseB, trans_threshold, ori_threshold):
