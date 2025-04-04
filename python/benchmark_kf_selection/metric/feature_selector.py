@@ -6,7 +6,7 @@ from utils.utils_vpr_method import perform_knn_search
 class FeatureSelector:
     def __init__(self):
         # Keypoint matching threshold
-        self.Mkpts_Threshold = 300  # Minimum matched keypoints to consider redundant
+        self.Mkpts_Threshold = 100  # Minimum matched keypoints to consider redundant
 
     def update_keyframes(self, submap, graph, descriptors, num_mkpts):
         """Update keyframes based on matched keypoints criteria"""

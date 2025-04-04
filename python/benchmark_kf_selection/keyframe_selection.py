@@ -320,23 +320,24 @@ def select_keyframes(scene_data, args):
     submap_query = submap_splits[num_database:]
     print(f"Split database and query map number: {num_database} - {num_query}")
 
-    all_frames = [img_name for submap in submap_database for img_name in submap['frames']]
+    all_db_frames = [img_name for submap in submap_database for img_name in submap['frames']]
+    all_query_frames = [img_name for submap in submap_query for img_name in submap['frames']]
 
-    keyframes = []
+    db_keyframes = []
     if args.method == 'full_kf':         # not select keyframes
         kf_selector = FullKFSelector()
-        keyframes = kf_selector.select_keyframes(submap_database)
+        db_keyframes = kf_selector.select_keyframes(submap_database)
     elif args.method == 'pose_density':  # pose density
         kf_selector = PoseDensitySelector()
-        keyframes = kf_selector.select_keyframes(poses, submap_database)
+        db_keyframes = kf_selector.select_keyframes(poses, submap_database)
     elif args.method == 'feature':       # 2D feature
         kf_selector = FeatureSelector()
-        keyframes = kf_selector.select_keyframes(descriptors, num_mkpts, submap_database)
+        db_keyframes = kf_selector.select_keyframes(descriptors, num_mkpts, submap_database)
     elif args.method == 'landmark':      # 3D landmark
         kf_selector = LandmarkSelector()
-        keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)
+        db_keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)
         
-    return all_frames, keyframes
+    return all_db_frames, all_query_frames, db_keyframes
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Keyframe Selection Algorithm')
     parser.add_argument('--dataset_path', type=str, required=True, 
@@ -363,24 +364,28 @@ def main():
 
         # Run keyframe selection with different methods
         if args.method is not None:
-            all_frames, keyframes = select_keyframes(scene_data, args)
-            np.savetxt(os.path.join(scene_path, f"keyframes_{args.method}.txt"), np.array(keyframes, dtype=object), fmt='%s')
+            all_db_frames, all_query_frames, db_keyframes = select_keyframes(scene_data, args)
+            np.savetxt(os.path.join(scene_path, f"keyframes_{args.method}.txt"), np.array(db_keyframes, dtype=object), fmt='%s')
             print(f"Saved keyframes to {os.path.join(scene_path, f'keyframes_{args.method}.txt')}")
 
+            # Visualize selected keyframes
             viz_kf_flag = True
             if viz_kf_flag:
-                poses_kf, poses_rm = [], []
-                for img_name in all_frames:
+                poses_kf, poses_rm, poses_query = [], [], []
+                for img_name in all_db_frames:
                     trans, quat = scene_data['poses'][img_name][4:], np.roll(scene_data['poses'][img_name][:4], -1)
-                    if img_name in keyframes:
+                    if img_name in db_keyframes:
                         poses_kf.append(np.concatenate((trans, quat)))
                     else:
                         poses_rm.append(np.concatenate((trans, quat)))               
-                poses = np.array(poses_kf + poses_rm)
-                start_idx_kf = len(poses_kf)
-                start_idx_rm = len(poses_kf) + len(poses_rm)
+                        
+                for img_name in all_query_frames:
+                    trans, quat = scene_data['poses'][img_name][4:], np.roll(scene_data['poses'][img_name][:4], -1)
+                    poses_query.append(np.concatenate((trans, quat)))
 
-                fig = plot_camera_poses_pair(poses, start_idx_kf, start_idx_rm, 1, title=f"Keyframes in {scene}")
+                poses = np.array(poses_kf + poses_rm + poses_query)
+                fig = plot_camera_poses_pair(poses, [0, len(poses_kf), len(poses_kf)+len(poses_rm)], 
+                                             1, title=f"Selected Keyframes in {scene}")
                 fig.savefig(os.path.join(scene_path, f"preds/poses_{args.method}.pdf"))
                 plt.close()
 
