@@ -1,3 +1,4 @@
+import os
 import numpy as np
 
 from image_node import ImageNode
@@ -10,7 +11,7 @@ class LandmarkSelector:
     def __init__(self):
         # Parameters for probability calculation
         self.Q_th = 30.0     # Midpoint for quality sigmoid
-        self.k_Q = 0.1       # Quality sigmoid steepness
+        self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
         self.R_th = 35      # Information redundancy threshold
         self.k_R = 0.05       # Information redundancy sensitivity (higher, more sensitive)
@@ -19,9 +20,9 @@ class LandmarkSelector:
         self.k_G = 0.05
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
-        self.lambda_T = 0.05      # Timestamp sensitivity
+        self.lambda_T = 0.003      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
 
-        self.P_acc_th = 0.5
+        self.P_acc_th = 0.3
         self.P_keep_th = 0.5
 
     # The prbability of keeping the frame
@@ -61,16 +62,27 @@ class LandmarkSelector:
         
         return keep_prob
 
+    def compute_each_prob(self, Q, R, G, T):
+        """Calculate posterior probability for a keyframe."""
+        P_Q = self.quality_probability(Q)
+        P_R = self.redundancy_probability(R)
+        P_G = self.gain_probability(G)
+        P_T = self.time_probability(T)
+
+        return P_Q, P_R, P_G, P_T
+
     def update_keyframes(self, submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain):
         if graph.get_num_node() == 0:
             for img_name in submap['frames']:
                 curr_node = ImageNode(img_name, None, None, descriptors[img_name], timestamps[img_name][0], None, None, None, None, None, None, None)
+                curr_node.rgb_img_name = os.path.join(graph.map_root, img_name)
                 curr_node.iqa_score = iqa_scores[img_name][0]
                 graph.add_node(curr_node)
         else:
             db_descriptors = np.array([node.get_descriptor() for node in graph.nodes.values()], dtype=np.float32)
             for img_name in submap['frames']:
                 curr_node = ImageNode(img_name, None, None, descriptors[img_name], timestamps[img_name][0], None, None, None, None, None, None, None)
+                curr_node.rgb_img_name = os.path.join(graph.map_root, img_name)
                 curr_node.iqa_score = iqa_scores[img_name][0]
 
                 # Find the closest node in the graph
@@ -87,8 +99,7 @@ class LandmarkSelector:
                     info_gain[(curr_node.id, closest_node.id)] # how much information is gained by curr_node
                 )
                 print(f"Accept prob {acc_prob:.3f}: {curr_node.id} -> {closest_node.id}")
-                if not acc_prob > self.P_acc_th:
-                    continue
+                if not acc_prob > self.P_acc_th: continue
 
                 graph.add_node(curr_node)
 
@@ -108,33 +119,35 @@ class LandmarkSelector:
                 # The newest keyframe is not considered for deletion
                 if not db_node.edges:
                     continue
-                
-                P_keep = min([
-                    self.compute_keep_prob(db_node.iqa_score, edge[1]['R'], edge[1]['G'], edge[1]['dt'])
+                # Compute the keeping probability
+                min_keep = min(
+                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['R'], edge[1]['G'], edge[1]['dt']), edge[0])
                     for edge in db_node.edges
-                ])
-                print(f"{P_keep:.3f} Keep prob : {db_node.id}")
-
+                )
+                P_keep, node_to_viz = min_keep
+                # Check whether remove the old node
                 if P_keep < self.P_keep_th:
                     nodes_to_remove.append(db_node)
-                
-                for edge in db_node.edges:
-                    P_Q = self.quality_probability(db_node.iqa_score)
-                    P_R = self.redundancy_probability(edge[1]['R'])
-                    P_G = self.gain_probability(edge[1]['G'])
-                    P_T = self.time_probability(edge[1]['dt'])
-                    P = P_Q * P_G * P_T + 1e-3
-                    print(f"{P:.3f} keep prob : {db_node.id} -> {edge[0].id}")
-                    print(f"Q: {db_node.iqa_score}, R: {edge[1]['R']}, G: {edge[1]['G']}, dT: {edge[1]['dt']}")
-                    print(f"PQ: {P_Q:.3f}, PR: {P_R:.3f}, PG: {P_G:.3f}, PT: {P_T:.3f}")
+                    print(f"Replace {db_node.id} with {node_to_viz.id} with Prob:{P_keep:.3f}")
+                    
+                    # Compute the keeping probability
+                    for edge in db_node.edges:
+                        if edge[0] == node_to_viz:
+                            P_Q = self.quality_probability(db_node.iqa_score)
+                            P_R = self.redundancy_probability(edge[1]['R'])
+                            P_G = self.gain_probability(edge[1]['G'])
+                            P_T = self.time_probability(edge[1]['dt'])
+                            print(f"PQ:{P_Q:.3f} - PR:{P_R:.3f} - PG:{P_G:.3f} - PT:{P_T:.3f}")
+                            if False:
+                                P = P_Q * P_G * P_T + 1e-3
+                                print(f"{P:.3f} keep prob : {db_node.id} -> {edge[0].id}")
+                                print(f"Q: {db_node.iqa_score}, R: {edge[1]['R']}, G: {edge[1]['G']}, dT: {edge[1]['dt']}")
+                                print(f"PQ: {P_Q:.3f}, PR: {P_R:.3f}, PG: {P_G:.3f}, PT: {P_T:.3f}")
+            print()
 
-                print()
+            graph.remove_node_list(nodes_to_remove)
 
-            for node in nodes_to_remove:
-                print(f"Delete {node.id}")
-                graph.remove_node(node)
-
-    def select_keyframes(self, timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database, max_frames=100):
+    def select_keyframes(self, data_path, timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database, max_frames=100):
         """
         Main method to select keyframes from provided data.
         timestamps, descriptors, iqa_scores, info_redu, info_gain: metadata dictionaries
@@ -142,12 +155,12 @@ class LandmarkSelector:
         """
 
         # Graph to store keyframes and their overlapping relationships
-        graph = ImageGraph(map_root=None)
+        graph = ImageGraph(map_root=data_path)
         
         # Process each submap
         for submap in submap_database:
             self.update_keyframes(submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain)
-
+            
         keyframes = [key for key in graph.nodes.keys()]
         print(f'Selected {len(keyframes)} keyframes')
         print(', '.join(key for key in keyframes))

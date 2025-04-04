@@ -29,7 +29,7 @@ from dust3r.utils.geometry import inv, geotrf
 
 from matching import available_models, get_matcher
 
-DB_Ratio = 0.5
+DB_Ratio = 0.75
 
 class SubmapManager:
     def __init__(self, time_threshold=60.0):
@@ -298,7 +298,7 @@ def load_scene_data(scene_path, str_matcher, str_estimator):
         'submap_splits': submap_splits,
     }
 
-def select_keyframes(scene_data, args):
+def select_keyframes(scene_path, scene_data, args):
     ###### Definition
     ###### timestamps[img_name] = timestamp
     ###### iqa_scores[img_name] = iqa_score 
@@ -320,9 +320,10 @@ def select_keyframes(scene_data, args):
     submap_query = submap_splits[num_database:]
     print(f"Split database and query map number: {num_database} - {num_query}")
 
+    ori_path = scene_path.replace('keyframe_selection_eval', 'map_free_eval')
+
     all_db_frames = [img_name for submap in submap_database for img_name in submap['frames']]
     all_query_frames = [img_name for submap in submap_query for img_name in submap['frames']]
-
     db_keyframes = []
     if args.method == 'full_kf':         # not select keyframes
         kf_selector = FullKFSelector()
@@ -335,12 +336,12 @@ def select_keyframes(scene_data, args):
         db_keyframes = kf_selector.select_keyframes(descriptors, num_mkpts, submap_database)
     elif args.method == 'landmark':      # 3D landmark
         kf_selector = LandmarkSelector()
-        db_keyframes = kf_selector.select_keyframes(timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)
+        db_keyframes = kf_selector.select_keyframes(ori_path, timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)
         
     return all_db_frames, all_query_frames, db_keyframes
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Keyframe Selection Algorithm')
-    parser.add_argument('--dataset_path', type=str, required=True, 
+    parser.add_argument('--keyframe_path', type=str, required=True, 
                        help='Path to the dataset')
     parser.add_argument('--scenes', type=str, required=True, nargs='+',
                        help='Scenes name to process')
@@ -358,13 +359,13 @@ def main():
         print(f"Processing scene {scene}")
 
         # Pre-compute data
-        scene_path = os.path.join(args.dataset_path, scene)
+        scene_path = os.path.join(args.keyframe_path, scene)
         scene_data = load_scene_data(scene_path, args.matcher, args.estimator)
         print(f"Loaded data with {len(scene_data['submap_splits'])} submaps")
 
         # Run keyframe selection with different methods
         if args.method is not None:
-            all_db_frames, all_query_frames, db_keyframes = select_keyframes(scene_data, args)
+            all_db_frames, all_query_frames, db_keyframes = select_keyframes(scene_path, scene_data, args)
             np.savetxt(os.path.join(scene_path, f"keyframes_{args.method}.txt"), np.array(db_keyframes, dtype=object), fmt='%s')
             print(f"Saved keyframes to {os.path.join(scene_path, f'keyframes_{args.method}.txt')}")
 
