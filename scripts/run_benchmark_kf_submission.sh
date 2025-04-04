@@ -8,7 +8,7 @@
 #   sift-lg superpoint-lg gim-lg xfeat-lg sift-nn orb-nn gim-dkm xfeat
 
 # Configuration
-NUM_PARALLEL=4  # Set desired parallelism level here
+NUM_PARALLEL=2  # Set desired parallelism level here
 
 # Check if DATASET_NAME is provided
 if [ -z "$1" ]; then
@@ -53,6 +53,7 @@ process_selector() {
     --image_size 512 288 \
     --out_dir $OUT_DIR \
     --split test #--debug
+  sleep 3
 }
 
 # Export function and variables for parallel processing

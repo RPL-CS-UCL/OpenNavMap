@@ -18,8 +18,8 @@ class LandmarkSelector:
         self.G_th = 35      # Information gain threshold
         self.k_G = 0.05
         
-        self.T_th = 3600.0   # Timestamp threshold (second)
-        self.lambda_T = 0.05 # Timestamp sensitivity
+        self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
+        self.lambda_T = 0.05      # Timestamp sensitivity
 
         self.P_acc_th = 0.5
         self.P_keep_th = 0.5

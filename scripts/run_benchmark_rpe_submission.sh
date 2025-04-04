@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Configuration
+NUM_PARALLEL=2  # Set desired parallelism level here
+
 # Check if DATASET_NAME is provided
 if [ -z "$1" ] || [ -z "$2" ]; then
 	echo "Error: DATASET_NAME is not specified."
@@ -8,7 +11,7 @@ if [ -z "$1" ] || [ -z "$2" ]; then
 	exit 1
 fi
 
-# Set the DATASET_NAME variable from the first argument
+# Set the DATASET_NAME variable from the arguments
 DATASET_NAME=$1
 SPLIT=$2
 
@@ -19,17 +22,18 @@ export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
 export N_QUERY=30
 
-export MODELS=(
+# Model and LoRA configuration
+MODELS=(
 	"hloc_disk_dilg"
 	"vpr_cosplace_resnet18_512"
 	"vpr_netvlad_resnet18_4096"
-  "master_nocalib_pretrain"
-  "master_calib_pretrain"
+	"master_nocalib_pretrain"
+	"master_calib_pretrain"
 	"duster_nocalib_pretrain"
 	"duster_calib_pretrain"
 )
 
-export LORA_PATHS=(
+LORA_PATHS=(
 	"none"
 	"none"
 	"none"
@@ -39,20 +43,43 @@ export LORA_PATHS=(
 	"none"
 )
 
-for TOP_K in {3..10}; do
-	echo "Processing with TOP_K: $TOP_K"
-	
-	# Run the Python script
-	for i in "${!MODELS[@]}"; do
-		MODEL="${MODELS[$i]}"
-		LORA_PATH="${LORA_PATHS[$i]}"
-		echo "Processing model: $MODEL with LoRA weight: $LORA_PATH"
+# Create combined model-lora pairs
+MODEL_LORA_PAIRS=()
+for i in "${!MODELS[@]}"; do
+	MODEL_LORA_PAIRS+=("${MODELS[$i]}:${LORA_PATHS[$i]}")
+done
 
-		python $PROJECT_PATH/python/benchmark_rpe/submission.py --config $CONFIG_FILE --models $MODEL \
-			--out_dir $OUT_DIR --n_query $N_QUERY --top_k $TOP_K \
-			--lora_path $LORA_PATH --split $SPLIT
-		echo ""
-	done
+# Processing function
+process_model() {
+	local pair="$1"
+	local top_k="$2"
+	
+	IFS=":" read -r MODEL LORA_PATH <<< "$pair"
+	
+	echo "Processing model: $MODEL with LoRA weight: $LORA_PATH"
+	python "$PROJECT_PATH/python/benchmark_rpe/submission.py" \
+		--config "$CONFIG_FILE" \
+		--models "$MODEL" \
+		--out_dir "$OUT_DIR" \
+		--n_query "$N_QUERY" \
+		--top_k "$top_k" \
+		--lora_path "$LORA_PATH" \
+		--split "$SPLIT"
+	echo ""
+	sleep 3
+}
+
+# Export required variables and functions
+export -f process_model
+export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
+
+# Main processing loop
+for TOP_K in {2}; do
+	echo "Processing with TOP_K: $TOP_K"
+	export TOP_K
+
+	# Run models in parallel
+	printf "%s\n" "${MODEL_LORA_PAIRS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}
 
 	# Unzip files
 	for MODEL in "${MODELS[@]}"; do
