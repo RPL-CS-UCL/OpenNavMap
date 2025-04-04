@@ -58,7 +58,7 @@ process_combination() {
 export -f process_precompute process_combination
 
 ##### Precomputation
-# printf "%s\n" "${SCENES[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_precompute "$@"' _ {}
+printf "%s\n" "${SCENES[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_precompute "$@"' _ {}
 
 ##### Keyframe selection
 combinations=()

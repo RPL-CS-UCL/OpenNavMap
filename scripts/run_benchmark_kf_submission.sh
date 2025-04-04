@@ -1,11 +1,9 @@
 #!/bin/bash
 
-# Dense matching: 
-#   roma tiny-roma duster master
-# Semi-dense matching:
-#   loftr eloftr matchformer xfeat-star
-# Sparse matching:
-#   sift-lg superpoint-lg gim-lg xfeat-lg sift-nn orb-nn gim-dkm xfeat
+##### Feature matcher configuration
+# Dense matching: roma tiny-roma duster master
+# Semi-dense matching: loftr eloftr matchformer xfeat-star
+# Sparse matching: sift-lg superpoint-lg gim-lg xfeat-lg sift-nn orb-nn gim-dkm xfeat
 
 # Configuration
 NUM_PARALLEL=2  # Set desired parallelism level here
@@ -31,7 +29,7 @@ export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/"
 export KEYFRAME_PATH="/Rocket_ssd/dataset/data_litevloc/keyframe_selection_eval/$DATASET_NAME/keyframe_selection_eval"
 export OUT_DIR="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/results_kf"
-export MODELS="loftr"
+export MODELS="master"
 
 KF_SELECTORS=(
   "full_kf"
@@ -43,7 +41,7 @@ KF_SELECTORS=(
 # Function to process each selector
 process_selector() {
   local kf_selector=$1
-  echo "Processing with $DATASET_NAME and $kf_selector with $POSE_SOLVER"
+  echo "Processing with $DATASET_NAME and $kf_selector with $MODELS and $POSE_SOLVER"
   python $PROJECT_PATH/python/benchmark_kf_selection/submission.py \
     --config $CONFIG_FILE \
     --dataset_dir $DATASET_PATH \

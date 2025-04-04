@@ -48,10 +48,11 @@ class PoseResult:
             self.t, formatter=formatter, max_line_width=max_line_width
         )[1:-1]
         return f"{self.image_name} {q_str} {t_str} {self.inliers}"
-def predict(matcher, solver, scenes, out_dir, args):
+def predict(matcher, solver, cfg, out_dir, args):
 	results_dict = defaultdict(list)
 	running_time = []
 
+	scenes = cfg.DATASET.TEST_SCENES
 	for scene in scenes:
 		keyframe_path = Path(args.keyframe_dir) / args.split / scene
 		if not os.path.exists(keyframe_path):
@@ -124,12 +125,21 @@ def predict(matcher, solver, scenes, out_dir, args):
 
 				# Pose estimation
 				start_solve = time.time()
-				depth_img = to_numpy(query_node.depth_image.squeeze(0))
-				R, t, inliers = solver.estimate_pose(
-					mkpts1_raw, mkpts0_raw,
-					query_node.raw_K, map_node.raw_K,
-					depth_img, None
-				)
+				if cfg.DATASET.ESTIMATED_DEPTH is None:
+					# Using essential matrix solver
+					R, t, inliers = solver.estimate_pose(
+						mkpts1_raw, mkpts0_raw,
+						query_node.raw_K, map_node.raw_K,
+						None, None
+					)
+				else:
+					# Using pnp solver
+					depth_img = to_numpy(query_node.depth_img.squeeze(0))
+					R, t, inliers = solver.estimate_pose(
+						mkpts1_raw, mkpts0_raw,
+						query_node.raw_K, map_node.raw_K,
+						depth_img, None
+					)
 				solve_time = time.time() - start_solve
 				
 				# Store timing results
@@ -202,7 +212,7 @@ def eval(args):
 			
 			model_dir = output_root / f"{model}_{args.pose_solver}_{args.keyframe_selector}"
 			model_dir.mkdir(exist_ok=True)
-			results, avg_time = predict(matcher, solver, cfg.DATASET.TEST_SCENES, model_dir, args)
+			results, avg_time = predict(matcher, solver, cfg, model_dir, args)
 			
 			# Save results
 			save_submission(results, model_dir/"submission.zip")
@@ -223,7 +233,10 @@ def load_data(scene_path, keyframe_path, args):
 
 def create_image_node(cfg, scene_path, img_name, resize, desc, intr, pose):
 	rgb_img = load_rgb_image(scene_path/ img_name, resize)
-	depth_img = load_depth_image(scene_path/ img_name.replace('jpg', f'{cfg.DATASET.ESTIMATED_DEPTH}.png'))
+	if cfg.DATASET.ESTIMATED_DEPTH is None:
+		depth_img = None
+	else:
+		depth_img = load_depth_image(scene_path/ img_name.replace('jpg', f'{cfg.DATASET.ESTIMATED_DEPTH}.png'))
 	
 	raw_K = np.array([intr[0], 0, intr[2], 0, intr[1], intr[3], 0, 0, 1]).reshape(3,3)
 	raw_size = (int(intr[4]), int(intr[5]))
