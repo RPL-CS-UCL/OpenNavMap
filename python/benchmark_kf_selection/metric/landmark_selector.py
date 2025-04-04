@@ -13,11 +13,11 @@ class LandmarkSelector:
         self.Q_th = 25.0     # Midpoint for quality sigmoid
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
-        self.R_th = 30      # Information redundancy threshold
-        self.k_R = 0.05       # Information redundancy sensitivity (higher, more sensitive)
+        self.R_th = 50      # Information redundancy threshold
+        self.k_R = 0.01       # Information redundancy sensitivity (higher, more sensitive)
 
-        self.G_th = 30      # Information gain threshold
-        self.k_G = 0.05
+        self.G_th = 50      # Information gain threshold
+        self.k_G = 0.01
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
         self.lambda_T = 0.001      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
@@ -98,7 +98,7 @@ class LandmarkSelector:
                     curr_node.iqa_score, 
                     info_gain[(curr_node.id, closest_node.id)] # how much information is gained by curr_node
                 )
-                print(f"Accept prob {acc_prob:.3f}: {curr_node.id}")
+                # print(f"Accept prob {acc_prob:.3f}: {curr_node.id}")
                 if not acc_prob > self.P_acc_th: continue
                 graph.add_node(curr_node)
 
@@ -127,20 +127,16 @@ class LandmarkSelector:
                     nodes_to_remove.append(db_node)
                     print(f"Replace {db_node.id} with {node_to_viz.id} with Prob:{P_keep:.3f}")
                     
-                    # Compute the keeping probability
-                    for edge in db_node.edges:
-                        if edge[0] == node_to_viz:
-                            P_Q = self.quality_probability(db_node.iqa_score)
-                            P_R = self.redundancy_probability(edge[1]['R'])
-                            P_G = self.gain_probability(edge[1]['G'])
-                            P_T = self.time_probability(edge[1]['dt'])
-                            print(f"PQ:{P_Q:.3f} - PR:{P_R:.3f} - PG:{P_G:.3f} - PT:{P_T:.3f}")
-                            if False:
-                                P = P_Q * P_G * P_T + 1e-3
-                                print(f"{P:.3f} keep prob : {db_node.id} -> {edge[0].id}")
-                                print(f"Q: {db_node.iqa_score}, R: {edge[1]['R']}, G: {edge[1]['G']}, dT: {edge[1]['dt']}")
-                                print(f"PQ: {P_Q:.3f}, PR: {P_R:.3f}, PG: {P_G:.3f}, PT: {P_T:.3f}")
-            print()
+                # Compute the keeping probability
+                # for edge in db_node.edges:
+                #     P_Q = self.quality_probability(db_node.iqa_score)
+                #     P_R = self.redundancy_probability(edge[1]['R'])
+                #     P_G = self.gain_probability(edge[1]['G'])
+                #     P_T = self.time_probability(edge[1]['dt'])
+                #     P = P_Q * P_G * P_T + 1e-3
+                #     print(f"{P:.3f} keep prob: {db_node.id} -> {edge[0].id}")
+                #     print(f"Q:{db_node.iqa_score}, R:{edge[1]['R']}, G:{edge[1]['G']}, dT:{edge[1]['dt']}")
+                #     print(f"PQ:{P_Q:.3f} - PR:{P_R:.3f} - PG:{P_G:.3f} - PT:{P_T:.3f}")
 
             graph.remove_node_list(nodes_to_remove)
 
