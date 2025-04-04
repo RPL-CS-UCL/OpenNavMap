@@ -39,7 +39,7 @@ def process_data(loader, estimator, args):
 			print(f"Generate depth maps using {list_img_name}")
 			
 			# Run depth estimation
-			est_opts = {'known_extrinsics': False, 'known_intrinsics': False, 'resize': 512}
+			est_opts = {'known_extrinsics': True, 'known_intrinsics': False, 'resize': 512}
 			estimator.niter = 300
 			estimator(
 				scene_root,
@@ -160,7 +160,7 @@ def process_data(loader, estimator, args):
 		print(f"The number of est_poses for scene {scene_name}: {len(poses)}")
 		output_path = Path(args.out_dir, 'pairs', f"{scene_name}", 'poses_pseudo.txt')
 		output_path.parent.mkdir(parents=True, exist_ok=True)
-		np.savetxt(str(output_path), np.array(poses, dtype=object), fmt="%s " + "%.9f " * 7)
+		np.savetxt(str(output_path), np.array(poses, dtype=object), fmt="%.3f " * 7)
 
 	dtype = [('scene_name', 'U20'), ('img0', 'U50'), ('img1', 'U50'), ('depth0', 'U50'), ('depth1', 'U50')]
 	for scene_name, pairs in data_pairs.items():
@@ -198,7 +198,7 @@ def main(args):
 	cfg.TRAINING.NUM_WORKERS = 1
 	cfg.DATASET.TOP_K = args.top_k
 	cfg.DATASET.N_QUERY = args.n_query
-	dataloader = DataModule(cfg).train_dataloader()
+	dataloader = DataModule(cfg).test_dataloader()
 
 	# Initialize depth estimation model
 	estimator = get_estimator(args.model, device=args.device)

@@ -140,9 +140,9 @@ def predict(matcher, solver, cfg, out_dir, args):
 						query_node.raw_K, map_node.raw_K,
 						depth_img, None
 					)
-				solve_time = time.time() - start_solve
 				
 				# Store timing results
+				solve_time = time.time() - start_solve
 				running_time.append(matching_time + solve_time)
 
 				# Convert to quaternion and store

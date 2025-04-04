@@ -83,8 +83,9 @@ def compute_scene_metrics(dataset_path: Path, submission_zip: ZipFile, scene: st
 			inputs = Inputs(q_gt=q_gt, t_gt=t_gt, q_est=q_est, t_est=t_est,
 							confidence=confidence, K=K[frame_num], W=W, H=H)
 		else:
-			inputs = Inputs(q_gt=q_gt, t_gt=t_gt/np.linalg.norm(t_gt), 
-							q_est=q_est, t_est=t_est/np.linalg.norm(t_est),
+			scale = np.dot(t_gt, t_est) / np.dot(t_est, t_est)
+			inputs = Inputs(q_gt=q_gt, t_gt=t_gt, 
+							q_est=q_est, t_est=t_est*scale,
 							confidence=confidence, K=K[frame_num], W=W, H=H)
 		metric_manager(inputs, results)
 
@@ -148,7 +149,7 @@ def count_unexpected_scenes(scenes: tuple, submission_zip: ZipFile):
 
 def main(args):
 	dataset_path = args.dataset_path / args.split
-	scenes = tuple(f.name for f in dataset_path.iterdir() if f.is_dir())
+	scenes = tuple(f.name for f in sorted(dataset_path.iterdir()) if f.is_dir())
 
 	try:
 		submission_zip = ZipFile(args.submission_path, 'r')
@@ -158,12 +159,12 @@ def main(args):
 
 	all_results = dict()
 	all_failures = 0
-	for scene in scenes:
+	for scene_id, scene in enumerate(scenes):
 		metrics, failures = compute_scene_metrics(
 			dataset_path, submission_zip, scene, args.enable_scale)
 		all_results[scene] = metrics
 		all_failures += failures
-
+		
 	if all_failures > 0:
 		logging.warning(
 			f'Submission is missing pose estimates for {all_failures} frames')
@@ -195,7 +196,7 @@ if __name__ == '__main__':
 						help='Path to the dataset folder')
 	parser.add_argument('--eval_config', type=str, default='config_025_5',
 						help='Evaluation config: config_005_5, config_025_5, config_025_10, config_1_10')   
-	parser.add_argument('--enable_scale', required=True, action='store_true',
+	parser.add_argument('--enable_scale', action='store_true',
 						help='Estimated poses have scale or not')
 
 	args = parser.parse_args()

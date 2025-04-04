@@ -61,4 +61,3 @@ export DATASET_NAME CONFIG_FILE DATASET_PATH KEYFRAME_PATH OUT_DIR MODELS POSE_S
 # Run processing in parallel
 printf "%s\n" "${KF_SELECTORS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_selector "$@"' _ {}
 echo "All processing completed"
-

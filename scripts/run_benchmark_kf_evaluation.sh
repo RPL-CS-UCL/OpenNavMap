@@ -24,6 +24,7 @@ export EVAL_CONFIGS=("config_025_5") # Optional: config_005_5, config_025_5, con
 
 export MODELS=(
   "master_pnp"
+  "master_essentialmatrix"
   # "roma_pnp"
   # "tiny-roma_pnp"
   # "duster_pnp"
