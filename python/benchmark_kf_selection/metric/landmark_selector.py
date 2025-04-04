@@ -10,19 +10,19 @@ import math
 class LandmarkSelector:
     def __init__(self):
         # Parameters for probability calculation
-        self.Q_th = 30.0     # Midpoint for quality sigmoid
+        self.Q_th = 25.0     # Midpoint for quality sigmoid
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
-        self.R_th = 35      # Information redundancy threshold
+        self.R_th = 30      # Information redundancy threshold
         self.k_R = 0.05       # Information redundancy sensitivity (higher, more sensitive)
 
-        self.G_th = 35      # Information gain threshold
+        self.G_th = 30      # Information gain threshold
         self.k_G = 0.05
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
-        self.lambda_T = 0.003      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
+        self.lambda_T = 0.001      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
 
-        self.P_acc_th = 0.3
+        self.P_acc_th = 0.5
         self.P_keep_th = 0.5
 
     # The prbability of keeping the frame
@@ -98,17 +98,14 @@ class LandmarkSelector:
                     curr_node.iqa_score, 
                     info_gain[(curr_node.id, closest_node.id)] # how much information is gained by curr_node
                 )
-                print(f"Accept prob {acc_prob:.3f}: {curr_node.id} -> {closest_node.id}")
+                print(f"Accept prob {acc_prob:.3f}: {curr_node.id}")
                 if not acc_prob > self.P_acc_th: continue
-
                 graph.add_node(curr_node)
 
                 # Add new frame to the graph
                 edge_info = {
                     'R': info_redu[(closest_node.id, curr_node.id)],
                     'G': info_gain[(closest_node.id, curr_node.id)],
-                    'R_inv': info_redu[(curr_node.id, closest_node.id)],
-                    'G_inv': info_gain[(curr_node.id, closest_node.id)],
                     'dt': curr_node.time - closest_node.time,
                 }
                 closest_node.add_edge(curr_node, edge_info)
@@ -117,8 +114,8 @@ class LandmarkSelector:
             nodes_to_remove = []
             for db_node in graph.nodes.values():
                 # The newest keyframe is not considered for deletion
-                if not db_node.edges:
-                    continue
+                if not db_node.edges: continue
+                
                 # Compute the keeping probability
                 min_keep = min(
                     (self.compute_keep_prob(db_node.iqa_score, edge[1]['R'], edge[1]['G'], edge[1]['dt']), edge[0])

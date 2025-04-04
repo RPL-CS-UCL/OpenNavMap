@@ -256,18 +256,18 @@ def pre_compute(scene_path, str_matcher, str_estimator):
     np.save(os.path.join(scene_path, f'keypoint_matched_{str_matcher}.npy'), kpts_match)    
 
     # Copy timestamps
-    # import shutil
-    # timestamp_file = os.path.join(original_scene_path, 'timestamps.txt')
-    # destination_file = os.path.join(scene_path, 'timestamps.txt')
-    # shutil.copy2(timestamp_file, destination_file)
-    # print(f"Copied {timestamp_file} to {destination_file}")    
+    import shutil
+    timestamp_file = os.path.join(original_scene_path, 'timestamps.txt')
+    destination_file = os.path.join(scene_path, 'timestamps.txt')
+    shutil.copy2(timestamp_file, destination_file)
+    print(f"Copied {timestamp_file} to {destination_file}")    
 
-    # # Copy poses
-    # import shutil
-    # pose_file = os.path.join(original_scene_path, 'poses.txt')
-    # destination_file = os.path.join(scene_path, 'poses.txt')
-    # shutil.copy2(pose_file, destination_file)
-    # print(f"Copied {pose_file} to {destination_file}")    
+    # Copy poses
+    import shutil
+    pose_file = os.path.join(original_scene_path, 'poses.txt')
+    destination_file = os.path.join(scene_path, 'poses.txt')
+    shutil.copy2(pose_file, destination_file)
+    print(f"Copied {pose_file} to {destination_file}")    
 
 def load_scene_data(scene_path, str_matcher, str_estimator):
     """Improved data loading with submap structure conversion"""
@@ -361,7 +361,7 @@ def main():
         # Pre-compute data
         scene_path = os.path.join(args.keyframe_path, scene)
         scene_data = load_scene_data(scene_path, args.matcher, args.estimator)
-        print(f"Loaded data with {len(scene_data['submap_splits'])} submaps")
+        print(f"Loaded {scene} data with {len(scene_data['submap_splits'])} submaps")
 
         # Run keyframe selection with different methods
         if args.method is not None:
