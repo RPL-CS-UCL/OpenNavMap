@@ -134,7 +134,7 @@ def predict(matcher, solver, cfg, out_dir, args):
 					)
 				else:
 					# Using pnp solver
-					depth_img = to_numpy(query_node.depth_img.squeeze(0))
+					depth_img = to_numpy(query_node.depth_image.squeeze(0))
 					R, t, inliers = solver.estimate_pose(
 						mkpts1_raw, mkpts0_raw,
 						query_node.raw_K, map_node.raw_K,
@@ -205,16 +205,14 @@ def eval(args):
 
 	output_root = Path(args.out_dir)
 	output_root.mkdir(parents=True, exist_ok=True)
-	with open(output_root / "runtimes.txt", "w") as timing_file:
-		for model in args.image_match_models:
+	for model in args.image_match_models:
+		model_dir = output_root / f"{model}_{args.pose_solver}_{args.keyframe_selector}"
+		model_dir.mkdir(exist_ok=True)
+		with open(model_dir / "runtimes.txt", "w") as timing_file:
 			matcher = get_matcher(model, args.device)
 			solver = get_solver(args.pose_solver, cfg)
-			
-			model_dir = output_root / f"{model}_{args.pose_solver}_{args.keyframe_selector}"
-			model_dir.mkdir(exist_ok=True)
+
 			results, avg_time = predict(matcher, solver, cfg, model_dir, args)
-			
-			# Save results
 			save_submission(results, model_dir/"submission.zip")
 			
 			# Record timing
@@ -236,11 +234,11 @@ def create_image_node(cfg, scene_path, img_name, resize, desc, intr, pose):
 	if cfg.DATASET.ESTIMATED_DEPTH is None:
 		depth_img = None
 	else:
-		depth_img = load_depth_image(scene_path/ img_name.replace('jpg', f'{cfg.DATASET.ESTIMATED_DEPTH}.png'))
+		depth_img = load_depth_image(scene_path/img_name.replace('jpg', f'{cfg.DATASET.ESTIMATED_DEPTH}.png'))
 	
 	raw_K = np.array([intr[0], 0, intr[2], 0, intr[1], intr[3], 0, 0, 1]).reshape(3,3)
 	raw_size = (int(intr[4]), int(intr[5]))
-	
+
 	K = correct_intrinsic_scale(raw_K, resize[0]/ raw_size[0], resize[1]/ raw_size[1]) if resize else raw_K
 	img_size = resize if resize else raw_size
 	

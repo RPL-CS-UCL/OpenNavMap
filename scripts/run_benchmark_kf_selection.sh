@@ -58,7 +58,7 @@ process_combination() {
 export -f process_precompute process_combination
 
 ##### Precomputation
-printf "%s\n" "${SCENES[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_precompute "$@"' _ {}
+# printf "%s\n" "${SCENES[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_precompute "$@"' _ {}
 
 ##### Keyframe selection
 combinations=()
@@ -72,7 +72,7 @@ echo "All parallel processing completed"
 
 ##### Count number of keyframes
 for scene in "${SCENES[@]}"; do
-  echo "======= Counting keyframes for $scene ======="
+  echo "======= Counting keyframes for $scene (full_kf, pose_density, feature, landmark) ======="
   for selector in "${KF_SELECTORS[@]}"; do
     cat "$KF_PATH/$scene/keyframes_$selector.txt" | wc -l
   done
