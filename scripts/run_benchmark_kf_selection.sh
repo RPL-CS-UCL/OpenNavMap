@@ -70,10 +70,23 @@ done
 printf "%s\n" "${combinations[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_combination "$@"' _ {}
 echo "All parallel processing completed"
 
-##### Count number of keyframes
-for scene in "${SCENES[@]}"; do
-  echo "======= Counting keyframes for $scene (full_kf, pose_density, feature, landmark) ======="
-  for selector in "${KF_SELECTORS[@]}"; do
-    cat "$KF_PATH/$scene/keyframes_$selector.txt" | wc -l
-  done
+##### Count the total number of keyframes on all scenes for each method
+declare -A selector_totals
+for selector in "${KF_SELECTORS[@]}"; do
+    selector_totals[$selector]=0
+done
+for selector in "${KF_SELECTORS[@]}"; do
+  for scene in "${SCENES[@]}"; do
+        file="$KF_PATH/$scene/keyframes_$selector.txt"
+        if [ -f "$file" ]; then
+            count=$(cat "$file" | wc -l)
+            selector_totals[$selector]=$((selector_totals[$selector] + count))
+        else
+            echo "Warning: File $file not found" >&2
+        fi
+    done
+done
+echo "======= Total Keyframe Counts per Selector ======="
+for selector in "${KF_SELECTORS[@]}"; do
+    printf "%-12s: %d\n" "$selector" "${selector_totals[$selector]}"
 done
