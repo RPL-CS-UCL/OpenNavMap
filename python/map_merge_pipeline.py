@@ -22,9 +22,9 @@ import rospy
 import matplotlib
 # import matplotlib.pyplot as plt
 # from PIL import Image
-# from tqdm import tqdm
+from tqdm import tqdm
 import pathlib
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 # import rospkg
 # rospkg = rospkg.RosPack()
@@ -39,7 +39,6 @@ from utils.utils_map_merging import *
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error
 from utils.utils_geom import convert_vec_gtsam_pose3, convert_matrix_gtsam_pose3
 from utils.gtsam_pose_graph import PoseGraph
-from pose3slam_g2o import optimize_pose_graph
 
 from map_manager import MapManager
 from image_graph import ImageGraphLoader as GraphLoader
@@ -105,12 +104,18 @@ class MergePipeline:
 
 			print(f"Loaded {submap.map_id} from {submap_path}")
 
-	def create_pose_graph_from_map(self, graph_a, graph_b, inter_edges):		
+	def create_pose_graph_from_map(
+		self, 
+		graph_a,    # The odometry graph 
+		graph_b,    # The odometry graph 
+		inter_edges
+	):
 		# Set basic std for factors
 		prior_sigma = np.array([1e-3] * 3 + [1e-2] * 3)
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
 		loop_sigma = np.array([np.deg2rad(3.0)] * 3 + [1.0] * 3)
 		pose_graph = PoseGraph()
+		
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
 
 		# Create a pose graph from graph_a by adding internal edges of graph_a
@@ -136,7 +141,7 @@ class MergePipeline:
 			edge = inter_edges[0]
 			T_wA_A0 = convert_vec_to_matrix(edge[0].trans, edge[0].quat)
 			T_wB_B0 = convert_vec_to_matrix(edge[1].trans, edge[1].quat)
-			T_AB = inter_edges[0][2]
+			T_AB = edge[2]
 			T_offset = T_wA_A0 @ T_AB
 
 		for _, node in graph_b.nodes.items():
@@ -181,7 +186,6 @@ class MergePipeline:
 		self, 
 		submap_a: MapManager, 
 		submap_b: MapManager, 
-		inter_edges: list,   # list of (nodeA, nodeB, T_AB, conf)
 		estimate_pose
 	):
 		"""Merge two submaps and update all relevant graphs"""
@@ -190,23 +194,16 @@ class MergePipeline:
 		submap_a.update_node_poses(estimate_pose)
 		submap_b.update_node_poses(estimate_pose)
 
-		submap_a.copy_sensor_data(submap_b.covis) # (for covisibility graph)
+		submap_a.copy_sensor_data(submap_b.covis)
 		submap_a.merge_graphs_from(submap_b)
 
-		# Add inter-submap edges with Euclidean distance weights
-		# TODO(gogojjh): address the issue of adding edges
-		submap_a.add_inter_edges(
-			inter_edges, 
-			weight_func=(lambda a, b: np.linalg.norm(a.trans - b.trans))
-		)
-		print(f"Merged map contains {submap_a.get_max_node_id() + 1} nodes")
-
+		print(f"Merged map info - {submap_a}")
 def compute_lm_pairwise(
 	db_nodes, 
 	query_node, 
 	estimator,
 	device
-):
+) -> Dict[Tuple[ImageNode, ImageNode], float]:
 	K = estimator.scene.get_intrinsics()
 	cams = torch.linalg.inv(estimator.scene.get_im_poses())
 	depthmaps = estimator.scene.get_depthmaps()
@@ -238,7 +235,7 @@ def compute_lm_pairwise(
 			msk = torch.abs(proj_depth - depthmaps[j][v, u].reshape(1, -1)) < 0.5 * depthmaps[j][v, u].reshape(1, -1)
 
 			redu = np.sum(msk.detach().cpu().numpy()) / (len(pts3d_flat))
-			lm_redu_pw[(all_nodes[i], all_nodes[j])] = redu
+			# lm_redu_pw[(all_nodes[i], all_nodes[j])] = redu
 			lm_gain_pw[(all_nodes[i], all_nodes[j])] = 1.0 - redu
 
 			# DEBUG(gogojjh):
@@ -257,7 +254,7 @@ def compute_lm_pairwise(
 				plt.savefig(os.path.join('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map_test/preds', f'depth_maps_{i}_to_{j}.jpg'))
 				plt.close()
 
-	return lm_redu_pw, lm_gain_pw
+	return lm_gain_pw
 
 def perform_global_loc(
 	merger: MergePipeline,
@@ -346,7 +343,10 @@ def perform_local_loc(
 	final_map: ImageGraph,
 	cur_submap: ImageGraph,
 	cur_submap_id: int,
-) -> List[Tuple[ImageNode, ImageNode, np.ndarray, float]]:
+) -> Tuple[
+    List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
+    Dict[Tuple[ImageNode, ImageNode], float]
+]:
 	"""Performs fine-grained localization using pose estimation on coarse matches.
 	
 	Args:
@@ -356,18 +356,16 @@ def perform_local_loc(
 		merger: Merger object with pose estimator and configuration
 		
 	Returns:
-		List of refined matches with relative pose estimates
+		List of refined matches (represented as image node) with relative pose estimates
 	"""
 	# NOTE(gogojjh): change niter=100 to 300
 	est_opts = dict(known_extrinsics=True, known_intrinsics=False, resize=512, niter=100)
 	
-	# lm_redu[(nodeA,id, nodeB.id)] meaning how much information is redudant of nodeA
 	# lm_gain[(nodeA,id, nodeB.id)] meaning how much information is gained of nodeA
-	lm_redu, lm_gain = {}, {} 
+	lm_gain = {}
 	
 	refined_edges = []
-
-	for edge in edges_nodeA_to_nodeB_coarse:
+	for edge in tqdm(edges_nodeA_to_nodeB_coarse):
 		db_node, query_node, _, _ = edge
 		# Check whether the node has more than one edge
 		if not db_node.edges: 
@@ -416,14 +414,12 @@ def perform_local_loc(
 
 				##############################
 				##### Store immedinate results for subsequent keyframe selection
-				lm_redu_pw, lm_gain_pw = compute_lm_pairwise(
+				lm_gain_pw = compute_lm_pairwise(
 					[db_node, db_node.edges[0][0]],
 					query_node, 
 					merger.pose_estimator, 
 					merger.args.device
 				)
-				for key, redu_pw in lm_redu_pw.items():
-					lm_redu[key] = redu_pw
 				for key, gain_pw in lm_gain_pw.items():
 					lm_gain[key] = gain_pw
 				##############################
@@ -457,7 +453,7 @@ def perform_local_loc(
 		save_dir, final_map, cur_submap, cur_submap_id, refined_edges,
 		suffix=f'{merger.args.vpr_match_model}_refine')
 
-	return refined_edges
+	return refined_edges, lm_gain
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
@@ -471,17 +467,20 @@ def perform_submap_merging(merger: MergePipeline, args):
 	# Incrementally merge each submap to the final map, only care about the first two submaps
 	for cur_submap in merger.submaps:
 		# The offset of node.id in cur_submap 
-		merger.id_offset = final_map.get_max_node_id() + 1
+		merger.id_offset = final_map.get_max_node_id() + 1		
 		
 		if not final_map.is_empty:
-			edges_nodeAB_coarse = perform_global_loc(
+			# Identify strong covisibility relationship 
+			edges_nodeAB_coarse_covis = perform_global_loc(
 				merger,
 				final_map.covis, 
 				cur_submap.covis, 
 				cur_submap.map_id
 			)
-			edges_nodeAB_refine = perform_local_loc(
-				edges_nodeAB_coarse, 
+
+			# Identify strong odometry relationship 
+			edges_nodeAB_refine_covis, lm_gain = perform_local_loc(
+				edges_nodeAB_coarse_covis, 
 				merger, 
 				final_map.covis,
 				cur_submap.covis, 
@@ -494,15 +493,19 @@ def perform_submap_merging(merger: MergePipeline, args):
 			pose_graph = merger.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom, 
-				edges_nodeAB_refine
+				edges_nodeAB_refine_covis
 			)	
 			g2o_path = str(merger.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
 			# Optimize the pose graph
-			result_pgo = optimize_pose_graph(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), True)
-			print("PGO: initial error = ", pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()))
-			print("PGO: final error = ", pose_graph.get_factor_graph().error(result_pgo))
+			print(f"PGO: initial error = {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
+			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
+				pose_graph.get_factor_graph(), 
+				pose_graph.get_initial_estimate(), 
+				verbose=False
+			)
+			print(f"PGO: final error = {pose_graph.get_factor_graph().error(result_pgo):.3f}")
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
@@ -510,7 +513,28 @@ def perform_submap_merging(merger: MergePipeline, args):
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 
 			# Merge two submap into one with optimized poses
-			merger.merge_and_update_submaps(final_map, cur_submap, edges_nodeAB_refine, pose_graph.get_initial_estimate())
+			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
+
+			# Update edges from the src_edges for different types of graphs
+			# Nodes are merged and relected on the updated graph
+			# node_a = final_map.graphs[graph_type].get_node(edges_nodeAB[0])
+			# node_b = final_map.graphs[graph_type].get_node(edges_nodeAB[1])
+			weight_func1 = (lambda edge: edge[3])
+			weight_func2 = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans))
+			for dst_graph_type, src_edges, weight_func in [
+				("covis", edges_nodeAB_coarse_covis, weight_func1),
+				("odom", edges_nodeAB_refine_covis, weight_func2),
+				("trav", edges_nodeAB_coarse_covis, weight_func2)
+			]:
+				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
+				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
+
+			print(f"After updating:\n{final_map}")
+
+			# TODO(gogojjh): perform keyframe selection
+			# print('Landmark gain:')
+			# for pair, gain in lm_gain.items():
+			# 	print(f"{pair[0].id} -> {pair[1].id} with LM gains: {gain:.3f}")
 
 			if args.viz:
 				save_dir = str(merger.log_dir/"preds")
@@ -524,9 +548,10 @@ def perform_submap_merging(merger: MergePipeline, args):
 			)
 			g2o_path = str(merger.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
-			merger.merge_and_update_submaps(final_map, cur_submap, [], pose_graph.get_initial_estimate())
+			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 
-	final_map.save_to_file()
+	if not final_map.is_empty:
+		final_map.save_to_file()
 
 if __name__ == '__main__':
 	import warnings

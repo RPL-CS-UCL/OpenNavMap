@@ -15,16 +15,16 @@ rosrun litevloc map_merge_pipeline.py \
   --input_submap_path "$PathSubmap/${In_Map[0]}" "$PathSubmap/${In_Map[1]}" \
   --output_map_path "$PathSubmap/$Out_Map" \
   --image_size 512 288 \
-  --vpr_match_model sequence_match
+  --vpr_match_model single_match # --viz
 
-rosrun litevloc pose3slam_g2o.py \
-  --input "$PathSubmap/$Out_Map/preds/initial_pose_graph.g2o" \
-  -o "$PathSubmap/$Out_Map/preds/refine_pose_graph.g2o" \
-  -p
+# NOTE(gogojjh): Not used
+# rosrun litevloc pose3slam_g2o.py \
+#   --input "$PathSubmap/$Out_Map/preds/refine_pose_graph.g2o" \
+#   --viz
 
-python /Titan/code/robohike_ws/src/pycpptools/pycpptools/src/python/utils_file/tools_convert_pose_format.py \
-  --input_pose_file "$PathSubmap/$Out_Map/preds/refine_pose_graph.g2o" \
-  --input_time_file "$PathSubmap/$Out_Map/timestamps.txt" \
-  --output_pose_file "$PathSubmap/$Out_Map/poses.txt" \
-  --input_pose_type g2o \
-  --output_pose_type mapfree
+# python /Titan/code/robohike_ws/src/pycpptools/pycpptools/src/python/utils_file/tools_convert_pose_format.py \
+#   --input_pose_file "$PathSubmap/$Out_Map/preds/refine_pose_graph.g2o" \
+#   --input_time_file "$PathSubmap/$Out_Map/timestamps.txt" \
+#   --output_pose_file "$PathSubmap/$Out_Map/poses.txt" \
+#   --input_pose_type g2o \
+#   --output_pose_type mapfree
