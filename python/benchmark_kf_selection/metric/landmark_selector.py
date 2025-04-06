@@ -118,7 +118,7 @@ class LandmarkSelector:
                 
                 # Compute the keeping probability
                 min_keep = min(
-                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['R'], edge[1]['G'], edge[1]['dt']), edge[0])
+                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['R'], edge[1]['G'], edge[1]['dt']), edge[1])
                     for edge in db_node.edges
                 )
                 P_keep, node_to_viz = min_keep
