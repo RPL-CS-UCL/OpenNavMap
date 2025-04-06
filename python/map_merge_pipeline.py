@@ -358,8 +358,7 @@ def perform_local_loc(
 	Returns:
 		List of refined matches (represented as image node) with relative pose estimates
 	"""
-	# NOTE(gogojjh): change niter=100 to 300
-	est_opts = dict(known_extrinsics=True, known_intrinsics=False, resize=512, niter=100)
+	est_opts = dict(known_extrinsics=True, known_intrinsics=True, resize=512, niter=100)
 	
 	# lm_gain[(nodeA,id, nodeB.id)] meaning how much information is gained of nodeA
 	lm_gain = {}
@@ -398,8 +397,15 @@ def perform_local_loc(
 					query_intr,
 					est_opts
 				)
+				
+				im_pose = result["im_pose"]
+				if im_pose is None: 
+					raise ValueError(f"{merger.pose_estimator} - Estimated pose is None.")
+				elif np.isnan(im_pose).any():
+					raise ValueError("Estimated pose is NaN or infinite.")
+				
 				T_db_est = convert_vec_to_matrix(db_node.trans, db_node.quat, 'xyzw')
-				T_rel_est = np.linalg.inv(T_db_est) @ result['im_pose']
+				T_rel_est = np.linalg.inv(T_db_est) @ im_pose
 
 				##############################
 				##### DEBUG(gogojjh):				
@@ -516,7 +522,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 
 			# Update edges from the src_edges for different types of graphs
-			# Nodes are merged and relected on the updated graph
+			# Nodes are merged and reflected on the updated graph
 			# node_a = final_map.graphs[graph_type].get_node(edges_nodeAB[0])
 			# node_b = final_map.graphs[graph_type].get_node(edges_nodeAB[1])
 			weight_func1 = (lambda edge: edge[3])
@@ -529,18 +535,18 @@ def perform_submap_merging(merger: MergePipeline, args):
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 
-			print(f"After updating:\n{final_map}")
 
 			# TODO(gogojjh): perform keyframe selection
 			# print('Landmark gain:')
 			# for pair, gain in lm_gain.items():
 			# 	print(f"{pair[0].id} -> {pair[1].id} with LM gains: {gain:.3f}")
 
+			print(f"Final map info:\n{final_map}")
+
 			if args.viz:
 				save_dir = str(merger.log_dir/"preds")
 				pose_graph.plot_pose_graph(save_dir, pose_graph.get_factor_graph(), result_pgo)
 		else:
-			print('Final_map is empty')
 			pose_graph = merger.create_pose_graph_from_map(
 				final_map.odom, 
 				cur_submap.odom, 

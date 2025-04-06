@@ -91,15 +91,15 @@ def predict(loader, estimator, str_estimator, cfg):
 			"""Definition of solver output"""
 			# Rwc (numpy.ndarray): Estimated rotation matrix from world (reference frame) to camera
 			# twc (numpy.ndarray): Estimated translation vector. Shape: [3, 1] that translate depth_img1 to depth_img0.
-			image_pose, loss_value = result["im_pose"], result["loss"]
-			if image_pose is None: 
+			im_pose, loss_value = result["im_pose"], result["loss"]
+			if im_pose is None: 
 				raise ValueError(f"{str_estimator} - Estimated pose is None.")
-			elif np.isnan(image_pose).any():
+			elif np.isnan(im_pose).any():
 				raise ValueError("Estimated pose is NaN or infinite.")
 					   
 			"""Save Results"""
 			# Pose that transforms camera point into world
-			T_w2c = np.eye(4); T_w2c[:3, :3] = image_pose[:3, :3]; T_w2c[:3, 3] = image_pose[:3, 3]
+			T_w2c = np.eye(4); T_w2c[:3, :3] = im_pose[:3, :3]; T_w2c[:3, 3] = im_pose[:3, 3]
 			T_c2w = np.linalg.inv(T_w2c); rot_c2w = T_c2w[:3, :3]; trans_c2w = T_c2w[:3,  3].reshape(3, 1)
 
 			# populate results_dict
