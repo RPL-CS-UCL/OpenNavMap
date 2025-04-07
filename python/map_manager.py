@@ -20,7 +20,7 @@ class MapManager:
 	def __str__(self):
 		out_str = 'Visualize the current map:\n'
 		for graph_type, graph in self._graphs.items():
-			out_str += f"{graph_type}: {graph} as instance {type(graph)}\n"
+			out_str += f"{graph_type}: {graph} {type(graph)}\n"
 		return out_str
 
 	def load_graphs(self, graph_configs):
@@ -89,8 +89,12 @@ class MapManager:
 
 	def save_to_file(self):
 		"""Save all graphs to files"""
-		for graph_type, graph in self._graphs.items():
-			graph.save_to_file()
+		if 'covis' in self.graphs:
+			self.covis.save_to_file(edge_only=False)
+		if 'odom' in self.graphs:
+			self.odom.save_to_file(edge_only=False)
+		if 'trav' in self.graphs:
+			self.trav.save_to_file(edge_only=True)
 
 	def _load_point_graph(self, graph_type: str, config):
 		"""Helper method for loading point-based graphs"""

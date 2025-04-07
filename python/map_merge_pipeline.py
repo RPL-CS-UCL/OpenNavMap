@@ -533,42 +533,45 @@ def perform_submap_merging(merger: MergePipeline, args):
 			# Steps: check pruning probability -> remove old nodes for covis graph
 			# But nodes in odom and trav graph are kepts
 			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
-			acc_prob_dict = dict()
-			for nodeA, data in lm_gain.items():
-				for nodeB, gain in data.items():
-					if nodeB not in acc_prob_dict:
-						acc_prob_dict[nodeB] = 0.0
-					acc_prob_dict[nodeB] = max(
-						merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
-						acc_prob_dict[nodeB]
-					)
-			nodesB_to_remove = [
-				node for node, prob in acc_prob_dict.items() if prob < merger.lm_selector.P_acc_th
-			]
+			if args.select_keyframe:
+				acc_prob_dict = dict()
+				for nodeA, data in lm_gain.items():
+					for nodeB, gain in data.items():
+						if nodeB not in acc_prob_dict:
+							acc_prob_dict[nodeB] = 0.0
+						acc_prob_dict[nodeB] = max(
+							merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
+							acc_prob_dict[nodeB]
+						)
+				nodesB_to_remove = [
+					node for node, prob in acc_prob_dict.items() if prob < merger.lm_selector.P_acc_th
+				]
 
-			nodesA_to_remove = []
-			for nodeA, data in lm_gain.items():
-				min_keep = min(
-					(merger.lm_selector.compute_keep_prob(
-						nodeA.iqa_data, 1.0-gain, gain, nodeB.time - nodeA.time), 
-						nodeB)
-					for nodeB, gain in data.items() if nodeB not in nodesB_to_remove
-				)
-				if min_keep[0] < merger.lm_selector.P_keep_th:
-					nodesA_to_remove.append(nodeA)
-					print(f"Replace SubmapA {nodeA.id} with SubmapB {min_keep[1].id} with Prob:{min_keep[0]:.3f}")
-			
+				nodesA_to_remove = []
+				for nodeA, data in lm_gain.items():
+					min_prob, node_rep = 1.0, None
+					for nodeB, gain in data.items():
+						prob = merger.lm_selector.compute_keep_prob(
+							nodeA.iqa_data, 1.0-gain, gain, nodeB.time - nodeA.time
+						)
+						if prob < min_prob:
+							min_prob, node_rep = prob, nodeB
+
+					if min_prob < merger.lm_selector.P_keep_th and node_rep:
+						nodesA_to_remove.append(nodeA)
+						print(f"Replace SubmapA {nodeA.id} with SubmapB {node_rep.id} with Prob:{min_prob:.3f}")
+				
+				# Remove nodes and invalid edges from the graph
+				print('Removing nodes from cur_submap covis')
+				cur_submap.covis.remove_node_list(nodesB_to_remove)
+				cur_submap.covis.remove_invalid_edges()
+				
+				print('Removing nodes from cur_submap odom')
+				final_map.covis.remove_node_list(nodesA_to_remove)			
+				final_map.covis.remove_invalid_edges()
+				final_map.covis.rm_sensor_data(nodesA_to_remove)
+
 			##### Perform map update and merging
-			# Remove nodes and invalid edges from the graph
-			print('Removing nodes from cur_submap covis')
-			cur_submap.covis.remove_node_list(nodesB_to_remove)
-			cur_submap.covis.remove_invalid_edges()
-			
-			print('Removing nodes from cur_submap odom')
-			final_map.covis.remove_node_list(nodesA_to_remove)			
-			final_map.covis.remove_invalid_edges()
-			final_map.covis.rm_sensor_data(nodesA_to_remove)
-
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 
@@ -602,8 +605,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 
 	if not final_map.is_empty:
-		final_map.covis.save_to_file()
-		final_map.odom.save_to_file()
+		final_map.save_to_file()
 
 if __name__ == '__main__':
 	import warnings
