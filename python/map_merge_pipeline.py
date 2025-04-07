@@ -197,7 +197,7 @@ class MergePipeline:
 		submap_a.update_node_poses(estimate_pose)
 		submap_b.update_node_poses(estimate_pose)
 
-		submap_a.copy_sensor_data(submap_b.covis)
+		submap_a.covis.copy_sensor_data(submap_b.covis)
 		submap_a.merge_graphs_from(submap_b)
 
 		print(f"Merged map info - {submap_a}")
@@ -280,21 +280,27 @@ def perform_global_loc(
 		nodes. Each edge is a tuple (db_node, query_node, T_A2B, score).
 	"""
 	# Load descriptors from database and query nodes
+	num_db_nodes = final_graph.get_num_node()
 	db_descriptors = np.array(
-		[node.get_descriptor() for node in final_graph.nodes.values()], dtype=np.float32)
+		[node.get_descriptor() for node in final_graph.nodes.values()], dtype=np.float32
+	)
+	db_node_ids = [node.id for node in final_graph.nodes.values()]
+
+	num_query_nodes = cur_graph.get_num_node()
 	query_descriptors = np.array(
-		[node.get_descriptor() for node in cur_graph.nodes.values()], dtype=np.float32)
+		[node.get_descriptor() for node in cur_graph.nodes.values()], dtype=np.float32
+	)
+	query_node_ids = [node.id for node in cur_graph.nodes.values()]
 
 	merger.vpr_match_model.initialize_model(db_descriptors)
-	
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 		# VPR matching for all query nodes
 		connected_indices = []
-		for query_node in cur_graph.nodes.values():
-			start_idx = max(0, query_node.id - merger.vpr_match_model.seqLen + 1)
-			query_descs = query_descriptors[start_idx : query_node.id + 1]
+		for row in range(num_query_nodes):
+			start_row = max(0, row - merger.vpr_match_model.seqLen + 1)
+			query_descs = query_descriptors[start_row : row + 1]
 			_, pred, score = merger.vpr_match_model.match(query_descs)
-			connected_indices.append((pred, query_node.id, score))
+			connected_indices.append((db_node_ids[pred], query_node_ids[row], score))
 
 		if hasattr(merger.vpr_match_model, 'compute_diff_matrix'):
 			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
@@ -307,7 +313,8 @@ def perform_global_loc(
 		if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
 			filtered_indices, lines_coeff, cluster_data, cluster_labels = \
 				merger.vpr_match_model.ransac_check_match(
-					D_all, connected_indices[merger.vpr_match_model.seqLen:]
+					D_all, 
+					connected_indices[merger.vpr_match_model.seqLen:]
 				 )
 			best_indices = connected_indices[:merger.vpr_match_model.seqLen] + filtered_indices
 		
@@ -317,7 +324,7 @@ def perform_global_loc(
 			db_node = final_graph.get_node(db_idx)	
 			query_node = cur_graph.get_node(query_idx)
 			result = merger.pose_estimator.get_matched_kpts(
-				final_graph.map_root.parent, 
+				final_graph.map_root.parent,
 				db_node.rgb_image, 
 				query_node.rgb_image
 			)
@@ -522,15 +529,10 @@ def perform_submap_merging(merger: MergePipeline, args):
 			g2o_path = str(merger.log_dir/"preds/refine_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 
-			# TODO: perform keyframe pruning
+			##### Perform keyframe pruning #####
 			# Steps: check pruning probability -> remove old nodes for covis graph
 			# But nodes in odom and trav graph are kepts
 			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
-			# DEBUG(gogojjh):
-			for nodeA, data in lm_gain.items():
-				for nodeB, gain in data.items():
-					assert nodeB.time >= nodeA.time
-
 			acc_prob_dict = dict()
 			for nodeA, data in lm_gain.items():
 				for nodeB, gain in data.items():
@@ -540,7 +542,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 						merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
 						acc_prob_dict[nodeB]
 					)
-			nodesB_to_remove = [node for node, prob in acc_prob_dict.items() if prob < merger.lm_selector.P_acc_th]
+			nodesB_to_remove = [
+				node for node, prob in acc_prob_dict.items() if prob < merger.lm_selector.P_acc_th
+			]
 
 			nodesA_to_remove = []
 			for nodeA, data in lm_gain.items():
@@ -548,12 +552,22 @@ def perform_submap_merging(merger: MergePipeline, args):
 					(merger.lm_selector.compute_keep_prob(
 						nodeA.iqa_data, 1.0-gain, gain, nodeB.time - nodeA.time), 
 						nodeB)
-					for nodeB, gain in data.items()
+					for nodeB, gain in data.items() if nodeB not in nodesB_to_remove
 				)
 				if min_keep[0] < merger.lm_selector.P_keep_th:
 					nodesA_to_remove.append(nodeA)
 					print(f"Replace SubmapA {nodeA.id} with SubmapB {min_keep[1].id} with Prob:{min_keep[0]:.3f}")
-			# TODO: Remove nodesB_to_remove and nodesA_to_remove from the graph
+			
+			##### Perform map update and merging
+			# Remove nodes and invalid edges from the graph
+			print('Removing nodes from cur_submap covis')
+			cur_submap.covis.remove_node_list(nodesB_to_remove)
+			cur_submap.covis.remove_invalid_edges()
+			
+			print('Removing nodes from cur_submap odom')
+			final_map.covis.remove_node_list(nodesA_to_remove)			
+			final_map.covis.remove_invalid_edges()
+			final_map.covis.rm_sensor_data(nodesA_to_remove)
 
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
@@ -588,7 +602,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 
 	if not final_map.is_empty:
-		final_map.save_to_file()
+		final_map.covis.save_to_file()
+		final_map.odom.save_to_file()
 
 if __name__ == '__main__':
 	import warnings

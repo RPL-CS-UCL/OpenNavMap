@@ -6,7 +6,6 @@
 import numpy as np
 from pathlib import Path
 from typing import Type
-import shutil
 
 from point_graph import PointGraph, PointGraphLoader
 from image_graph import ImageGraph, ImageGraphLoader
@@ -38,14 +37,13 @@ class MapManager:
 				self._load_image_graph(graph_type, config)
 			else:
 				raise ValueError(f"Unknown graph type: {graph_type}")
-				
-		num_nodes = [graph.get_num_node() for graph in self._graphs.values()]
-		assert all(n == num_nodes[0] for n in num_nodes), \
-			f"Number of nodes in {graph_type} does not match {num_nodes[0]}"
 
-		max_num_nodes = [graph.get_max_node_id() for graph in self._graphs.values()]
-		assert all(n == max_num_nodes[0] for n in max_num_nodes), \
-			f"Maximum number of nodes in {graph_type} does not match {max_num_nodes[0]}"
+		# The number of nodes in each graph are not necessarily the same since node removal happens
+		# But the maximum node ID should be the same across all graphs since they have been imported 
+		# 	the same number of nodes
+		max_node_id = [graph.get_max_node_id() for graph in self._graphs.values()]
+		assert all(n == max_node_id[0] for n in max_node_id), \
+			f"Maximum number of nodes in {graph_type} does not match {max_node_id[0]}"
 
 		print(f"Loaded graphs: {list(self._graphs.keys())}")
 
@@ -85,27 +83,6 @@ class MapManager:
 				for node in other_graph.nodes.values():
 					self._graphs[graph_type].add_node(node)
 
-	def copy_sensor_data(self, graph: 'ImageGraph'):
-		"""Copy sensor data files from source map"""
-		for node in graph.nodes.values():
-			# Handle RGB images
-			if node.rgb_img_name:
-				src = graph.map_root / node.rgb_img_name
-				if src.exists():
-					new_name = f"seq/{node.id:06d}.color.jpg"
-					dest = self.map_root / new_name
-					shutil.copy(src, dest)
-					node.rgb_img_name = new_name
-
-			# Handle depth images
-			if node.depth_img_name:
-				src = graph.map_root / node.depth_img_name
-				if src.exists():
-					new_name = f"seq/{node.id:06d}.depth.png"
-					dest = self.map_root / new_name
-					shutil.copy(src, dest)
-					node.depth_img_name = new_name
-
 	def add_inter_edges(self, edges, weight_func):
 		for graph in self._graphs.values():
 			graph.add_inter_edges(edges, weight_func)
@@ -144,11 +121,9 @@ class MapManager:
 	def update_edges(self, src_edges, dst_graph_type):
 		"""Convert edges between graph types using list comprehension"""
 		dst_graph = self.graphs[dst_graph_type]
-		return [
-			(dst_graph.get_node(n0.id), dst_graph.get_node(n1.id), attr, weight)
-			for n0, n1, attr, weight in src_edges
-		]
-
+		for n0, n1, attr, weight in src_edges:
+			if dst_graph.contain_node(n0) and dst_graph.contain_node(n1):
+				yield (dst_graph.get_node(n0.id), dst_graph.get_node(n1.id), attr, weight)
 	@property
 	def graphs(self):
 		return self._graphs

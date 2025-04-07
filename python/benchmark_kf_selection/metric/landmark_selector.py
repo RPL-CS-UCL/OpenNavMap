@@ -22,7 +22,7 @@ class LandmarkSelector:
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
         self.lambda_T = 0.001      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
 
-        self.P_acc_th = 0.5
+        self.P_acc_th = 0.3
         self.P_keep_th = 0.5
 
     # The prbability of keeping the frame
@@ -40,14 +40,15 @@ class LandmarkSelector:
 
     def time_probability(self, T):
         """Exponential decay based on time elapsed. Smaller (recent) is better."""
-        return math.exp(-self.lambda_T * T / self.T_th)
+        """use the min() to ensure the probability is always between 0 and 1"""
+        return min(1.0, math.exp(-self.lambda_T * T / self.T_th))
 
     def compute_accept_prob(self, Q, G):
         """Calculate input probability to determine whether accepting a new keyframe."""
         P_Q = self.quality_probability(Q)
         P_G = self.gain_probability(G)
 
-        acc_prob = P_Q
+        acc_prob = P_Q * P_G
 
         return acc_prob
 
