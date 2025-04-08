@@ -47,7 +47,6 @@ from image_graph import ImageGraph
 from image_node import ImageNode
 
 from codetiming import Timer
-
 from colorama import Fore, init
 init(autoreset=True)
 
@@ -118,7 +117,6 @@ class MergePipeline:
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
 		loop_sigma = np.array([np.deg2rad(3.0)] * 3 + [1.0] * 3)
 		pose_graph = PoseGraph()
-		
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
 
 		# Create a pose graph from graph_a by adding internal edges of graph_a
@@ -134,41 +132,28 @@ class MergePipeline:
 				# Avoid duplicate factors
 				if node.id < next_node.id:
 					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
-					pose_graph.add_odometry_factor(node.id, curr_pose3, next_node.id, next_pose3, odom_sigma)
-
-		# Add factors from graph_b by adding internal edges of graph_b
-		# transform graph_b into graph_a using the initial transformation
-		if not inter_edges:
-			T_wB_B0 = T_offset = np.eye(4)
-		else:
-			edge = inter_edges[0]
-			T_wA_A0 = convert_vec_to_matrix(edge[0].trans, edge[0].quat)
-			T_wB_B0 = convert_vec_to_matrix(edge[1].trans, edge[1].quat)
-			T_AB = edge[2]
-			T_offset = T_wA_A0 @ T_AB
-
+					pose_graph.add_odometry_factor(
+						node.id, curr_pose3, 
+						next_node.id, next_pose3, 
+						odom_sigma
+					)
+		
+		# Create a pose graph from graph_b by adding internal edges of graph_b
 		for _, node in graph_b.nodes.items():
-			T_wB_Bt = convert_vec_to_matrix(node.trans, node.quat)
-			trans, quat = convert_matrix_to_vec(T_offset @ np.linalg.inv(T_wB_B0) @ T_wB_Bt)
-			curr_pose3 = convert_vec_gtsam_pose3(trans, quat)
+			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id + self.id_offset, curr_pose3)
 			# Add odometry factor
 			for edge in node.edges:
 				next_node = edge[0]
 				# Avoid duplicate factors
 				if node.id < next_node.id:
-					T_wB_Bt_next = convert_vec_to_matrix(next_node.trans, next_node.quat)
-					T_Bt_Bt_next = np.linalg.inv(T_wB_Bt) @ T_wB_Bt_next
-					trans, quat = convert_matrix_to_vec(T_Bt_Bt_next)
-					next_pose3 = convert_vec_gtsam_pose3(trans, quat)
+					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(
-						node.id + self.id_offset, 
-						I_pose3, 
-						next_node.id + self.id_offset, 
-						next_pose3, 
+						node.id+self.id_offset, curr_pose3, 
+						next_node.id+self.id_offset, next_pose3, 
 						odom_sigma
 					)
-
+		
 		# Add the loop factor
 		for edge in inter_edges:
 			nodeA, nodeB, T_AB, conf = edge
@@ -176,10 +161,8 @@ class MergePipeline:
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			update_loop_sigma = loop_sigma / conf
 			pose_graph.add_odometry_factor(
-				nodeA.id, 
-				I_pose3, 
-				nodeB.id + self.id_offset, 
-				next_pose3, 
+				nodeA.id, I_pose3, 
+				nodeB.id+self.id_offset, next_pose3, 
 				update_loop_sigma
 			)
 
@@ -528,7 +511,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				pose_graph.add_init_estimate(key, update_estimate)
 			g2o_path = str(merger.log_dir/"preds/refine_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
-
+			
 			##### Perform keyframe pruning #####
 			# Steps: check pruning probability -> remove old nodes for covis graph
 			# But nodes in odom and trav graph are kepts
