@@ -61,6 +61,9 @@ class MergePipeline:
 
 		self.submaps = []
 		self.id_offset = 0
+
+		self.lm_selector = LandmarkSelector()
+
 		self.graph_configs = {
 			'odom': {},
 			'trav': {},
@@ -73,7 +76,12 @@ class MergePipeline:
 			},
 		}
 
-		self.lm_selector = LandmarkSelector()
+		self.est_opts = {
+			'known_extrinsics': True, 
+			'known_intrinsics': False, 
+			'resize': 512,
+			'niter': 300
+		}
 
 	def init_vpr_match_model(self):
 		self.vpr_match_model = initialize_match_model(self.args.vpr_match_model, self.args.vpr_match_seq_len)		
@@ -350,8 +358,6 @@ def perform_local_loc(
 	Returns:
 		List of refined matches (represented as image node) with relative pose estimates
 	"""
-	est_opts = dict(known_extrinsics=True, known_intrinsics=False, resize=512, niter=300)
-	
 	# lm_gain[nodeA][nodeB] meaning how much information is gained of nodeA
 	lm_gain = {}
 	
@@ -387,7 +393,7 @@ def perform_local_loc(
 					db_poses,
 					db_intrs,
 					query_intr,
-					est_opts
+					merger.est_opts
 				)
 				
 				im_pose = result["im_pose"] # camera pose in the world frame
