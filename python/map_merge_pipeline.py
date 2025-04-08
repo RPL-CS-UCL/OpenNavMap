@@ -79,7 +79,6 @@ class MergePipeline:
 		self.est_opts = {
 			'known_extrinsics': True, 
 			'known_intrinsics': False, 
-			'resize': 512,
 			'niter': 300
 		}
 
@@ -88,7 +87,10 @@ class MergePipeline:
 		logging.info(f"VPR Match Model: {self.args.vpr_match_model}")
 
 	def init_pose_estimator(self):
-		self.pose_estimator = initialize_pose_estimator(self.args.pose_estimation_method, self.args.device)
+		self.pose_estimator = initialize_pose_estimator(
+			self.args.pose_estimation_method, 
+			self.args.device
+		)
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
 	def initalize_ros(self):
@@ -315,9 +317,7 @@ def perform_global_loc(
 			db_node = final_graph.get_node(db_idx)	
 			query_node = cur_graph.get_node(query_idx)
 			result = merger.pose_estimator.get_matched_kpts(
-				final_graph.map_root.parent,
-				db_node.rgb_image, 
-				query_node.rgb_image
+				final_graph.map_root, db_node.rgb_image, query_node.rgb_image
 			)
 			num_inlier = result['num_inliers']
 			print(Fore.GREEN + f"DB {db_node.id} - Query {query_node.id} - Number of matched kpts: {num_inlier}")
@@ -339,9 +339,9 @@ def perform_global_loc(
 def perform_local_loc(
 	edges_nodeA_to_nodeB_coarse: List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
 	merger: MergePipeline,
-	final_map: ImageGraph,
-	cur_submap: ImageGraph,
-	cur_submap_id: int,
+	final_graph: ImageGraph,
+	cur_graph: ImageGraph,
+	cur_graph_id: int,
 ) -> Tuple[
     List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
     Dict[ImageNode, Dict[ImageNode, float]],
@@ -351,8 +351,8 @@ def perform_local_loc(
 	
 	Args:
 		edges_nodeA_to_nodeB_coarse: List of coarse matches (db_node, query_node, T_A2B, score)
-		final_map: Reference map containing database nodes
-		cur_submap: Query submap to localize
+		final_graph: Reference map containing database nodes
+		cur_graph: Query submap to localize
 		merger: Merger object with pose estimator and configuration
 		
 	Returns:
@@ -387,15 +387,13 @@ def perform_local_loc(
 			# Perform pose estimation with timing
 			with Timer(name="Pose Estimation", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 				result = merger.pose_estimator(
-					final_map.map_root.parent,
-					[f"{final_map.map_root.name}/{name}" for name in db_names],
-					f"{cur_submap.map_root.name}/{query_name}",
-					db_poses,
-					db_intrs,
-					query_intr,
+					final_graph.map_root,
+					[node.rgb_image for node in db_node_pair],
+					query_node.rgb_image,
+					db_poses, db_intrs, 
+					query_intr, 
 					merger.est_opts
-				)
-				
+				)				
 				im_pose = result["im_pose"] # camera pose in the world frame
 				if im_pose is None: 
 					raise ValueError(f"{merger.pose_estimator} - Estimated pose is None.")
@@ -456,7 +454,7 @@ def perform_local_loc(
 	##### Save visualization and debug data
 	save_dir = str(merger.log_dir/"preds")
 	save_vis_pose_graph(
-		save_dir, final_map, cur_submap, cur_submap_id, refined_edges,
+		save_dir, final_graph, cur_graph, cur_graph_id, refined_edges,
 		suffix=f'{merger.args.vpr_match_model}_refine')
 
 	return refined_edges, lm_gain
@@ -476,15 +474,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 		merger.id_offset = final_map.get_max_node_id() + 1		
 		
 		if not final_map.is_empty:
-			# Identify strong covisibility relationship 
+			# Identify coarse covisibility relationship 
 			edges_nodeAB_coarse_covis = perform_global_loc(
 				merger,
 				final_map.covis, 
 				cur_submap.covis, 
 				cur_submap.map_id
 			)
-
-			# Identify strong odometry relationship 
+			# Identify strong covisibility relationship 
 			edges_nodeAB_refine_covis, lm_gain = perform_local_loc(
 				edges_nodeAB_coarse_covis, 
 				merger, 
@@ -571,9 +568,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 			weight_func1 = (lambda edge: edge[3])
 			weight_func2 = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans))
 			for dst_graph_type, src_edges, weight_func in [
-				("covis", edges_nodeAB_coarse_covis, weight_func1),
+				("covis", edges_nodeAB_refine_covis, weight_func1),
 				("odom", edges_nodeAB_refine_covis, weight_func2),
-				("trav", edges_nodeAB_coarse_covis, weight_func2)
+				("trav", edges_nodeAB_refine_covis, weight_func2)
 			]:
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
