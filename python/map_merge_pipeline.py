@@ -118,9 +118,9 @@ class MergePipeline:
 
 	def create_pose_graph_from_map(
 		self, 
-		graph_a,    # The odometry graph 
-		graph_b,    # The odometry graph 
-		inter_edges
+		graph_odom_a,     # The odometry graph 
+		graph_odom_b,     # The odometry graph 
+		inter_edges_covis # inter_edges_covis own the same node id with odom
 	):
 		# Set basic std for factors
 		prior_sigma = np.array([1e-3] * 3 + [1e-2] * 3)
@@ -129,8 +129,8 @@ class MergePipeline:
 		pose_graph = PoseGraph()
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
 
-		# Create a pose graph from graph_a by adding internal edges of graph_a
-		for _, node in graph_a.nodes.items():
+		# Create a pose graph from graph_odom_a by adding internal edges of graph_odom_a
+		for _, node in graph_odom_a.nodes.items():
 			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id, curr_pose3)
 			# Add prior factor
@@ -148,8 +148,8 @@ class MergePipeline:
 						odom_sigma
 					)
 		
-		# Create a pose graph from graph_b by adding internal edges of graph_b
-		for _, node in graph_b.nodes.items():
+		# Create a pose graph from graph_odom_b by adding internal edges of graph_odom_b
+		for _, node in graph_odom_b.nodes.items():
 			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
 			pose_graph.add_init_estimate(node.id + self.id_offset, curr_pose3)
 			# Add odometry factor
@@ -165,7 +165,7 @@ class MergePipeline:
 					)
 		
 		# Add the loop factor
-		for edge in inter_edges:
+		for edge in inter_edges_covis:
 			nodeA, nodeB, T_AB, conf = edge
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
@@ -194,6 +194,7 @@ class MergePipeline:
 		submap_a.merge_graphs_from(submap_b)
 
 		print(f"Merged map info - {submap_a}")
+		
 def compute_lm_pairwise(
 	db_nodes, 
 	query_node, 
