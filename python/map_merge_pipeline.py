@@ -185,6 +185,7 @@ def compute_lm_pairwise(
 	all_pts3d = estimator.scene.get_pts3d() # all pts3d in the world frame
 	H, W = depthmaps[0].shape
 	all_nodes = db_nodes + [query_node]
+	# msk_conf = estimator.scene.get_masks()
 	assert len(all_pts3d) == len(all_nodes)
 
 	# each element ('db'/'query', node_i, node_j, gain) meaning that
@@ -511,7 +512,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 			# But nodes in odom and trav graph are kepts
 			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
 			if args.select_keyframe:
-				# Compute the maximum acceptance probability for each nodeB
+				# Compute the acceptance probability:
+				# 	Accept the new keyframe with high information gain, even it has low image quality
 				nodes_query_to_remove = []
 				for nodeA, data in lm_gain_query.items():
 					acc_prob_dict = 0.0
@@ -529,6 +531,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 						)
 						nodes_query_to_remove.append(nodeA)
 
+				# Compute the keeping probability:
+				# 	Remove the old keyframe with the low information gain and low image quality
 				nodes_db_to_remove = []
 				for nodeA, data in lm_gain_db.items():
 					min_prob, node_rep = 1.0, None
@@ -537,7 +541,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 						if nodeB in nodes_query_to_remove:
 							continue
 						prob = merger.lm_selector.compute_keep_prob(
-							nodeA.iqa_data, 1.0-gain, gain, nodeB.time - nodeA.time
+							nodeA.iqa_data-nodeB.iqa_data, gain, nodeB.time-nodeA.time
 						)
 						if prob < min_prob:
 							min_prob, node_rep = prob, nodeB
@@ -545,6 +549,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 					if min_prob < merger.lm_selector.P_keep_th and node_rep:
 						nodes_db_to_remove.append(nodeA)
 						print(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
+						merger.lm_selector.print_each_prob(
+							nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
+						)
 						save_vis_kf_replacement(
 							merger.log_dir, 
 							nodeA.id,

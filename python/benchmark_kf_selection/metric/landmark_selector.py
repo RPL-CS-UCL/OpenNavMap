@@ -13,7 +13,7 @@ import math
 class LandmarkSelector:
     def __init__(self):
         # Parameters for probability calculation
-        self.Q_th = 25.0     # Midpoint for quality sigmoid
+        self.Q_th = 30.0       # Midpoint for quality sigmoid
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
         self.R_th = 30.0      # Information redundancy threshold
@@ -25,13 +25,17 @@ class LandmarkSelector:
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
         self.lambda_T = 0.001      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
 
-        self.P_acc_th = 0.3
-        self.P_keep_th = 0.5
+        self.P_acc_th = 0.25
+        self.P_keep_th = 0.25
 
     # The prbability of keeping the frame
     def quality_probability(self, Q):
         """Sigmoid function for image quality (0-100). Higher is better."""
         return 1 / (1 + math.exp(-self.k_Q * (Q - self.Q_th)))
+
+    def delta_quality_probability(self, Q):
+        """Sigmoid function for image quality (-100-100). Higher is better."""
+        return 1 / (1 + math.exp(-self.k_Q * Q))
 
     def redundancy_probability(self, R):
         """Sigmoid decay function for redundancy (0-1). Lower is better."""
@@ -56,10 +60,10 @@ class LandmarkSelector:
 
         return acc_prob
 
-    def compute_keep_prob(self, Q, R, G, T):
+    def compute_keep_prob(self, dQ, G, T):
         """Calculate posterior probability for a keyframe."""
-        P_Q = self.quality_probability(Q)
-        P_R = self.redundancy_probability(R)
+        P_Q = self.delta_quality_probability(dQ)
+        # P_R = self.redundancy_probability(R)
         P_G = self.gain_probability(G)
         P_T = self.time_probability(T)
 
@@ -67,14 +71,15 @@ class LandmarkSelector:
         
         return keep_prob
 
-    def compute_each_prob(self, Q, R, G, T):
+    def print_each_prob(self, dQ, G, T):
         """Calculate posterior probability for a keyframe."""
-        P_Q = self.quality_probability(Q)
-        P_R = self.redundancy_probability(R)
+        P_Q = self.delta_quality_probability(dQ)
+        # P_R = self.redundancy_probability(R)
         P_G = self.gain_probability(G)
         P_T = self.time_probability(T)
 
-        return P_Q, P_R, P_G, P_T
+        P = P_Q * P_G * P_T + 1e-6
+        print(f"P_Q: {P_Q:.3f}, P_G: {P_G:.3f}, P_T: {P_T:.3f}, P: {P:.3f}")
 
     def update_keyframes(self, submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain):
         if graph.get_num_node() == 0:
@@ -123,7 +128,7 @@ class LandmarkSelector:
                 
                 # Compute the keeping probability
                 min_keep = min(
-                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['R'], edge[1]['G'], edge[1]['dt']), edge[1])
+                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['G'], edge[1]['dt']), edge[1])
                     for edge in db_node.edges
                 )
                 P_keep, node_to_viz = min_keep
@@ -169,3 +174,6 @@ if __name__ == '__main__':
     lm_selector = LandmarkSelector()
     PQ = lm_selector.quality_probability(25.0)
     print(f"Prob Quality: {PQ:.3f}")
+
+    PdQ = lm_selector.delta_quality_probability(12.0)
+    print(f"Prob Quality: {PdQ:.3f}")    
