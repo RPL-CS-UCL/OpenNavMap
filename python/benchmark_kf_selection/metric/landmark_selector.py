@@ -1,4 +1,7 @@
 import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../"))
+
 import numpy as np
 
 from image_node import ImageNode
@@ -13,11 +16,11 @@ class LandmarkSelector:
         self.Q_th = 25.0     # Midpoint for quality sigmoid
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
-        self.R_th = 50      # Information redundancy threshold
-        self.k_R = 0.01       # Information redundancy sensitivity (higher, more sensitive)
+        self.R_th = 30.0      # Information redundancy threshold
+        self.k_R = 0.1       # Information redundancy sensitivity (higher, more sensitive)
 
-        self.G_th = 50      # Information gain threshold
-        self.k_G = 0.01
+        self.G_th = 30.0      # Information gain threshold
+        self.k_G = 0.1
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
         self.lambda_T = 0.001      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
@@ -31,11 +34,11 @@ class LandmarkSelector:
         return 1 / (1 + math.exp(-self.k_Q * (Q - self.Q_th)))
 
     def redundancy_probability(self, R):
-        """Exponential decay function for redundancy (0-1). Lower is better."""
+        """Sigmoid decay function for redundancy (0-1). Lower is better."""
         return 1 / (1 + math.exp(-self.k_R * (R * 100.0 - self.R_th)))
 
     def gain_probability(self, G):
-        """Exponential increase function for information gain (0-1). Higher is better."""
+        """Sigmoid increase function for information gain (0-1). Higher is better."""
         return 1 / (1 + math.exp(-self.k_G * (G * 100.0 - self.G_th)))
 
     def time_probability(self, T):
@@ -47,8 +50,9 @@ class LandmarkSelector:
         """Calculate input probability to determine whether accepting a new keyframe."""
         P_Q = self.quality_probability(Q)
         P_G = self.gain_probability(G)
-
-        acc_prob = P_Q * P_G
+        
+        acc_prob = P_Q * P_G       
+        print(f"Q: {Q:.3f}, G: {G:.3f}, PQ: {P_Q:.3f}, PG: {P_G:.3f}, P: {acc_prob:.3f}")
 
         return acc_prob
 
@@ -160,3 +164,8 @@ class LandmarkSelector:
         print(', '.join(key for key in keyframes))
 
         return keyframes
+
+if __name__ == '__main__':
+    lm_selector = LandmarkSelector()
+    PQ = lm_selector.quality_probability(25.0)
+    print(f"Prob Quality: {PQ:.3f}")

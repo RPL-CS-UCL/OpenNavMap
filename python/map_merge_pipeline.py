@@ -7,32 +7,11 @@ import pathlib
 import numpy as np
 import logging
 import gtsam
-# import cv2
-# import time
-# import copy
-# import random
-
-import rospy
-# from std_msgs.msg import Header
-# from nav_msgs.msg import Odometry, Path
-# from sensor_msgs.msg import Image
-# from geometry_msgs.msg import PoseArray
-# from visualization_msgs.msg import MarkerArray
-# import tf2_ros
 import matplotlib
-# import matplotlib.pyplot as plt
-# from PIL import Image
 from tqdm import tqdm
 import pathlib
 from typing import List, Tuple, Dict
-
-# import rospkg
-# rospkg = rospkg.RosPack()
-# pack_path = rospkg.get_path('litevloc')
-# sys.path.append(os.path.join(pack_path, '../image_matching_models'))
-# sys.path.append(os.path.join(pack_path, '../image_matching_models'))
-
-# from estimator.utils import to_tensor, to_numpy
+from codetiming import Timer
 
 from utils.utils_vpr_method import initialize_match_model
 from utils.utils_map_merging import *
@@ -46,7 +25,6 @@ from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
 
-from codetiming import Timer
 from colorama import Fore, init
 init(autoreset=True)
 
@@ -206,48 +184,54 @@ def compute_lm_pairwise(
 	depthmaps = estimator.scene.get_depthmaps()
 	all_pts3d = estimator.scene.get_pts3d() # all pts3d in the world frame
 	H, W = depthmaps[0].shape
-
 	all_nodes = db_nodes + [query_node]
 	assert len(all_pts3d) == len(all_nodes)
 
-	lm_gain_pw = dict()
-	for i in range(len(all_pts3d) - 1):
-		# Only consider the overlapping between db_nodes and the query_node
-		j = len(all_pts3d) - 1
+	# each element ('db'/'query', node_i, node_j, gain) meaning that
+	# information gain by the node_i w.r.t. node_j, and node_i is the db/query node
+	lm_gain_pw = list()
+	for i in range(len(all_pts3d)):
+		for j in range(len(all_pts3d)):
+			# Only consider the overlapping between db_nodes and the query_node
+			if i == j or (i != len(all_pts3d) - 1 and j != len(all_pts3d) - 1):
+				continue
 
-		# Project depth of camera i into camera j
-		pts3d_flat = all_pts3d[i].reshape(-1, 3)
-		proj = pts3d_flat @ cams[j][:3, :3].T + cams[j][:3, 3].reshape(1, 3)
-		proj_depth = proj[:, 2]
-		uv_hom = (proj / proj_depth[:, None])  # Add dimension for broadcasting
-		u, v = (uv_hom[:, :2] @ K[j][:2, :2].T + K[j][:2, 2]).round().long().unbind(-1)			
+			# Project depth of camera i into camera j
+			pts3d_flat = all_pts3d[i].reshape(-1, 3)
+			proj = pts3d_flat @ cams[j][:3, :3].T + cams[j][:3, 3].reshape(1, 3)
+			proj_depth = proj[:, 2]
+			uv_hom = (proj / proj_depth[:, None])  # Add dimension for broadcasting
+			u, v = (uv_hom[:, :2] @ K[j][:2, :2].T + K[j][:2, 2]).round().long().unbind(-1)			
 
-		# Mask for overlapping points
-		valid_mask = (proj_depth > 0) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
-		proj_depth_map = torch.zeros(H, W, device=device)
-		proj_depth_map[v[valid_mask], u[valid_mask]] = proj_depth[valid_mask]
-		u, v = u[valid_mask], v[valid_mask]
-		proj_depth = proj_depth[valid_mask]
-		msk = torch.abs(proj_depth - depthmaps[j][v, u].reshape(1, -1)) < 0.5 * depthmaps[j][v, u].reshape(1, -1)
+			# Mask for overlapping points
+			valid_mask = (proj_depth > 0) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+			proj_depth_map = torch.zeros(H, W, device=device)
+			proj_depth_map[v[valid_mask], u[valid_mask]] = proj_depth[valid_mask]
+			u, v = u[valid_mask], v[valid_mask]
+			proj_depth = proj_depth[valid_mask]
+			msk = torch.abs(proj_depth - depthmaps[j][v, u].reshape(1, -1)) < 0.5 * depthmaps[j][v, u].reshape(1, -1)
 
-		redu = np.sum(msk.detach().cpu().numpy()) / (len(pts3d_flat))
-		lm_gain_pw[(all_nodes[i], all_nodes[j])] = 1.0 - redu
+			redu = np.sum(msk.detach().cpu().numpy()) / (len(pts3d_flat))
+			if j == len(all_pts3d) - 1:
+				lm_gain_pw.append(('db', all_nodes[i], all_nodes[j], 1.0 - redu))
+			else:
+				lm_gain_pw.append(('query', all_nodes[i], all_nodes[j], 1.0 - redu))
 
-		# DEBUG(gogojjh):
-		if False:
-			import matplotlib.pyplot as plt
-			fig, axs = plt.subplots(1, 2, figsize=(16, 12))
-			im0 = axs[0].imshow(depthmaps[j].detach().cpu().numpy(), cmap='turbo')
-			axs[0].set_title(f'Original Depth Camera {j} onto Camera {j}')
-			plt.colorbar(im0, ax=axs[0], label='Depth')
-			
-			im1 = axs[1].imshow(proj_depth_map.detach().cpu().numpy(), cmap='turbo')
-			axs[1].set_title(f'Projected Depth of Camera {i} onto Camera {j})')
-			plt.colorbar(im1, ax=axs[1], label='Depth')
+			# DEBUG(gogojjh):
+			if False:
+				import matplotlib.pyplot as plt
+				fig, axs = plt.subplots(1, 2, figsize=(16, 12))
+				im0 = axs[0].imshow(depthmaps[j].detach().cpu().numpy(), cmap='turbo')
+				axs[0].set_title(f'Original Depth Camera {j} onto Camera {j}')
+				plt.colorbar(im0, ax=axs[0], label='Depth')
+				
+				im1 = axs[1].imshow(proj_depth_map.detach().cpu().numpy(), cmap='turbo')
+				axs[1].set_title(f'Projected Depth of Camera {i} onto Camera {j})')
+				plt.colorbar(im1, ax=axs[1], label='Depth')
 
-			plt.tight_layout()
-			plt.savefig(os.path.join('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map_test/preds', f'depth_maps_{i}_to_{j}.jpg'))
-			plt.close()
+				plt.tight_layout()
+				plt.savefig(os.path.join('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map_test/preds', f'depth_maps_{i}_to_{j}.jpg'))
+				plt.close()
 
 	return lm_gain_pw
 
@@ -344,8 +328,8 @@ def perform_local_loc(
 	cur_graph: ImageGraph,
 	cur_graph_id: int,
 ) -> Tuple[
-    List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
-    Dict[ImageNode, Dict[ImageNode, float]],
+	List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
+	Dict[ImageNode, Dict[ImageNode, float]],
 	Dict[ImageNode, Dict[ImageNode, float]]
 ]:
 	"""Performs fine-grained localization using pose estimation on coarse matches.
@@ -359,8 +343,9 @@ def perform_local_loc(
 	Returns:
 		List of refined matches (represented as image node) with relative pose estimates
 	"""
-	# lm_gain[nodeA][nodeB] meaning how much information is gained of nodeA
-	lm_gain = {}
+	# lm_gain_db[nodeA][nodeB] meaning how much information is gained of nodeA w.r.t. nodeB, and nodeA is a db_node
+	# lm_gain_query[nodeA][nodeB] meaning how much information is gained of nodeA w.r.t. nodeB, and nodeA is a query_node
+	lm_gain_db, lm_gain_query = dict(), dict()
 	
 	refined_edges = []
 	for edge in tqdm(edges_nodeA_to_nodeB_coarse):
@@ -409,8 +394,8 @@ def perform_local_loc(
 				T_nodeA_gt = convert_vec_to_matrix(db_node.trans_gt, db_node.quat_gt, 'xyzw')
 				T_query_gt = convert_vec_to_matrix(query_node.trans_gt, query_node.quat_gt, 'xyzw')
 				T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
-				# print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
-				# print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
+				print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
+				print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
 				dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
 				print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
 				##############################
@@ -418,15 +403,20 @@ def perform_local_loc(
 				##############################
 				##### Store immedinate results for subsequent keyframe selection
 				lm_gain_pw = compute_lm_pairwise(
-					[db_node, db_node.edges[0][0]],
+					db_node_pair,
 					query_node, 
 					merger.pose_estimator, 
 					merger.args.device
 				)
-				for key, gain_pw in lm_gain_pw.items():
-					if key[0] not in lm_gain:
-						lm_gain[key[0]] = dict() 
-					lm_gain[key[0]][key[1]] = gain_pw
+				for idr, node_i, node_j, gain in lm_gain_pw:
+					if idr == 'db':
+						if node_i not in lm_gain_db:
+							lm_gain_db[node_i] = dict() 
+						lm_gain_db[node_i][node_j] = gain
+					elif idr == 'query':
+						if node_i not in lm_gain_query:
+							lm_gain_query[node_i] = dict()
+						lm_gain_query[node_i][node_j] = gain
 				##############################
 
 				# Add to refined matches if score exceeds threshold
@@ -458,7 +448,7 @@ def perform_local_loc(
 		save_dir, final_graph, cur_graph, cur_graph_id, refined_edges,
 		suffix=f'{merger.args.vpr_match_model}_refine')
 
-	return refined_edges, lm_gain
+	return refined_edges, lm_gain_db, lm_gain_query
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
@@ -483,7 +473,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				cur_submap.map_id
 			)
 			# Identify strong covisibility relationship 
-			edges_nodeAB_refine_covis, lm_gain = perform_local_loc(
+			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query = perform_local_loc(
 				edges_nodeAB_coarse_covis, 
 				merger, 
 				final_map.covis,
@@ -521,23 +511,31 @@ def perform_submap_merging(merger: MergePipeline, args):
 			# But nodes in odom and trav graph are kepts
 			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
 			if args.select_keyframe:
-				acc_prob_dict = dict()
-				for nodeA, data in lm_gain.items():
-					for nodeB, gain in data.items():
-						if nodeB not in acc_prob_dict:
-							acc_prob_dict[nodeB] = 0.0
-						acc_prob_dict[nodeB] = max(
+				# Compute the maximum acceptance probability for each nodeB
+				nodes_query_to_remove = []
+				for nodeA, data in lm_gain_query.items():
+					acc_prob_dict = 0.0
+					for _, gain in data.items():
+						acc_prob_dict = max(
 							merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
-							acc_prob_dict[nodeB]
+							acc_prob_dict
 						)
-				nodesB_to_remove = [
-					node for node, prob in acc_prob_dict.items() if prob < merger.lm_selector.P_acc_th
-				]
+					if acc_prob_dict < merger.lm_selector.P_acc_th:
+						print(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob_dict:.3f}")
+						save_vis_kf_removal(
+							merger.log_dir, 
+							nodeA.id,
+							nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
+						)
+						nodes_query_to_remove.append(nodeA)
 
-				nodesA_to_remove = []
-				for nodeA, data in lm_gain.items():
+				nodes_db_to_remove = []
+				for nodeA, data in lm_gain_db.items():
 					min_prob, node_rep = 1.0, None
+					print(f"DB: {nodeA.rgb_img_name}")
 					for nodeB, gain in data.items():
+						if nodeB in nodes_query_to_remove:
+							continue
 						prob = merger.lm_selector.compute_keep_prob(
 							nodeA.iqa_data, 1.0-gain, gain, nodeB.time - nodeA.time
 						)
@@ -545,18 +543,25 @@ def perform_submap_merging(merger: MergePipeline, args):
 							min_prob, node_rep = prob, nodeB
 
 					if min_prob < merger.lm_selector.P_keep_th and node_rep:
-						nodesA_to_remove.append(nodeA)
-						print(f"Replace SubmapA {nodeA.id} with SubmapB {node_rep.id} with Prob:{min_prob:.3f}")
+						nodes_db_to_remove.append(nodeA)
+						print(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
+						save_vis_kf_replacement(
+							merger.log_dir, 
+							nodeA.id,
+							node_rep.id,
+							nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
+							node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
+						)
 				
 				# Remove nodes and invalid edges from the graph
 				print('Removing nodes from cur_submap covis')
-				cur_submap.covis.remove_node_list(nodesB_to_remove)
+				cur_submap.covis.remove_node_list(nodes_query_to_remove)
 				cur_submap.covis.remove_invalid_edges()
 				
 				print('Removing nodes from cur_submap odom')
-				final_map.covis.remove_node_list(nodesA_to_remove)			
+				final_map.covis.remove_node_list(nodes_db_to_remove)			
 				final_map.covis.remove_invalid_edges()
-				final_map.covis.rm_sensor_data(nodesA_to_remove)
+				final_map.covis.rm_sensor_data(nodes_db_to_remove)
 
 			##### Perform map update and merging
 			# Merge two submap into one with optimized poses
@@ -603,13 +608,13 @@ if __name__ == '__main__':
 
 	# Initialize the map merging pipeline
 	merger = MergePipeline(args, log_dir)
-	rospy.loginfo('Initialize Pose Estimator')
+	# rospy.loginfo('Initialize Pose Estimator')
 	merger.init_vpr_match_model()
 	merger.init_pose_estimator()
 	merger.read_map_from_file()
 
-	rospy.init_node('map_merge_pipeline_node', anonymous=True)
-	merger.initalize_ros()
+	# rospy.init_node('map_merge_pipeline_node', anonymous=True)
+	# merger.initalize_ros()
 	# loc_pipeline.frame_id_map = rospy.get_param('~frame_id_map', 'map')
 	# loc_pipeline.child_frame_id = rospy.get_param('~child_frame_id', 'camera')
 
