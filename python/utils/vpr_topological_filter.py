@@ -37,10 +37,10 @@ class PlaceRecognitionTopologicalFilter:
     # DEBUG(ggoojjh): the current implementation depends on the topological map, where nodes are not connected from the tail to head
     def get_back_prop_node(self, node) -> list:
         preds = {node.id}
-        for edge in node.edges:
+        for edge in node.edges.values():
             if node.id > edge[0].id:
                 preds.add(edge[0].id)
-            # for sub_edge in edge[0].edges:
+            # for sub_edge in edge[0].edges.values():
             #     if edge[0].id > sub_edge[0].id:
             #         preds.add(sub_edge[0].id)
         preds = list(set(preds))

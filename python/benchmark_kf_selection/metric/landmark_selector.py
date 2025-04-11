@@ -23,10 +23,10 @@ class LandmarkSelector:
         self.k_G = 0.1
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
-        self.lambda_T = 0.001      # Timestamp sensitivity (very slow decay) -> 100 days with 0.7 prob decay
+        self.lambda_T = 0.004      # Timestamp sensitivity (very slow decay) -> 3 months with 0.7 prob decay
 
-        self.P_acc_th = 0.25
-        self.P_keep_th = 0.25
+        self.P_acc_th = 0.5
+        self.P_keep_th = 0.3
 
     # The prbability of keeping the frame
     def quality_probability(self, Q):
@@ -129,7 +129,7 @@ class LandmarkSelector:
                 # Compute the keeping probability
                 min_keep = min(
                     (self.compute_keep_prob(db_node.iqa_score, edge[1]['G'], edge[1]['dt']), edge[1])
-                    for edge in db_node.edges
+                    for edge in db_node.edges.values()
                 )
                 P_keep, node_to_viz = min_keep
                 # Check whether remove the old node
@@ -138,7 +138,7 @@ class LandmarkSelector:
                     print(f"Replace {db_node.id} with {node_to_viz.id} with Prob:{P_keep:.3f}")
                     
                 # Compute the keeping probability
-                # for edge in db_node.edges:
+                # for edge in db_node.edges.values():
                 #     P_Q = self.quality_probability(db_node.iqa_score)
                 #     P_R = self.redundancy_probability(edge[1]['R'])
                 #     P_G = self.gain_probability(edge[1]['G'])
@@ -177,3 +177,6 @@ if __name__ == '__main__':
 
     PdQ = lm_selector.delta_quality_probability(12.0)
     print(f"Prob Quality: {PdQ:.3f}")    
+
+    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 12)
+    print(f"Prob Time: {PT:.3f}")

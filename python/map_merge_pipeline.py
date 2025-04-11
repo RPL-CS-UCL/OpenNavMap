@@ -115,7 +115,7 @@ class MergePipeline:
 			if node.id == 0:
 				pose_graph.add_prior_factor(node.id, curr_pose3, prior_sigma)
 			# Add odometry factor
-			for edge in node.edges:
+			for edge in node.edges.values():
 				next_node = edge[0]
 				# Avoid duplicate factors
 				if node.id < next_node.id:
@@ -129,9 +129,9 @@ class MergePipeline:
 		# Create a pose graph from graph_odom_b by adding internal edges of graph_odom_b
 		for _, node in graph_odom_b.nodes.items():
 			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
-			pose_graph.add_init_estimate(node.id + self.id_offset, curr_pose3)
+			pose_graph.add_init_estimate(node.id+self.id_offset, curr_pose3)
 			# Add odometry factor
-			for edge in node.edges:
+			for edge in node.edges.values():
 				next_node = edge[0]
 				# Avoid duplicate factors
 				if node.id < next_node.id:
@@ -154,7 +154,7 @@ class MergePipeline:
 				update_loop_sigma
 			)
 
-		return pose_graph					
+		return pose_graph
 
 	def merge_and_update_submaps(
 		self, 
@@ -185,7 +185,7 @@ def compute_lm_pairwise(
 	all_pts3d = estimator.scene.get_pts3d() # all pts3d in the world frame
 	H, W = depthmaps[0].shape
 	all_nodes = db_nodes + [query_node]
-	# msk_conf = estimator.scene.get_masks()
+	msk_conf = estimator.scene.get_masks()
 	assert len(all_pts3d) == len(all_nodes)
 
 	# each element ('db'/'query', node_i, node_j, gain) meaning that
@@ -204,21 +204,26 @@ def compute_lm_pairwise(
 			uv_hom = (proj / proj_depth[:, None])  # Add dimension for broadcasting
 			u, v = (uv_hom[:, :2] @ K[j][:2, :2].T + K[j][:2, 2]).round().long().unbind(-1)			
 
-			# Mask for overlapping points
+			# Generate the projected depth map
 			valid_mask = (proj_depth > 0) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+			u, v, proj_depth = u[valid_mask], v[valid_mask], proj_depth[valid_mask]
 			proj_depth_map = torch.zeros(H, W, device=device)
-			proj_depth_map[v[valid_mask], u[valid_mask]] = proj_depth[valid_mask]
-			u, v = u[valid_mask], v[valid_mask]
-			proj_depth = proj_depth[valid_mask]
-			msk = torch.abs(proj_depth - depthmaps[j][v, u].reshape(1, -1)) < 0.5 * depthmaps[j][v, u].reshape(1, -1)
+			proj_depth_map[v, u] = torch.maximum(proj_depth_map[v, u], proj_depth)
 
-			redu = np.sum(msk.detach().cpu().numpy()) / (len(pts3d_flat))
+			# Consider as seen if the projected depth is close to the original depth
+			u, v = torch.stack([u, v]).unique(dim=1)
+			depth_diff_msk = torch.abs(proj_depth_map[v, u] - depthmaps[j][v, u]) < 0.5 * depthmaps[j][v, u]
+			# Consider as seen if the region is with high confidence of the camera j
+			conf_msk = msk_conf[j][v, u]
+			msk = depth_diff_msk & conf_msk
+
+			num_valid_reg_j = torch.sum(msk_conf[j]).float()
+			redu = torch.sum(msk).float() / num_valid_reg_j if num_valid_reg_j > 0 else 0.0
 			if j == len(all_pts3d) - 1:
 				lm_gain_pw.append(('db', all_nodes[i], all_nodes[j], 1.0 - redu))
 			else:
 				lm_gain_pw.append(('query', all_nodes[i], all_nodes[j], 1.0 - redu))
 
-			# DEBUG(gogojjh):
 			if False:
 				import matplotlib.pyplot as plt
 				fig, axs = plt.subplots(1, 2, figsize=(16, 12))
@@ -356,7 +361,7 @@ def perform_local_loc(
 			continue
 		try:
 			# Prepare database references
-			db_node_pair = [db_node, db_node.edges[0][0]]
+			db_node_pair = [db_node, db_node.edges[next(iter(db_node.edges))][0]]
 			db_names = [n.rgb_img_name for n in db_node_pair]
 			db_poses = [torch.from_numpy(convert_vec_to_matrix(n.trans, n.quat, 'xyzw')) for n in db_node_pair]
 			db_intrs = [{
@@ -434,10 +439,10 @@ def perform_local_loc(
 
 					print(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					if conf > REFINE_CONF_THRESHOLD:
-						refined_edges.append((db_node, query_node, T_rel_est, conf))
+						refined_edges.append((db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node]))
 				else:
 					conf = MAX_LOSS - result["loss"]
-					refined_edges.append((db_node, query_node, T_rel_est, conf))
+					refined_edges.append((db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node]))
 				
 		except Exception as e:
 			print(f"{Fore.RED} Pose estimation failed: {str(e)}")
@@ -463,8 +468,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 	# Incrementally merge each submap to the final map, only care about the first two submaps
 	for cur_submap in merger.submaps:
 		# The offset of node.id in cur_submap 
-		merger.id_offset = final_map.get_max_node_id() + 1		
-		
+		merger.id_offset = final_map.get_max_node_id() + 1
+
 		if not final_map.is_empty:
 			# Identify coarse covisibility relationship 
 			edges_nodeAB_coarse_covis = perform_global_loc(
@@ -474,8 +479,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 				cur_submap.map_id
 			)
 			# Identify strong covisibility relationship 
+			# Each element of edges_nodeAB_refine_covis: [nodeA, nodeB, T_rel, conf, overlapping]
 			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query = perform_local_loc(
-				edges_nodeAB_coarse_covis, 
+				edges_nodeAB_coarse_covis,
 				merger, 
 				final_map.covis,
 				cur_submap.covis, 
@@ -511,32 +517,30 @@ def perform_submap_merging(merger: MergePipeline, args):
 			# Steps: check pruning probability -> remove old nodes for covis graph
 			# But nodes in odom and trav graph are kepts
 			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
+			nodes_query_to_remove, nodes_db_to_remove = [], []
 			if args.select_keyframe:
 				# Compute the acceptance probability:
 				# 	Accept the new keyframe with high information gain, even it has low image quality
-				nodes_query_to_remove = []
 				for nodeA, data in lm_gain_query.items():
-					acc_prob_dict = 0.0
+					acc_prob_dict = 1.0
 					for _, gain in data.items():
-						acc_prob_dict = max(
+						acc_prob_dict = min(
 							merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
 							acc_prob_dict
 						)
 					if acc_prob_dict < merger.lm_selector.P_acc_th:
-						print(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob_dict:.3f}")
-						save_vis_kf_removal(
-							merger.log_dir, 
-							nodeA.id,
-							nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
-						)
+						if args.viz:
+							print(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob_dict:.3f}")
+							save_vis_kf_removal(
+								merger.log_dir, nodeA.id,
+								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
+							)
 						nodes_query_to_remove.append(nodeA)
 
 				# Compute the keeping probability:
 				# 	Remove the old keyframe with the low information gain and low image quality
-				nodes_db_to_remove = []
 				for nodeA, data in lm_gain_db.items():
 					min_prob, node_rep = 1.0, None
-					print(f"DB: {nodeA.rgb_img_name}")
 					for nodeB, gain in data.items():
 						if nodeB in nodes_query_to_remove:
 							continue
@@ -548,38 +552,41 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 					if min_prob < merger.lm_selector.P_keep_th and node_rep:
 						nodes_db_to_remove.append(nodeA)
-						print(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
-						merger.lm_selector.print_each_prob(
-							nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
-						)
-						save_vis_kf_replacement(
-							merger.log_dir, 
-							nodeA.id,
-							node_rep.id,
-							nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
-							node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
-						)
-				
+						if args.viz:
+							print(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
+							merger.lm_selector.print_each_prob(
+								nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
+							)
+							save_vis_kf_replacement(
+								merger.log_dir, 
+								nodeA.id, node_rep.id,
+								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
+								node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
+							)
+
 				# Remove nodes and invalid edges from the graph
-				print('Removing nodes from cur_submap covis')
-				cur_submap.covis.remove_node_list(nodes_query_to_remove)
-				cur_submap.covis.remove_invalid_edges()
-				
-				print('Removing nodes from cur_submap odom')
-				final_map.covis.remove_node_list(nodes_db_to_remove)			
-				final_map.covis.remove_invalid_edges()
-				final_map.covis.rm_sensor_data(nodes_db_to_remove)
+				print('Removing nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_remove]))
+				print('Removing nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_remove]))
 
 			##### Perform map update and merging
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
+			# Enforce all node id in edges_nodeAB_refine_covis to be adjusted
+			nodes_to_remove = nodes_query_to_remove + nodes_db_to_remove
+			print('Removing nodes from final_map covis: ' + ' '.join([str(node.id) for node in nodes_to_remove]))
+			final_map.covis.remove_node_list(nodes_to_remove)
+			final_map.covis.remove_invalid_edges(nodes_to_remove)
+			final_map.covis.rm_sensor_data(nodes_to_remove)
+
+			# print('After Pruning Keyframe: ' + ' ,'.join([str(node.id) for node in final_map.covis.nodes.values()]))
+			# print('Add Edge info: ' + ' '.join([f"{edge[0].id} - {edge[1].id}" for edge in edges_nodeAB_refine_covis]))
 
 			# Update edges from the src_edges for different types of graphs
 			# Nodes are merged and reflected on the updated graph
 			# node_a = final_map.graphs[graph_type].get_node(edges_nodeAB[0])
 			# node_b = final_map.graphs[graph_type].get_node(edges_nodeAB[1])
-			weight_func1 = (lambda edge: edge[3])
-			weight_func2 = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans))
+			weight_func1 = (lambda edge: edge[4]) # overlapping
+			weight_func2 = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans)) 
 			for dst_graph_type, src_edges, weight_func in [
 				("covis", edges_nodeAB_refine_covis, weight_func1),
 				("odom", edges_nodeAB_refine_covis, weight_func2),
@@ -589,7 +596,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 
 			print(f"Final map info:\n{final_map}")
-
 			if args.viz:
 				save_dir = str(merger.log_dir/"preds")
 				pose_graph.plot_pose_graph(save_dir, pose_graph.get_factor_graph(), result_pgo)

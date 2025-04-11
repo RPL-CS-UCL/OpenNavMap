@@ -254,11 +254,7 @@ class PlaceRecognitionSeqMatching:
 			if db_map is not None and query_map is not None:
 				db_node = db_map.get_node(edge[0])
 				query_node = query_map.get_node(edge[1])
-				dis_tsl, _ = compute_pose_error(
-					(query_node.trans_gt, query_node.quat_gt), 
-					(db_node.trans_gt, db_node.quat_gt),
-					mode='vector'
-				)
+				dis_tsl, _ = query_node.compute_distance(db_node)
 				if dis_tsl < 20.0:
 					ax1.plot(edge[1], edge[0], 'go', markersize=5)
 				else:
@@ -277,11 +273,7 @@ class PlaceRecognitionSeqMatching:
 				if db_map is not None and query_map is not None:
 					db_node = db_map.get_node(edge[0])
 					query_node = query_map.get_node(edge[1])
-					dis_tsl, _ = compute_pose_error(
-						(query_node.trans_gt, query_node.quat_gt), 
-						(db_node.trans_gt, db_node.quat_gt),
-						mode='vector'
-					)
+					dis_tsl, _ = query_node.compute_distance(db_node)
 					if dis_tsl < 20.0:
 						ax2.plot(edge[1], edge[0], 'go', markersize=5)
 					else:
@@ -409,12 +401,12 @@ if __name__ == "__main__":
 	fig, ax = plt.subplots(figsize=(10, 10))
 	for node_id, node in db_map.nodes.items():
 		ax.plot(node.trans_gt[0], node.trans_gt[1], 'ko', markersize=5)
-		for edge in node.edges:
+		for edge in node.edges.values():
 			next_node = edge[0]
 			ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=1)
 	for node_id, node in query_map.nodes.items():            
 		ax.plot(node.trans_gt[0], node.trans_gt[1], 'bo', markersize=5)
-		for edge in node.edges:
+		for edge in node.edges.values():
 			next_node = edge[0]
 			ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=1)    
 	ax.grid(ls='--', color='0.7')

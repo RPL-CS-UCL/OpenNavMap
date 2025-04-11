@@ -52,7 +52,7 @@ class FeatureSelector:
             for db_node in graph.nodes.values():
                 if not db_node.edges: 
                     continue
-                max_keep = max((edge[1]['match_count'], edge[0]) for edge in db_node.edges)
+                max_keep = max((edge[1]['match_count'], edge[0]) for edge in db_node.edges.values())
                 match_count, node_to_viz = max_keep
                 if match_count > self.Mkpts_Threshold:
                     nodes_to_remove.append(db_node)

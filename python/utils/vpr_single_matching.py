@@ -66,11 +66,7 @@ if __name__ == "__main__":
 	succ = 0
 	for i, node in enumerate(query_map.nodes.values()):
 		ref_map_node = db_map.nodes[preds[i][0]]
-		dis_tsl, dis_angle = compute_pose_error(
-			(node.trans_gt, node.quat_gt), 
-			(ref_map_node.trans_gt, ref_map_node.quat_gt),
-			mode='vector'
-		)
+		dis_tsl, dis_angle = node.compute_distance(ref_map_node)
 		if dis_tsl < 10.0 and dis_angle < 90.0:
 			succ += 1
 			print(f"Correct prediction: Query {node.id} - DB: {preds[i][0]}")

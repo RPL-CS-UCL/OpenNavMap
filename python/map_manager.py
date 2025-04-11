@@ -19,7 +19,7 @@ class MapManager:
 
 	def __str__(self):
 		out_str = 'Visualize the current map:\n'
-		for graph_type, graph in self._graphs.items():
+		for graph_type, graph in self.graphs.items():
 			out_str += f"{graph_type}: {graph} {type(graph)}\n"
 		return out_str
 
@@ -27,7 +27,7 @@ class MapManager:
 		"""Load multiple graphs with type-checked configurations"""
 		assert len(graph_configs) > 0
 
-		self._graphs.clear()
+		self.graphs.clear()
 		for graph_type, config in graph_configs.items():
 			if graph_type == 'odom':
 				self._load_point_graph(graph_type, config)
@@ -41,31 +41,31 @@ class MapManager:
 		# The number of nodes in each graph are not necessarily the same since node removal happens
 		# But the maximum node ID should be the same across all graphs since they have been imported 
 		# 	the same number of nodes
-		max_node_id = [graph.get_max_node_id() for graph in self._graphs.values()]
+		max_node_id = [graph.get_max_node_id() for graph in self.graphs.values()]
 		assert all(n == max_node_id[0] for n in max_node_id), \
 			f"Maximum number of nodes in {graph_type} does not match {max_node_id[0]}"
 
-		print(f"Loaded graphs: {list(self._graphs.keys())}")
+		print(f"Loaded graphs: {list(self.graphs.keys())}")
 
 	def init_graphs(self, graph_configs):
 		"""Initialize multiple graphs"""
 		for graph_type, config in graph_configs.items():
 			if graph_type == 'odom' or graph_type == 'trav':
-				self._graphs[graph_type] = PointGraph(self.map_root, graph_type)
+				self.graphs[graph_type] = PointGraph(self.map_root, graph_type)
 			elif graph_type == 'covis':
-				self._graphs[graph_type] = ImageGraph(self.map_root, graph_type)
+				self.graphs[graph_type] = ImageGraph(self.map_root, graph_type)
 			else:
 				raise ValueError(f"Unknown graph type: {graph_type}")
 
-		print(f"Initialize graphs: {list(self._graphs.keys())}")
+		print(f"Initialize graphs: {list(self.graphs.keys())}")
 
 	def get_max_node_id(self) -> int:
 		"""Get maximum node ID across all graphs"""
-		return max([graph.get_max_node_id() for graph in self._graphs.values()])
+		return max([graph.get_max_node_id() for graph in self.graphs.values()])
 
 	def update_node_poses(self, estimate_pose):
 		"""Update node poses across all graphs using pose estimates"""
-		for graph in self._graphs.values():
+		for graph in self.graphs.values():
 			for node in graph.nodes.values():
 				pose_matrix = estimate_pose.atPose3(node.id).matrix()
 				trans, quat = convert_matrix_to_vec(pose_matrix)
@@ -73,18 +73,20 @@ class MapManager:
 
 	def adjust_all_ids(self, offset: int):
 		"""Adjust node IDs across all graphs"""
-		for graph_type in self._graphs:
-			self._adjust_graph_ids(graph_type, offset)
+		# Need adjustment
+		if offset > 0:
+			for graph in self.graphs.values():
+				self._adjust_graph_ids(graph, offset)
 
 	def merge_graphs_from(self, other_map: 'MapManager'):
 		"""Merge nodes from another map's graphs"""
 		for graph_type, other_graph in other_map._graphs.items():
-			if graph_type in self._graphs:
+			if graph_type in self.graphs:
 				for node in other_graph.nodes.values():
-					self._graphs[graph_type].add_node(node)
+					self.graphs[graph_type].add_node(node)
 
 	def add_inter_edges(self, edges, weight_func):
-		for graph in self._graphs.values():
+		for graph in self.graphs.values():
 			graph.add_inter_edges(edges, weight_func)
 
 	def save_to_file(self):
@@ -98,14 +100,14 @@ class MapManager:
 
 	def _load_point_graph(self, graph_type: str, config):
 		"""Helper method for loading point-based graphs"""
-		self._graphs[graph_type] = PointGraphLoader.load_data(
+		self.graphs[graph_type] = PointGraphLoader.load_data(
 			map_root=self.map_root,
 			edge_type=graph_type
 		)
 
 	def _load_image_graph(self, graph_type: str, config):
 		"""Helper method for loading image-based graphs"""
-		self._graphs[graph_type] = ImageGraphLoader.load_data(
+		self.graphs[graph_type] = ImageGraphLoader.load_data(
 			map_root=self.map_root,
 			resize=config['resize'],
 			depth_scale=config['depth_scale'],
@@ -115,12 +117,19 @@ class MapManager:
 			edge_type=graph_type
 		)
 
-	def _adjust_graph_ids(self, graph_type: str, offset: int):
-		"""Adjust node IDs for a specific graph"""
-		graph = self._graphs.get(graph_type)
-		if graph:
-			for node in graph.nodes.values():
-				node.id += offset
+	def _adjust_graph_ids(self, graph: 'ImageGraph | PointGraph', offset: int):
+		"""Adjust node IDs for a specific graph, including adjusting the key of nodes and edges"""
+		new_nodes = {}
+		for node in graph.nodes.values():
+			new_nodes[node.id + offset] = node
+			new_nodes[node.id + offset].id += offset
+		graph.set_node(new_nodes)
+
+		for node in graph.nodes.values():
+			new_edges = {}
+			for edge in node.edges.values():
+				new_edges[edge[0].id] = edge				
+			node.set_edge(new_edges)
 
 	def update_edges(self, src_edges, dst_graph_type):
 		"""Convert edges between graph types using list comprehension"""
