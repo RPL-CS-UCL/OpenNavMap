@@ -38,13 +38,6 @@ class MapManager:
 			else:
 				raise ValueError(f"Unknown graph type: {graph_type}")
 
-		# The number of nodes in each graph are not necessarily the same since node removal happens
-		# But the maximum node ID should be the same across all graphs since they have been imported 
-		# 	the same number of nodes
-		max_node_id = [graph.get_max_node_id() for graph in self.graphs.values()]
-		assert all(n == max_node_id[0] for n in max_node_id), \
-			f"Maximum number of nodes in {graph_type} does not match {max_node_id[0]}"
-
 		print(f"Loaded graphs: {list(self.graphs.keys())}")
 
 	def init_graphs(self, graph_configs):
@@ -134,9 +127,9 @@ class MapManager:
 	def update_edges(self, src_edges, dst_graph_type):
 		"""Convert edges between graph types using list comprehension"""
 		dst_graph = self.graphs[dst_graph_type]
-		for n0, n1, attr, weight in src_edges:
-			if dst_graph.contain_node(n0) and dst_graph.contain_node(n1):
-				yield (dst_graph.get_node(n0.id), dst_graph.get_node(n1.id), attr, weight)
+		for edge in src_edges:
+			if dst_graph.contain_node(edge[0]) and dst_graph.contain_node(edge[1]):
+				yield (dst_graph.get_node(edge[0].id), dst_graph.get_node(edge[1].id), edge[2], edge[3], edge[4])
 	@property
 	def graphs(self):
 		return self._graphs

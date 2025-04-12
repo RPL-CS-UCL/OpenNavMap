@@ -13,7 +13,7 @@ import math
 class LandmarkSelector:
     def __init__(self):
         # Parameters for probability calculation
-        self.Q_th = 30.0       # Midpoint for quality sigmoid
+        self.Q_th = 19.0     # Midpoint for quality sigmoid (the command threshold for low-light and motion blur)
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
         self.R_th = 30.0      # Information redundancy threshold
