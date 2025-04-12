@@ -360,96 +360,94 @@ def perform_local_loc(
 		# Check whether the node has more than one edge
 		if not db_node.edges: 
 			continue
-		# try:
-		# Prepare database references
-		db_node_pair = [db_node, db_node.edges[next(iter(db_node.edges))][0]]
-		db_names = [n.rgb_img_name for n in db_node_pair]
-		db_poses = [torch.from_numpy(convert_vec_to_matrix(n.trans, n.quat, 'xyzw')) for n in db_node_pair]
-		db_intrs = [{
-			'K': torch.from_numpy(n.raw_K),
-			'im_size': torch.from_numpy(n.raw_img_size)
-		} for n in db_node_pair]
+		try:
+			# Prepare database references
+			db_node_pair = [db_node, db_node.edges[next(iter(db_node.edges))][0]]
+			db_names = [n.rgb_img_name for n in db_node_pair]
+			db_poses = [torch.from_numpy(convert_vec_to_matrix(n.trans, n.quat, 'xyzw')) for n in db_node_pair]
+			db_intrs = [{
+				'K': torch.from_numpy(n.raw_K),
+				'im_size': torch.from_numpy(n.raw_img_size)
+			} for n in db_node_pair]
 
-		# Prepare query data
-		query_name = query_node.rgb_img_name
-		query_intr = {
-			'K': torch.from_numpy(query_node.raw_K),
-			'im_size': torch.from_numpy(query_node.raw_img_size)
-		}
+			# Prepare query data
+			query_name = query_node.rgb_img_name
+			query_intr = {
+				'K': torch.from_numpy(query_node.raw_K),
+				'im_size': torch.from_numpy(query_node.raw_img_size)
+			}
 
-		# Perform pose estimation with timing
-		with Timer(name="Pose Estimation", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
-			result = merger.pose_estimator(
-				final_graph.map_root,
-				[node.rgb_image for node in db_node_pair],
-				query_node.rgb_image,
-				db_poses, db_intrs, 
-				query_intr, 
-				merger.est_opts
-			)				
-			im_pose = result["im_pose"] # camera pose in the world frame
-			if im_pose is None: 
-				raise ValueError(f"{merger.pose_estimator} - Estimated pose is None.")
-			elif np.isnan(im_pose).any():
-				raise ValueError("Estimated pose is NaN or infinite.")
+			# Perform pose estimation with timing
+			with Timer(name="Pose Estimation", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
+				result = merger.pose_estimator(
+					final_graph.map_root,
+					[node.rgb_image for node in db_node_pair],
+					query_node.rgb_image,
+					db_poses, db_intrs, 
+					query_intr, 
+					merger.est_opts
+				)				
+				im_pose = result["im_pose"] # camera pose in the world frame
+				if im_pose is None: 
+					raise ValueError(f"{merger.pose_estimator} - Estimated pose is None.")
+				elif np.isnan(im_pose).any():
+					raise ValueError("Estimated pose is NaN or infinite.")
+				
+				T_db_est = convert_vec_to_matrix(db_node.trans, db_node.quat, 'xyzw')
+				T_rel_est = np.linalg.inv(T_db_est) @ im_pose
+
+				##############################
+				if merger.args.viz:
+					T_nodeA_gt = convert_vec_to_matrix(db_node.trans_gt, db_node.quat_gt, 'xyzw')
+					T_query_gt = convert_vec_to_matrix(query_node.trans_gt, query_node.quat_gt, 'xyzw')
+					T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
+					print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
+					print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
+					dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
+					print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
+				##############################
+
+				# Add to refined matches if score exceeds threshold
+				top_k_matches = len(db_names) # default: 2
+				# Applicable to master and duster
+				if hasattr(merger.pose_estimator, 'get_minimum_spanning_tree'):
+					msp_edges = merger.pose_estimator.get_minimum_spanning_tree()
+					weight_i, weight_j = merger.pose_estimator.scene.weight_i, merger.pose_estimator.scene.weight_j
+					for edge in msp_edges:
+						if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
+							edge_str = f"{edge[0]}_{edge[1]}"
+							conf = (weight_i[edge_str].mean() * weight_j[edge_str].mean()).detach().cpu().item()
+
+					print(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
+					##### Only high-confidence pairs are considered for correct db-query pairs
+					if conf > RELIABLE_CONF_THRESHOLD:
+						##### Store immedinate results for subsequent keyframe selection
+						lm_gain_pw = compute_lm_pairwise(
+							db_node_pair,
+							query_node, 
+							merger.pose_estimator, 
+							merger.args.device
+						)
+						for idr, node_i, node_j, gain in lm_gain_pw:
+							if idr == 'db':
+								if node_i not in lm_gain_db:
+									lm_gain_db[node_i] = dict() 
+								lm_gain_db[node_i][node_j] = gain
+							elif idr == 'query':
+								if node_i not in lm_gain_query:
+									lm_gain_query[node_i] = dict()
+								lm_gain_query[node_i][node_j] = gain
+
+						if conf > REFINE_CONF_THRESHOLD:
+							refined_edges.append((db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node]))
+				# Applicable to other estimators
+				else:
+					conf = MAX_LOSS - result["loss"]
+					refined_edges.append((db_node, query_node, T_rel_est, conf, conf / MAX_LOSS))
 			
-			T_db_est = convert_vec_to_matrix(db_node.trans, db_node.quat, 'xyzw')
-			T_rel_est = np.linalg.inv(T_db_est) @ im_pose
-
-			##############################
-			if merger.args.viz:
-				T_nodeA_gt = convert_vec_to_matrix(db_node.trans_gt, db_node.quat_gt, 'xyzw')
-				T_query_gt = convert_vec_to_matrix(query_node.trans_gt, query_node.quat_gt, 'xyzw')
-				T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
-				print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
-				print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
-				dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
-				print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
-			##############################
-
-			# Add to refined matches if score exceeds threshold
-			top_k_matches = len(db_names) # default: 2
-			# Applicable to master and duster
-			if hasattr(merger.pose_estimator, 'get_minimum_spanning_tree'):
-				msp_edges = merger.pose_estimator.get_minimum_spanning_tree()
-				weight_i, weight_j = merger.pose_estimator.scene.weight_i, merger.pose_estimator.scene.weight_j
-				for edge in msp_edges:
-					if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
-						edge_str = f"{edge[0]}_{edge[1]}"
-						conf = \
-							weight_i[edge_str].detach().cpu().numpy().mean() * \
-							weight_j[edge_str].detach().cpu().numpy().mean()
-
-				print(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
-				##### Only high-confidence pairs are considered for correct db-query pairs
-				if conf > REFINE_CONF_THRESHOLD / 3:
-					##### Store immedinate results for subsequent keyframe selection
-					lm_gain_pw = compute_lm_pairwise(
-						db_node_pair,
-						query_node, 
-						merger.pose_estimator, 
-						merger.args.device
-					)
-					for idr, node_i, node_j, gain in lm_gain_pw:
-						if idr == 'db':
-							if node_i not in lm_gain_db:
-								lm_gain_db[node_i] = dict() 
-							lm_gain_db[node_i][node_j] = gain
-						elif idr == 'query':
-							if node_i not in lm_gain_query:
-								lm_gain_query[node_i] = dict()
-							lm_gain_query[node_i][node_j] = gain
-
-					if conf > REFINE_CONF_THRESHOLD:
-						refined_edges.append((db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node]))
-			# Applicable to other estimators
-			else:
-				conf = MAX_LOSS - result["loss"]
-				refined_edges.append((db_node, query_node, T_rel_est, conf, conf / MAX_LOSS))
-			
-		# except Exception as e:
-		# 	print(f"{Fore.RED} Pose estimation failed: {str(e)}")
-		# 	continue
+		except Exception as e:
+			print(f"{Fore.RED} Pose estimation failed: {str(e)}")
+			continue
 
 	##### Save visualization and debug data
 	save_dir = str(merger.log_dir/"preds")
