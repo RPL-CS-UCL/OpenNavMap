@@ -88,6 +88,11 @@ class MapManager:
 			self.covis.save_to_file(edge_only=False)
 		if 'odom' in self.graphs:
 			self.odom.save_to_file(edge_only=False)
+			# Split the graph into several disconnected subgraph (odom only)
+			subgraphs = self.odom.get_disconnected_subgraphs()
+			for id, subgraph in enumerate(subgraphs):
+				print(f'Saving disconnected subgraph {id} with {subgraph.get_num_node()} nodes')
+				subgraph.save_to_file(edge_only=False)
 		if 'trav' in self.graphs:
 			self.trav.save_to_file(edge_only=True)
 
