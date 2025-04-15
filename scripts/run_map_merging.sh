@@ -12,7 +12,7 @@ set -euo pipefail  # Fail on errors and undefined variables
 # --------------------------
 # Set your desired processing range (0-based indices)
 readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=51
+readonly END_SUBMAP_ID=5
 
 readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria"
@@ -23,18 +23,15 @@ readonly VPR_SEQ_LEN=10
 readonly POSE_ESTIMATION_METHOD="master_calib_pretrain"
 readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
 readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
-readonly METHODS=(
-#   "kf_forward_spgo_seqmatch"
-  "kf_spgo_seqmatch"
-#   "nokf_spgo_seqmatch"
 
-#   "kf_spgo_singlematch"
-#   "nokf_spgo_singlematch"
-)
-readonly DATA_TYPES=(
-    "in" 
-    # "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8"  
-)
+# readonly METHOD="kf_forward_spgo_seqmatch"
+# readonly METHOD="kf_spgo_seqmatch"
+# readonly METHOD="nokf_spgo_seqmatch"
+# readonly METHOD="kf_spgo_singlematch"
+# readonly METHOD="nokf_spgo_singlematch"
+readonly METHOD="$2" # default: kf_spgo_seqmatch
+
+readonly DATA_TYPES=("in" "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8")
 
 # --------------------------
 # Initialization and Validation
@@ -65,8 +62,8 @@ load_scene_order() {
     echo "Loaded order [$order_index] with ${#SCENES[@]} scenes"
 
     DATA_TYPE="${DATA_TYPES[order_index]}"
-    RESULT_NAME="${SCENE}_results_${DATA_TYPE}_${METHODS[0]}"
-    TRAJ_NAME="${METHODS[0]}"
+    RESULT_NAME="${SCENE}_results_${DATA_TYPE}_${METHOD}"
+    TRAJ_NAME="${METHOD}"
     echo "Save results to $RESULT_NAME"
 }
 
@@ -98,14 +95,14 @@ merge_submaps() {
         
         echo "Merging: ${base_name} + ${scene} => ${new_merged_name}"
         
-        # python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
-        #     --input_submap_path "${input_dir}/${base_name}" "${submap_dir}/${scene}" \
-        #     --output_map_path "${input_dir}/${new_merged_name}" \
-        #     --image_size $IMAGE_SIZE \
-        #     --vpr_match_model "$VPR_MATCH_MODEL" \
-        #     --vpr_match_seq_len "$VPR_SEQ_LEN" \
-        #     --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-        #     --viz --warning --prune_keyframe_forward --prune_keyframe_backward 
+        python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
+            --input_submap_path "${input_dir}/${base_name}" "${submap_dir}/${scene}" \
+            --output_map_path "${input_dir}/${new_merged_name}" \
+            --image_size $IMAGE_SIZE \
+            --vpr_match_model "$VPR_MATCH_MODEL" \
+            --vpr_match_seq_len "$VPR_SEQ_LEN" \
+            --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
+            --viz --warning --prune_keyframe_forward --prune_keyframe_backward 
 
         base_name="${new_merged_name}"
     done
