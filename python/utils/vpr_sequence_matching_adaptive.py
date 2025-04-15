@@ -13,7 +13,7 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 
 		# Base sequence parameters
 		self.max_seq_len = seqLen  # Maximum sequence length to try
-		self.min_seq_len = 3       # Minimum sequence length (adjust based on dataset)
+		self.min_seq_len = 4       # Minimum sequence length (adjust based on dataset)
 		self.len_step = 2          # Step size for length reduction
 		self.lambda_len = 0.1      # Weight for length vs cost tradeoff
 

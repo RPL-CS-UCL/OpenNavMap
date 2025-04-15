@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ###### Usage: Default order (0)
-# ./run_map_merging.sh
+# ./run_map_merging.sh 0 kf_spgo_seqmatch
 ###### Usage: Specific order (e.g., 1)
-# ./run_map_merging.sh 1
+# ./run_map_merging.sh 1 kf_spgo_seqmatch
 
 set -euo pipefail  # Fail on errors and undefined variables
 
@@ -12,7 +12,7 @@ set -euo pipefail  # Fail on errors and undefined variables
 # --------------------------
 # Set your desired processing range (0-based indices)
 readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=5
+readonly END_SUBMAP_ID=54
 
 readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria"
@@ -141,15 +141,3 @@ main() {
 }
 
 main "$@"
-
-##################### Not used
-# python $PROJECT_PATH/python/pose3slam_g2o.py \
-#   --input "$PathSubmap/$Out_Map/preds/refine_pose_graph.g2o" \
-#   --viz
-
-# python /Titan/code/robohike_ws/src/pycpptools/pycpptools/src/python/utils_file/tools_convert_pose_format.py \
-#   --input_pose_file "$PathSubmap/$Out_Map/preds/refine_pose_graph.g2o" \
-#   --input_time_file "$PathSubmap/$Out_Map/timestamps.txt" \
-#   --output_pose_file "$PathSubmap/$Out_Map/poses.txt" \
-#   --input_pose_type g2o \
-#   --output_pose_type mapfree
