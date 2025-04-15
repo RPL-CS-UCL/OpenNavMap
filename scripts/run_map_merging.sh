@@ -10,28 +10,31 @@ set -euo pipefail  # Fail on errors and undefined variables
 # --------------------------
 # Configuration Section
 # --------------------------
+# Set your desired processing range (0-based indices)
+readonly START_SUBMAP_ID=0
+readonly END_SUBMAP_ID=51
+
 readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria"
+readonly SCENE="s00000"
 readonly IMAGE_SIZE="512 288"
-readonly VPR_MATCH_MODEL="single_match"
+readonly VPR_MATCH_MODEL="sequence_match_adaptive"
+readonly VPR_SEQ_LEN=10
 readonly POSE_ESTIMATION_METHOD="master_calib_pretrain"
-readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/s00000_orders.txt"
-readonly RESULT_NAMES=(
-  "results_in_kf_spgo"
-  "results_r0_kf_spgo"
-  "results_r1_kf_spgo"
-  "results_r2_kf_spgo"
-  "results_r3_kf_spgo"
-  "results_r4_kf_spgo"
-  "results_r5_kf_spgo"
-  "results_r6_kf_spgo"
-  "results_r7_kf_spgo"
-  "results_r8_kf_spgo"
-)
+readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
+readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
+readonly METHODS=(
+#   "kf_forward_spgo_seqmatch"
+  "kf_spgo_seqmatch"
+#   "nokf_spgo_seqmatch"
 
-# Set your desired processing range (0-based indices)
-readonly START_SUBMAP_ID=16
-readonly END_SUBMAP_ID=17
+#   "kf_spgo_singlematch"
+#   "nokf_spgo_singlematch"
+)
+readonly DATA_TYPES=(
+    "in" 
+    # "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8"  
+)
 
 # --------------------------
 # Initialization and Validation
@@ -61,13 +64,15 @@ load_scene_order() {
     mapfile -t SCENES < <(sed -n "$((order_index + 1))p" "$SCENE_ORDER_FILE" | tr ' ' '\n')
     echo "Loaded order [$order_index] with ${#SCENES[@]} scenes"
 
-    RESULT_NAME="${RESULT_NAMES[order_index]}"
+    DATA_TYPE="${DATA_TYPES[order_index]}"
+    RESULT_NAME="${SCENE}_results_${DATA_TYPE}_${METHODS[0]}"
+    TRAJ_NAME="${METHODS[0]}"
     echo "Save results to $RESULT_NAME"
 }
 
 merge_submaps() {
     local input_dir="${PATH_SUBMAP}/${RESULT_NAME}"
-    local submap_dir="${PATH_SUBMAP}/s00000"
+    local submap_dir="${PATH_SUBMAP}/${SCENE}_data"
     mkdir -p $input_dir
 
     # Validate processing range
@@ -93,13 +98,14 @@ merge_submaps() {
         
         echo "Merging: ${base_name} + ${scene} => ${new_merged_name}"
         
-        python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
-            --input_submap_path "${input_dir}/${base_name}" "${submap_dir}/${scene}" \
-            --output_map_path "${input_dir}/${new_merged_name}" \
-            --image_size $IMAGE_SIZE \
-            --vpr_match_model "$VPR_MATCH_MODEL" \
-            --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-            --viz --select_keyframe
+        # python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
+        #     --input_submap_path "${input_dir}/${base_name}" "${submap_dir}/${scene}" \
+        #     --output_map_path "${input_dir}/${new_merged_name}" \
+        #     --image_size $IMAGE_SIZE \
+        #     --vpr_match_model "$VPR_MATCH_MODEL" \
+        #     --vpr_match_seq_len "$VPR_SEQ_LEN" \
+        #     --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
+        #     --viz --warning --prune_keyframe_forward --prune_keyframe_backward 
 
         base_name="${new_merged_name}"
     done
@@ -107,6 +113,23 @@ merge_submaps() {
       rm "${input_dir}/merge_finalmap"
     fi
     ln -s "${input_dir}/${base_name}" "${input_dir}/merge_finalmap"
+
+    # GT and EST poses
+    rosrun litevloc utils_convert_pose_format.py \
+        --input_type mapfree --output_type tum \
+        --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses_abs_gt.txt" \
+        --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
+        --output_pose "${TRAJ_EVAL_PATH}/groundtruth/traj/ucl_campus_aria_${SCENE}_${DATA_TYPE}.txt"
+
+    rosrun litevloc utils_convert_pose_format.py \
+        --input_type mapfree --output_type tum \
+        --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses.txt" \
+        --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
+        --output_pose "${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/ucl_campus_aria_${SCENE}_${DATA_TYPE}.txt"
+    
+    echo "Converted pose format to TUM format."
+    echo "From: ${input_dir}/merge_finalmap/poses.txt"
+    echo "To  : ${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/ucl_campus_aria_${SCENE}_${DATA_TYPE}.txt"
 }
 
 # --------------------------

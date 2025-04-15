@@ -22,10 +22,16 @@ METHODS=(
          "cosplace_sequence_match_4_master"
          "cosplace_sequence_match_5_none"
          "cosplace_sequence_match_5_master"
+         "cosplace_sequence_match_10_none"
+         "cosplace_sequence_match_10_master"
          "cosplace_sequence_match_12_none"
          "cosplace_sequence_match_12_master"
          "cosplace_sequence_match_20_none"
          "cosplace_sequence_match_20_master"
+         "cosplace_sequence_match_adaptive_10_none"
+         "cosplace_sequence_match_adaptive_10_master"         
+         "cosplace_sequence_match_adaptive_20_none"
+         "cosplace_sequence_match_adaptive_20_master"
          "cosplace_sequence_match_ransac_2_none"
          "cosplace_sequence_match_ransac_2_master"
          "cosplace_sequence_match_ransac_3_none"
@@ -39,10 +45,6 @@ METHODS=(
          "cosplace_sequence_match_ransac_20_none"
          "cosplace_sequence_match_ransac_20_master"
         )
-
-# METHODS=(
-#          "cosplace_sequence_match_12_master"
-#         )
 
 # Evaluation and generate report_evaluation.txt
 for method in "${METHODS[@]}"

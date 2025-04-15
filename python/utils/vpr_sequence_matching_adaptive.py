@@ -4,38 +4,18 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
 
-import argparse
 import numpy as np
-import random
-from matplotlib import pyplot as plt
+from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
 
-import numpy as np
-
-class PlaceRecognitionSeqMatchingAdaptive:
+class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 	def __init__(self, seqLen, enable_ransac=False):
+		super().__init__(seqLen, enable_ransac)
+
 		# Base sequence parameters
-		self.seqLen = seqLen
 		self.max_seq_len = seqLen  # Maximum sequence length to try
 		self.min_seq_len = 3       # Minimum sequence length (adjust based on dataset)
 		self.len_step = 2          # Step size for length reduction
 		self.lambda_len = 0.1      # Weight for length vs cost tradeoff
-		self.matchWindow = 10
-
-		# Velocity parameters (expanded range)
-		self.vMin = 0.4                
-		self.vMax = 2.5
-		self.numVel = 20
-		
-		# Original parameters remain
-		self.wContrast = 10
-		self.enhance = False
-
-		self.MAX_DIST = 2.0
-		self.ENABLE_RANSAC = enable_ransac
-
-	def initialize_model(self, db_descriptors, recall_values=5):
-		self.db_descriptors = db_descriptors
-		self.recall_values = recall_values
 
 	def match(self, query_descriptors, backward=False):
 		"""Main entry point for sequence matching"""
@@ -66,34 +46,6 @@ class PlaceRecognitionSeqMatchingAdaptive:
 				best_result = (current_preds, current_pred, self.MAX_DIST - current_mu, seq_len)
 
 		return best_result[:3] if best_result[:3] else self._fallback_match(query_descriptors)
-
-	def compute_diff_matrix(self, query_descriptors) -> np.ndarray:
-		"""
-			Return:
-				D: np.ndarray, num_of_database x sequence_length
-				query_descriptors: np.ndarray, sequence_length x descriptor_dim
-		"""
-		##### Option 1: cosine similarity
-		# D = np.sqrt(2 - 2 * np.dot(self.db_descriptors, query_descriptors.transpose()))
-		##### Option 2: euclidean distance
-		D = np.linalg.norm(query_descriptors[None, :, :] - self.db_descriptors[:, None, :], axis=2)
-		return D
-
-	def _fallback_match(self, query_descriptors):
-		"""Handle short query sequences"""
-		query_desc = query_descriptors[-1, :]
-		dists = self._compute_dist_desc(query_desc)
-		recall_preds = np.argsort(dists)[:self.recall_values]
-		pred = recall_preds[0]
-		score = self.MAX_DIST - dists[pred]
-		return recall_preds, pred, score
-	
-	def _compute_dist_desc(self, descriptor) -> np.ndarray:
-		##### Option 1: cosine similarity
-		# dists = np.sqrt(2 - 2 * np.dot(self.db_descriptors, descriptor.reshape(-1)))
-		##### Option 2: euclidean distance
-		dists = np.linalg.norm(self.db_descriptors - descriptor, axis=1)
-		return dists
 
 	def _score_ref_templates(self, D, seq_len):
 		# v = vMin, vMin+vStep, ..., vMax
@@ -159,76 +111,3 @@ class PlaceRecognitionSeqMatchingAdaptive:
 
 		return recall_preds, pred, mu
 
-	def _calculate_confidence(self, template_scores, iOpt):
-		"""Calculate matching confidence score"""
-		iWinL = max(iOpt - self.matchWindow//2, 0)
-		iWinU = min(iOpt + self.matchWindow//2, len(template_scores))
-		outside_scores = np.concatenate((template_scores[:iWinL], template_scores[iWinU:]))
-		return template_scores[iOpt] / np.min(outside_scores) if np.min(outside_scores) > 0 else 0.0
-
-	def save_diff_matrix_fitting(self, out_dir, connected_indices, best_indices, 
-								 D_all, db_map, query_map, 
-								 lines_coeff=None, 
-								 cluster_data=None, 
-								 cluster_labels=None):
-		fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13, 4))
-
-		im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-		for edge in connected_indices:
-			if db_map is not None and query_map is not None:
-				db_node = db_map.get_node(edge[0])
-				query_node = query_map.get_node(edge[1])
-				dis_tsl, _ = query_node.compute_distance(db_node)
-				if dis_tsl < 20.0:
-					ax1.plot(edge[1], edge[0], 'go', markersize=5)
-				else:
-					ax1.plot(edge[1], edge[0], 'ro', markersize=5)
-			else:
-				ax1.plot(edge[1], edge[0], 'ro', markersize=5)
-
-		fig.colorbar(im1, ax=ax1)
-		ax1.set_xlabel('Query Desc Index')
-		ax1.set_ylabel('Database Desc Index')
-		ax1.set_title("Diff Matrix [Before RANSAC]")
-
-		if lines_coeff is not None:
-			im2 = ax2.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-			for edge in best_indices:
-				if db_map is not None and query_map is not None:
-					db_node = db_map.get_node(edge[0])
-					query_node = query_map.get_node(edge[1])
-					dis_tsl, _ = query_node.compute_distance(db_node)
-					if dis_tsl < 20.0:
-						ax2.plot(edge[1], edge[0], 'go', markersize=5)
-					else:
-						ax2.plot(edge[1], edge[0], 'ro', markersize=5)
-				else:
-					ax2.plot(edge[1], edge[0], 'ro', markersize=5)
-
-			for line_coeff in lines_coeff:
-				m, b = line_coeff
-				x_vals = np.linspace(0, D_all.shape[1], 100)
-				y_vals = m * x_vals + b
-				ax2.plot(x_vals, y_vals, 'r-', linewidth=1)
-
-			fig.colorbar(im2, ax=ax2)
-			ax2.set_xlabel('Query Desc Index')
-			ax2.set_ylabel('Database Desc Index')
-			ax2.set_title(f"Diff Matrix [After RANSAC]")
-			ax2.set_xlim(0, D_all.shape[1])
-			ax2.set_ylim(0, D_all.shape[0])
-			ax2.invert_yaxis()
-
-		if cluster_data is not None:
-			im3 = ax3.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-			scatter = ax3.scatter(cluster_data[:, 0], cluster_data[:, 1], c=cluster_labels, cmap='rainbow', s=20)
-			fig.colorbar(scatter, ax=ax3)
-			ax3.set_xlabel('Query Desc Index')
-			ax3.set_ylabel('Database Desc Index')
-			ax3.set_title(f"Cluster")
-			ax3.set_xlim(0, D_all.shape[1])
-			ax3.set_ylim(0, D_all.shape[0])
-			ax3.invert_yaxis()
-
-		plt.savefig(f"{out_dir}/difference_matrix_fitting_{self.seqLen}.jpg", dpi=300, bbox_inches='tight')
-		plt.close() 

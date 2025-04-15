@@ -266,13 +266,11 @@ def perform_global_loc(
 	save_dir = str(merger.log_dir/"preds")
 
 	# Load descriptors from database and query nodes
-	num_db_nodes = final_graph.get_num_node()
 	db_descriptors = np.array(
 		[node.get_descriptor() for node in final_graph.nodes.values()], dtype=np.float32
 	)
 	db_node_ids = [node.id for node in final_graph.nodes.values()]
 
-	num_query_nodes = cur_graph.get_num_node()
 	query_descriptors = np.array(
 		[node.get_descriptor() for node in cur_graph.nodes.values()], dtype=np.float32
 	)
@@ -282,7 +280,7 @@ def perform_global_loc(
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 		# VPR matching for all query nodes
 		connected_row_indices = []
-		for row in range(num_query_nodes):
+		for row in range(query_descriptors.shape[0]):
 			start_row = max(0, row - merger.vpr_match_model.seqLen + 1)
 			query_descs = query_descriptors[start_row : row + 1]
 			_, pred, score = merger.vpr_match_model.match(query_descs)
@@ -335,8 +333,16 @@ def perform_global_loc(
 	
 	##### Visualize Pose Graph after Geomtric Verification
 	if D_all is not None:
+		best_indices = [
+			(db_node_ids[db_row_id], query_node_ids[query_row_id], score) \
+				for db_row_id, query_row_id, score in best_row_indices
+		]
+		connected_indices = best_indices
 		merger.vpr_match_model.save_diff_matrix_fitting(
-			save_dir, connected_row_indices, best_row_indices, D_all, final_graph,
+			save_dir, 
+			connected_row_indices, best_row_indices, 
+			connected_indices, best_indices,
+			D_all, final_graph,
 			cur_graph, lines_coeff, cluster_data, cluster_labels)
 	save_vis_pose_graph(
 		save_dir, final_graph, cur_graph, cur_graph_id, coarse_edges,
