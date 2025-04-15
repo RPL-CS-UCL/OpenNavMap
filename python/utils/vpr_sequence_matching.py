@@ -53,12 +53,7 @@ class PlaceRecognitionSeqMatching:
 				backward: bool, True for backward sequence matching
 		"""   
 		if query_descriptors.shape[0] < self.seqLen:
-			query_desc = query_descriptors[-1, :]
-			dists = self._compute_dist_desc(query_desc)
-			recall_preds = np.argsort(dists)[:self.recall_values]
-			pred = recall_preds[0]
-			score = self.MAX_DIST - dists[pred]
-			return recall_preds, pred, score
+			return self._fallback_match(query_descriptors)
 
 		D = self.compute_diff_matrix(query_descriptors)
 		if self.enhance: 
@@ -70,6 +65,7 @@ class PlaceRecognitionSeqMatching:
 		recall_preds, pred, dist = \
 			self._locate_best_match(template_scores, template_velocities, backward)
 		score = self.MAX_DIST - dist
+		
 		return recall_preds, pred, score
 
 	def ransac_check_match(self, D_all: np.array, db_query_indices: list):
@@ -148,13 +144,6 @@ class PlaceRecognitionSeqMatching:
 		
 		return best_indices, lines_coeff, data, labels
 
-	def _compute_dist_desc(self, descriptor) -> np.ndarray:
-		##### Option 1: cosine similarity
-		# dists = np.sqrt(2 - 2 * np.dot(self.db_descriptors, descriptor.reshape(-1)))
-		##### Option 2: euclidean distance
-		dists = np.linalg.norm(self.db_descriptors - descriptor, axis=1)
-		return dists
-
 	def compute_diff_matrix(self, query_descriptors) -> np.ndarray:
 		"""
 			Return:
@@ -166,6 +155,22 @@ class PlaceRecognitionSeqMatching:
 		##### Option 2: euclidean distance
 		D = np.linalg.norm(query_descriptors[None, :, :] - self.db_descriptors[:, None, :], axis=2)
 		return D
+
+	def _fallback_match(self, query_descriptors):
+		"""Handle short query sequences"""
+		query_desc = query_descriptors[-1, :]
+		dists = self._compute_dist_desc(query_desc)
+		recall_preds = np.argsort(dists)[:self.recall_values]
+		pred = recall_preds[0]
+		score = self.MAX_DIST - dists[pred]
+		return recall_preds, pred, score
+
+	def _compute_dist_desc(self, descriptor) -> np.ndarray:
+		##### Option 1: cosine similarity
+		# dists = np.sqrt(2 - 2 * np.dot(self.db_descriptors, descriptor.reshape(-1)))
+		##### Option 2: euclidean distance
+		dists = np.linalg.norm(self.db_descriptors - descriptor, axis=1)
+		return dists
 
 	def _enhance_contrast(self, D):
 		nref = D.shape[0]
