@@ -21,8 +21,8 @@ class PlaceRecognitionSeqMatching:
 				
 		# Velocity parameters (expanded range)
 		self.vMin = 0.4                
-		self.vMax = 2.5                
-		self.numVel = 30               
+		self.vMax = 2.5
+		self.numVel = 20
 		
 		# Original parameters remain
 		self.wContrast = 10
@@ -65,8 +65,10 @@ class PlaceRecognitionSeqMatching:
 			D = self._enhance_contrast(D)
 
 		self.N, self.L = D.shape
-		template_scores, template_velocities = self._score_ref_templates(D)
-		recall_preds, pred, dist = self._locate_best_match(template_scores, template_velocities, backward)
+		template_scores, template_velocities = \
+			self._score_ref_templates(D)
+		recall_preds, pred, dist = \
+			self._locate_best_match(template_scores, template_velocities, backward)
 		score = self.MAX_DIST - dist
 		return recall_preds, pred, score
 
@@ -306,7 +308,7 @@ class PlaceRecognitionSeqMatching:
 			ax3.set_ylim(0, D_all.shape[0])
 			ax3.invert_yaxis()
 
-		plt.savefig(f"{out_dir}/difference_matrix_fitting.jpg", dpi=300, bbox_inches='tight')
+		plt.savefig(f"{out_dir}/difference_matrix_fitting_{self.seqLen}.jpg", dpi=300, bbox_inches='tight')
 		plt.close()
 
 if __name__ == "__main__":

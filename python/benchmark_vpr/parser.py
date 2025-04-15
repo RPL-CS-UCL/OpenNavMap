@@ -1,6 +1,12 @@
 import argparse
 
-
+available_vpr_match_models=[
+    "single_match",
+    "topo_filter",
+    "sequence_match",
+    "sequence_match_ransac",
+    "sequence_match_adaptive"
+]
 def parse_arguments():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
@@ -52,12 +58,7 @@ def parse_arguments():
         type=str,
         nargs="+",
         default="single_match",
-        choices=[
-            "single_match",
-            "topo_filter",
-            "sequence_match",
-            "sequence_match_ransac"
-        ]
+        choices=available_vpr_match_models
     )
     parser.add_argument(
         "--vpr_match_seq_lens", 

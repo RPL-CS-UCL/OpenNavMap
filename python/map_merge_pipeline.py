@@ -92,7 +92,7 @@ class MergePipeline:
 			submap.load_graphs(merger.graph_configs)
 			self.submaps.append(submap)
 
-			print(f"Loaded {submap.map_id} from {submap_path} with info: {submap}")
+			logging.info(f"Loaded {submap.map_id} from {submap_path} with info: {submap}")
 
 	def create_pose_graph_from_map(
 		self, 
@@ -171,7 +171,7 @@ class MergePipeline:
 		submap_a.covis.copy_sensor_data(submap_b.covis)
 		submap_a.merge_graphs_from(submap_b)
 
-		print(f"Merged map info - {submap_a}")
+		logging.warning(f"Merged map info - {submap_a}")
 		
 def compute_lm_pairwise(
 	db_nodes, 
@@ -263,6 +263,8 @@ def perform_global_loc(
 		A list of edges representing potential matches between database and query
 		nodes. Each edge is a tuple (db_node, query_node, T_A2B, score).
 	"""
+	save_dir = str(merger.log_dir/"preds")
+
 	# Load descriptors from database and query nodes
 	num_db_nodes = final_graph.get_num_node()
 	db_descriptors = np.array(
@@ -279,52 +281,66 @@ def perform_global_loc(
 	merger.vpr_match_model.initialize_model(db_descriptors)
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 		# VPR matching for all query nodes
-		connected_indices = []
+		connected_row_indices = []
 		for row in range(num_query_nodes):
 			start_row = max(0, row - merger.vpr_match_model.seqLen + 1)
 			query_descs = query_descriptors[start_row : row + 1]
 			_, pred, score = merger.vpr_match_model.match(query_descs)
-			connected_indices.append((db_node_ids[pred], query_node_ids[row], score))
+			connected_row_indices.append((pred, row, score))
+			logging.debug(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
 
 		if hasattr(merger.vpr_match_model, 'compute_diff_matrix'):
 			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
 		else:
 			D_all = None
-		
+
+		####### Visualize Pose Graph after VPR
+		vpr_edges = []
+		for db_row_id, query_row_id, _ in connected_row_indices:
+			db_idx, query_idx = db_node_ids[db_row_id], query_node_ids[query_row_id]
+			db_node = final_graph.get_node(db_idx)	
+			query_node = cur_graph.get_node(query_idx)			
+			vpr_edges.append((db_node, query_node, np.eye(4), 0))
+		save_vis_pose_graph(
+			save_dir, final_graph, cur_graph, cur_graph_id, vpr_edges,
+			suffix=f"{merger.args.vpr_match_model}_coarse_vpr_{merger.vpr_match_model.seqLen}")
+		#######
+
+		####### TODO(gogojjh): Remove the ransac mechanism 
 		# RANSAC-based outlier rejection on the difference matrix if enabled
-		best_indices = connected_indices
+		best_row_indices = connected_row_indices
 		lines_coeff = cluster_data = cluster_labels = None
-		if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
-			filtered_indices, lines_coeff, cluster_data, cluster_labels = \
-				merger.vpr_match_model.ransac_check_match(
-					D_all, 
-					connected_indices[merger.vpr_match_model.seqLen:]
-				 )
-			best_indices = connected_indices[:merger.vpr_match_model.seqLen] + filtered_indices
-		
+		# if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
+		# 	filtered_row_indices, lines_coeff, cluster_data, cluster_labels = \
+		# 		merger.vpr_match_model.ransac_check_match(
+		# 			D_all, 
+		# 			connected_row_indices[merger.vpr_match_model.seqLen:]
+		# 		 )
+		# 	best_row_indices = connected_row_indices[:merger.vpr_match_model.seqLen] + filtered_row_indices
+		#######
+
 		# Geomtric Verification
 		coarse_edges = []
-		for db_idx, query_idx, _ in best_indices:
+		for db_row_id, query_row_id, _ in best_row_indices:
+			db_idx, query_idx = db_node_ids[db_row_id], query_node_ids[query_row_id]
 			db_node = final_graph.get_node(db_idx)	
 			query_node = cur_graph.get_node(query_idx)
 			result = merger.pose_estimator.get_matched_kpts(
 				final_graph.map_root, db_node.rgb_image, query_node.rgb_image
 			)
 			num_inlier = result['num_inliers']
-			# print(Fore.GREEN + f"Query {query_node.id} - DB {db_node.id} - Number of matched kpts: {num_inlier}")
-			print(Fore.GREEN + f"Query {query_node.rgb_img_name} - DB {db_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
-			if num_inlier > REFINE_GV_SCORE_THRESHOLD: 
+			logging.warning(Fore.GREEN + f"Query {query_node.rgb_img_name} - DB {db_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
+			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
 	
-	##### Save visualization and debug data
-	save_dir = str(merger.log_dir/"preds")
+	##### Visualize Pose Graph after Geomtric Verification
 	if D_all is not None:
 		merger.vpr_match_model.save_diff_matrix_fitting(
-			save_dir, connected_indices, best_indices, D_all, final_graph,
+			save_dir, connected_row_indices, best_row_indices, D_all, final_graph,
 			cur_graph, lines_coeff, cluster_data, cluster_labels)
 	save_vis_pose_graph(
 		save_dir, final_graph, cur_graph, cur_graph_id, coarse_edges,
-		suffix=f'{merger.args.vpr_match_model}_coarse')
+		suffix=f"{merger.args.vpr_match_model}_coarse_{merger.vpr_match_model.seqLen}")
 	
 	return coarse_edges
 
@@ -397,14 +413,13 @@ def perform_local_loc(
 				T_rel_est = np.linalg.inv(T_db_est) @ im_pose
 
 				##############################
-				if merger.args.viz:
-					T_nodeA_gt = convert_vec_to_matrix(db_node.trans_gt, db_node.quat_gt, 'xyzw')
-					T_query_gt = convert_vec_to_matrix(query_node.trans_gt, query_node.quat_gt, 'xyzw')
-					T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
-					print('EST Rel Pose: ', T_rel_est[:3, 3:4].T)
-					print('GT Rel Pose: ', T_rel_gt[:3, 3:4].T)
-					dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
-					print(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
+				T_nodeA_gt = convert_vec_to_matrix(db_node.trans_gt, db_node.quat_gt, 'xyzw')
+				T_query_gt = convert_vec_to_matrix(query_node.trans_gt, query_node.quat_gt, 'xyzw')
+				T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_query_gt
+				logging.warning(f"EST Rel Pose: {T_rel_est[:3, 3:4].T}")
+				logging.warning(f"GT Rel Pose: {T_rel_gt[:3, 3:4].T}")
+				dis_tsl, dis_angle = compute_pose_error(T_rel_est, T_rel_gt, 'matrix')
+				logging.warning(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
 				##############################
 
 				# Add to refined matches if score exceeds threshold
@@ -418,7 +433,7 @@ def perform_local_loc(
 							edge_str = f"{edge[0]}_{edge[1]}"
 							conf = (weight_i[edge_str].mean() * weight_j[edge_str].mean()).detach().cpu().item()
 
-					print(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
+					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					##### Only high-confidence pairs are considered for correct db-query pairs
 					if conf > RELIABLE_CONF_THRESHOLD:
 						##### Store immedinate results for subsequent keyframe selection
@@ -446,7 +461,7 @@ def perform_local_loc(
 					refined_edges.append((db_node, query_node, T_rel_est, conf, conf / MAX_LOSS))
 			
 		except Exception as e:
-			print(f"{Fore.RED} Pose estimation failed: {str(e)}")
+			logging.warning(f"{Fore.RED} Pose estimation failed: {str(e)}")
 			continue
 
 	##### Save visualization and debug data
@@ -460,7 +475,7 @@ def perform_local_loc(
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
 	assert len(merger.submaps) > 0, "No submaps loaded."
-	print(f"Processing {len(merger.submaps)} submaps.")
+	logging.info(f"Processing {len(merger.submaps)} submaps.")
 	
 	# Initialize the final submap
 	final_map = MapManager(merger.log_dir)
@@ -490,7 +505,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 			##### Perform Pose Graph Optimization #####
 			# Initialize the pose graph
-			print(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
+			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
 			pose_graph = merger.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom, 
@@ -500,13 +515,13 @@ def perform_submap_merging(merger: MergePipeline, args):
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
 			# Optimize the pose graph
-			print(f"PGO: initial error = {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
+			logging.info(f"PGO: initial error = {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
 			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
 				pose_graph.get_factor_graph(), 
 				pose_graph.get_initial_estimate(), 
 				verbose=False
 			)
-			print(f"PGO: final error = {pose_graph.get_factor_graph().error(result_pgo):.3f}")
+			logging.info(f"PGO: final error = {pose_graph.get_factor_graph().error(result_pgo):.3f}")
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
@@ -518,7 +533,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			# But nodes in odom and trav graph are kepts
 			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
 			nodes_query_to_remove, nodes_db_to_remove = [], []
-			if args.select_keyframe:
+			if args.prune_keyframe_forward:
 				# Compute the acceptance probability:
 				# 	Accept the new keyframe with high information gain, even it has low image quality
 				for nodeA, data in lm_gain_query.items():
@@ -529,14 +544,16 @@ def perform_submap_merging(merger: MergePipeline, args):
 							acc_prob_dict
 						)
 					if acc_prob_dict < merger.lm_selector.P_acc_th:
+						logging.warning(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob_dict:.3f}")
 						if args.viz:
-							print(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob_dict:.3f}")
 							save_vis_kf_removal(
 								merger.log_dir, nodeA.id,
 								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
 							)
 						nodes_query_to_remove.append(nodeA)
+				logging.warning('Removing nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_remove]))
 
+			if args.prune_keyframe_backward:
 				# Compute the keeping probability:
 				# 	Remove the old keyframe with the low information gain and low image quality
 				for nodeA, data in lm_gain_db.items():
@@ -552,8 +569,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 					if min_prob < merger.lm_selector.P_keep_th and node_rep:
 						nodes_db_to_remove.append(nodeA)
+						logging.warning(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
 						if args.viz:
-							print(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
 							merger.lm_selector.print_each_prob(
 								nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
 							)
@@ -563,23 +580,16 @@ def perform_submap_merging(merger: MergePipeline, args):
 								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
 								node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
 							)
-
-				# Remove nodes and invalid edges from the graph
-				print('Removing nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_remove]))
-				print('Removing nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_remove]))
+				logging.warning('Removing nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_remove]))
 
 			##### Perform map update and merging
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 			# Enforce all node id in edges_nodeAB_refine_covis to be adjusted
 			nodes_to_remove = nodes_query_to_remove + nodes_db_to_remove
-			print('Removing nodes from final_map covis: ' + ' '.join([str(node.id) for node in nodes_to_remove]))
 			final_map.covis.remove_node_list(nodes_to_remove)
 			final_map.covis.remove_invalid_edges(nodes_to_remove)
 			final_map.covis.rm_sensor_data(nodes_to_remove)
-
-			# print('After Pruning Keyframe: ' + ' ,'.join([str(node.id) for node in final_map.covis.nodes.values()]))
-			# print('Add Edge info: ' + ' '.join([f"{edge[0].id} - {edge[1].id}" for edge in edges_nodeAB_refine_covis]))
 
 			# Update edges from the src_edges for different types of graphs
 			# Nodes are merged and reflected on the updated graph
@@ -595,7 +605,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 
-			print(f"Final map info:\n{final_map}")
+			logging.info(f"Final map info:\n{final_map}")
 			if args.viz:
 				save_dir = str(merger.log_dir/"preds")
 				pose_graph.plot_pose_graph(save_dir, pose_graph.get_factor_graph(), result_pgo)
@@ -613,10 +623,17 @@ def perform_submap_merging(merger: MergePipeline, args):
 		final_map.save_to_file()
 
 if __name__ == '__main__':
-	import warnings
-	warnings.filterwarnings("ignore", category=FutureWarning)
-
 	args = parse_arguments()
+
+	if args.warning:
+		logging_level = logging.WARNING
+	else:
+		logging_level = logging.INFO
+	logging.basicConfig(
+		level=logging_level,
+		format='%(asctime)s - %(levelname)s - %(message)s',
+		handlers=[logging.StreamHandler()]
+	)
 	log_dir = setup_log_environment(pathlib.Path(args.output_map_path), args)
 
 	# Initialize the map merging pipeline

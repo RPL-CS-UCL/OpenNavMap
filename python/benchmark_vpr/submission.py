@@ -33,7 +33,7 @@ def extract_descriptors(model, test_ds, args):
 		database_dataloader = DataLoader(
 			dataset=database_subset_ds,
 			num_workers=args.num_workers,
-			batch_size=1,
+			batch_size=args.batch_size,
 		)
 		all_descriptors = np.empty(
 			(len(test_ds), args.descriptors_dimension), dtype="float32"
@@ -54,7 +54,7 @@ def extract_descriptors(model, test_ds, args):
 		queries_dataloader = DataLoader(
 			dataset=queries_subset_ds, 
 			num_workers=args.num_workers, 
-			batch_size=1
+			batch_size=args.batch_size
 		)
 		for images, indices, _ in tqdm(queries_dataloader):
 			descriptors = model(images.to(args.device))
@@ -91,11 +91,12 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	
 		init_db_query_indices.append((pred, query_indice, score))
 		init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
+	
+	D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
 
 	# RANSAC-based fitting for outlier rejection
 	if hasattr(vpr_match_model, 'ENABLE_RANSAC') and vpr_match_model.ENABLE_RANSAC:
 		start_time = time.time()
-		D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
 		filter_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
 			vpr_match_model.ransac_check_match(D_all, init_db_query_indices[vpr_match_model.seqLen:])
 		total_vpr_time += time.time() - start_time
@@ -119,6 +120,11 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 			lines_coeff, cluster_data, cluster_labels)
 	else:
 		best_results_dict = init_results_dict
+		vpr_match_model.save_diff_matrix_fitting(\
+			f"{args.out_dir}/{setting}/preds", 
+			init_db_query_indices, init_db_query_indices, 
+			D_all, None, None, 
+			None, None, None)		
 
 	# Geometric Verification
 	total_gv_time = 0.0
