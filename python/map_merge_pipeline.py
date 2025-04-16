@@ -12,6 +12,7 @@ from tqdm import tqdm
 import pathlib
 from typing import List, Tuple, Dict
 from codetiming import Timer
+import copy
 
 from utils.utils_vpr_method import initialize_match_model
 from utils.utils_map_merging import *
@@ -23,7 +24,9 @@ from benchmark_kf_selection.metric.landmark_selector import LandmarkSelector
 from map_manager import MapManager
 from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
+from point_graph import PointGraph
 from image_node import ImageNode
+from point_node import PointNode
 
 from colorama import Fore, init
 init(autoreset=True)
@@ -107,38 +110,16 @@ class MergePipeline:
 		pose_graph = PoseGraph()
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
 
-		# Create a pose graph from graph_odom_a by adding internal edges of graph_odom_a
-		for _, node in graph_odom_a.nodes.items():
-			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
-			pose_graph.add_init_estimate(node.id, curr_pose3)
-			# Add prior factor
-			if node.id == 0:
-				pose_graph.add_prior_factor(node.id, curr_pose3, prior_sigma)
-			# Add odometry factor
-			for edge in node.edges.values():
-				next_node = edge[0]
-				# Avoid duplicate factors
-				if node.id < next_node.id:
-					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
+		# Create a pose graph from graph_odom_a/b by adding internal edges of graph_odom_a/b
+		for graph, offset in [(graph_odom_a, 0), (graph_odom_b, self.id_offset)]:
+			for node in graph.nodes.values():
+				pose = convert_vec_gtsam_pose3(node.trans, node.quat)
+				pose_graph.add_init_estimate(node.id + offset, pose)
+				for next_node in (edge[0] for edge in node.edges.values() if node.id < edge[0].id):
+					next_pose = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(
-						node.id, curr_pose3, 
-						next_node.id, next_pose3, 
-						odom_sigma
-					)
-		
-		# Create a pose graph from graph_odom_b by adding internal edges of graph_odom_b
-		for _, node in graph_odom_b.nodes.items():
-			curr_pose3 = convert_vec_gtsam_pose3(node.trans, node.quat)
-			pose_graph.add_init_estimate(node.id+self.id_offset, curr_pose3)
-			# Add odometry factor
-			for edge in node.edges.values():
-				next_node = edge[0]
-				# Avoid duplicate factors
-				if node.id < next_node.id:
-					next_pose3 = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
-					pose_graph.add_odometry_factor(
-						node.id+self.id_offset, curr_pose3, 
-						next_node.id+self.id_offset, next_pose3, 
+						node.id + offset, pose,
+						next_node.id + offset, next_pose,
 						odom_sigma
 					)
 		
@@ -153,6 +134,13 @@ class MergePipeline:
 				nodeB.id+self.id_offset, next_pose3, 
 				update_loop_sigma
 			)
+
+		# Add prior factor to each disconnected subgraph
+		subgraph_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
+		for graph_id, keys in enumerate(subgraph_keys):
+			curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
+			pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
+			print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
 
 		return pose_graph
 
