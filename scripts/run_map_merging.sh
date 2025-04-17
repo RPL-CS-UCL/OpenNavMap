@@ -11,18 +11,21 @@ set -euo pipefail  # Fail on errors and undefined variables
 # Configuration Section
 # --------------------------
 # Set your desired processing range (0-based indices)
-readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=54
+# ucl_campus/s00000_data
+#   aria: 0-54
+# hkust/s00000
+#   aria: 0-7
+#   fusionportable: 8-16
+#   smartphone: 17-
+# vineyard/
+#   aria: 0-4
 
-readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
-readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria"
+# TODO(gogojjh): Users should change these parameters
+readonly START_SUBMAP_ID=0
+readonly END_SUBMAP_ID=16
+readonly DATASET_NAME="hkust"
+readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 readonly SCENE="s00000"
-readonly IMAGE_SIZE="512 288"
-readonly VPR_MATCH_MODEL="sequence_match_adaptive"
-readonly VPR_SEQ_LEN=10
-readonly POSE_ESTIMATION_METHOD="master_calib_pretrain"
-readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
-readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
 
 # readonly METHOD="kf_forward_spgo_seqmatch"
 # readonly METHOD="kf_spgo_seqmatch"
@@ -30,8 +33,16 @@ readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_me
 # readonly METHOD="kf_spgo_singlematch"
 # readonly METHOD="nokf_spgo_singlematch"
 readonly METHOD="$2" # default: kf_spgo_seqmatch
-
 readonly DATA_TYPES=("in" "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8")
+
+########################3
+readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
+readonly IMAGE_SIZE="512 288"
+readonly VPR_MATCH_MODEL="sequence_match_adaptive"
+readonly VPR_SEQ_LEN=10
+readonly POSE_ESTIMATION_METHOD="master_calib_pretrain"
+readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
+readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
 
 # --------------------------
 # Initialization and Validation
@@ -93,6 +104,7 @@ merge_submaps() {
         local scene="${SCENES[i]}"
         local new_merged_name="${base_name}_${scene}"
         
+        echo "ID: ${i}"
         echo "Merging: ${base_name} + ${scene} => ${new_merged_name}"
         
         python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
@@ -102,7 +114,7 @@ merge_submaps() {
             --vpr_match_model "$VPR_MATCH_MODEL" \
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-            --viz --warning --prune_keyframe_forward --prune_keyframe_backward 
+            --viz --prune_keyframe_forward --prune_keyframe_backward 
 
         base_name="${new_merged_name}"
     done
@@ -116,17 +128,17 @@ merge_submaps() {
         --input_type mapfree --output_type tum \
         --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses_abs_gt.txt" \
         --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
-        --output_pose "${TRAJ_EVAL_PATH}/groundtruth/traj/ucl_campus_aria_${SCENE}_${DATA_TYPE}.txt"
+        --output_pose "${TRAJ_EVAL_PATH}/groundtruth/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
 
     rosrun litevloc utils_convert_pose_format.py \
         --input_type mapfree --output_type tum \
         --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses.txt" \
         --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
-        --output_pose "${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/ucl_campus_aria_${SCENE}_${DATA_TYPE}.txt"
+        --output_pose "${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
     
     echo "Converted pose format to TUM format."
     echo "From: ${input_dir}/merge_finalmap/poses.txt"
-    echo "To  : ${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/ucl_campus_aria_${SCENE}_${DATA_TYPE}.txt"
+    echo "To  : ${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
 }
 
 # --------------------------

@@ -266,8 +266,8 @@ class PlaceRecognitionSeqMatching:
 			if db_map is not None and query_map is not None:
 				db_node = db_map.get_node(edge[0])
 				query_node = query_map.get_node(edge[1])
-				dis_tsl, _ = query_node.compute_distance(db_node)
-				if dis_tsl < 20.0:
+				dis_tsl, _ = query_node.compute_gt_distance(db_node)
+				if dis_tsl < 7.5:
 					ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'go', markersize=5)
 				else:
 					ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'ro', markersize=5)
