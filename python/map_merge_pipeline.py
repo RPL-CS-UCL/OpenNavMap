@@ -104,9 +104,9 @@ class MergePipeline:
 		inter_edges_covis # inter_edges_covis own the same node id with odom
 	):
 		# Set basic std for factors
-		prior_sigma = np.array([1e-3] * 3 + [1e-2] * 3)
-		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
-		loop_sigma = np.array([np.deg2rad(3.0)] * 3 + [1.0] * 3)
+		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
+		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
+		loop_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
 		pose_graph = PoseGraph()
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
 
@@ -509,13 +509,28 @@ def perform_submap_merging(merger: MergePipeline, args):
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
 			# Optimize the pose graph
-			logging.info(f"PGO: initial error = {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
+			logging.info(
+				f"PGO: initial error = " + 
+				f"{pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}"
+			)
 			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
 				pose_graph.get_factor_graph(), 
 				pose_graph.get_initial_estimate(), 
-				verbose=False
+				verbose=False,
+				robust_kernel=True
 			)
-			logging.info(f"PGO: final error = {pose_graph.get_factor_graph().error(result_pgo):.3f}")
+			logging.info(
+				f"PGO: final error = " + 
+				f"{pose_graph.get_factor_graph().error(result_pgo):.3f}"
+			)
+			if args.viz:
+				save_dir = str(merger.log_dir/"preds")
+				pose_graph.plot_pose_graph(
+					save_dir, pose_graph.get_factor_graph(), 
+					[pose_graph.get_initial_estimate(), result_pgo],
+					['Before PGO', 'After PGO'], mode='2d'
+				)
+
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
@@ -598,11 +613,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 			]:
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
-
+			
 			logging.info(f"Final map info:\n{final_map}")
-			if args.viz:
-				save_dir = str(merger.log_dir/"preds")
-				pose_graph.plot_pose_graph(save_dir, pose_graph.get_factor_graph(), result_pgo)
 		else:
 			pose_graph = merger.create_pose_graph_from_map(
 				final_map.odom, 
@@ -611,6 +623,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 			)
 			g2o_path = str(merger.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+			if args.viz:
+				save_dir = str(merger.log_dir/"preds")
+				pose_graph.plot_pose_graph(
+					save_dir, pose_graph.get_factor_graph(), 
+					[pose_graph.get_initial_estimate(), pose_graph.get_initial_estimate()],
+					['Before PGO', 'Before PGO'], mode='2d'
+				)
+
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 
 	if not final_map.is_empty:

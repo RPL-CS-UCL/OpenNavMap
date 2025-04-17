@@ -232,10 +232,13 @@ class PlaceRecognitionSeqMatching:
 		optOutside = min(outside_scores)
 		# for negative scores, u \in [0, 1]
 		# increases the score... adjust
-		if optOutside > 0:
-			mu = template_scores[iOpt] / optOutside
+		if np.any(outside_scores):
+			if optOutside > 0:
+				mu = template_scores[iOpt] / optOutside
+			else:
+				mu = optOutside / template_scores[iOpt]
 		else:
-			mu = optOutside / template_scores[iOpt]
+			mu = template_scores[iOpt]
 
 		if not backward:
 			pred = min(np.floor(iOpt + iOptV * (self.seqLen - 1)).astype(int), self.N - 1)

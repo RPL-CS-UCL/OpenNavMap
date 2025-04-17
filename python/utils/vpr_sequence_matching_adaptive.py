@@ -91,13 +91,17 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 		iWinU = np.minimum(iOpt + int(self.matchWindow / 2), len(template_scores))
 		# check best match outside window
 		outside_scores = np.concatenate((template_scores[:iWinL], template_scores[iWinU:]))
-		optOutside = min(outside_scores)
-		# for negative scores, u \in [0, 1]
-		# increases the score... adjust
-		if optOutside > 0:
-			mu = template_scores[iOpt] / optOutside
+		# check whether the matchWindow larger than the length of template_scores 
+		if np.any(outside_scores):
+			optOutside = min(outside_scores)
+			# for negative scores, u \in [0, 1]
+			# increases the score... adjust
+			if optOutside > 0:
+				mu = template_scores[iOpt] / optOutside
+			else:
+				mu = optOutside / template_scores[iOpt]
 		else:
-			mu = optOutside / template_scores[iOpt]
+			mu = template_scores[iOpt]
 
 		if not backward:
 			pred = min(np.floor(iOpt + iOptV * (seq_len - 1)).astype(int), self.N - 1)
