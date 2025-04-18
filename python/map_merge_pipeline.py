@@ -24,9 +24,7 @@ from benchmark_kf_selection.metric.landmark_selector import LandmarkSelector
 from map_manager import MapManager
 from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
-from point_graph import PointGraph
 from image_node import ImageNode
-from point_node import PointNode
 
 from colorama import Fore, init
 init(autoreset=True)
@@ -53,7 +51,8 @@ class MergePipeline:
 				'depth_scale': 0.0,
 				'load_rgb': True,
 				'load_depth': False,
-				'normalized': False
+				'normalized': False,
+				'color_correct': args.color_correct,
 			},
 		}
 
