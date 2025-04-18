@@ -21,8 +21,8 @@ set -euo pipefail  # Fail on errors and undefined variables
 #   aria: 0-4
 
 # TODO(gogojjh): Users should change these parameters
-readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=16
+readonly START_SUBMAP_ID=9
+readonly END_SUBMAP_ID=9
 readonly DATASET_NAME="hkust"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 readonly SCENE="s00000"
