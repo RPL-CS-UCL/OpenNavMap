@@ -22,8 +22,8 @@ set -euo pipefail  # Fail on errors and undefined variables
 #   aria: 0-4 (300m length)
 
 # TODO(gogojjh): Users should change these parameters
-readonly START_SUBMAP_ID=56
-readonly END_SUBMAP_ID=56
+readonly START_SUBMAP_ID=0
+readonly END_SUBMAP_ID=54
 readonly DATASET_NAME="ucl_campus"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 readonly SCENE="s00000"
@@ -115,7 +115,7 @@ merge_submaps() {
             --vpr_match_model "$VPR_MATCH_MODEL" \
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-            --viz --prune_keyframe_forward --prune_keyframe_backward --color_correct
+            --viz --prune_keyframe_forward --prune_keyframe_backward # --color_correct
 
         base_name="${new_merged_name}"
     done
