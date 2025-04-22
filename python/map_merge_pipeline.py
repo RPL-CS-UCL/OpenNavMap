@@ -304,7 +304,7 @@ def perform_global_loc(
 		# 	best_row_indices = connected_row_indices[:merger.vpr_match_model.seqLen] + filtered_row_indices
 		#######
 
-		# Geomtric Verification
+		# Geometric Verification
 		coarse_edges = []
 		for db_row_id, query_row_id, _ in best_row_indices:
 			db_idx, query_idx = db_node_ids[db_row_id], query_node_ids[query_row_id]
@@ -357,7 +357,7 @@ def perform_local_loc(
 		merger: Merger object with pose estimator and configuration
 		
 	Returns:
-		List of refined matches (represented as image node) with relative pose estimates
+		refined_edges: List of refined matches (represented as image node) with relative pose estimates
 	"""
 	# lm_gain_db[nodeA][nodeB] meaning how much information is gained of nodeA w.r.t. nodeB, and nodeA is a db_node
 	# lm_gain_query[nodeA][nodeB] meaning how much information is gained of nodeA w.r.t. nodeB, and nodeA is a query_node

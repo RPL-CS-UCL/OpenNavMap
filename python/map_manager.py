@@ -23,6 +23,18 @@ class MapManager:
 			out_str += f"{graph_type}: {graph} {type(graph)}\n"
 		return out_str
 
+	def init_graphs(self, graph_configs):
+		"""Initialize multiple graphs"""
+		for graph_type, _ in graph_configs.items():
+			if graph_type == 'odom' or graph_type == 'trav':
+				self.graphs[graph_type] = PointGraph(self.map_root, graph_type)
+			elif graph_type == 'covis':
+				self.graphs[graph_type] = ImageGraph(self.map_root, graph_type)
+			else:
+				raise ValueError(f"Unknown graph type: {graph_type}")
+
+		print(f"Initialize graphs: {list(self.graphs.keys())}")
+
 	def load_graphs(self, graph_configs):
 		"""Load multiple graphs with type-checked configurations"""
 		assert len(graph_configs) > 0
@@ -39,18 +51,6 @@ class MapManager:
 				raise ValueError(f"Unknown graph type: {graph_type}")
 
 		print(f"Loaded graphs: {list(self.graphs.keys())}")
-
-	def init_graphs(self, graph_configs):
-		"""Initialize multiple graphs"""
-		for graph_type, config in graph_configs.items():
-			if graph_type == 'odom' or graph_type == 'trav':
-				self.graphs[graph_type] = PointGraph(self.map_root, graph_type)
-			elif graph_type == 'covis':
-				self.graphs[graph_type] = ImageGraph(self.map_root, graph_type)
-			else:
-				raise ValueError(f"Unknown graph type: {graph_type}")
-
-		print(f"Initialize graphs: {list(self.graphs.keys())}")
 
 	def get_max_node_id(self) -> int:
 		"""Get maximum node ID across all graphs"""
