@@ -141,7 +141,7 @@ class MergePipeline:
 			pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
 			print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
 
-		return pose_graph
+		return pose_graph, subgraph_keys
 
 	def merge_and_update_submaps(
 		self, 
@@ -499,7 +499,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			##### Perform Pose Graph Optimization #####
 			# Initialize the pose graph
 			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
-			pose_graph = merger.create_pose_graph_from_map(
+			pose_graph, subgraph_keys = merger.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom, 
 				edges_nodeAB_refine_covis
@@ -527,7 +527,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 				pose_graph.plot_pose_graph(
 					save_dir, pose_graph.get_factor_graph(), 
 					[pose_graph.get_initial_estimate(), result_pgo],
-					['Before PGO', 'After PGO'], mode='2d'
+					['Before PGO', 'After PGO'], mode='2d', 
+					subgraph_keys=subgraph_keys
 				)
 
 			for key in result_pgo.keys():
@@ -615,7 +616,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 			
 			logging.info(f"Final map info:\n{final_map}")
 		else:
-			pose_graph = merger.create_pose_graph_from_map(
+			pose_graph, _ = merger.create_pose_graph_from_map(
 				final_map.odom, 
 				cur_submap.odom, 
 				[]
