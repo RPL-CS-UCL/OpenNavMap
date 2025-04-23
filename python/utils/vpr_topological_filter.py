@@ -152,7 +152,7 @@ if __name__ == "__main__":
         ref_map_node = db_map.nodes[preds[i][0]]
         dis_tsl, dis_angle = compute_pose_error(
             (node.trans_gt, node.quat_gt), 
-            (ref_map_node.trans_gt, ref_map_node.quat_gt)
+            (ref_map_node.trans_gt, ref_map_node.quat_gt),
             mode='vector'
         )
         if dis_tsl < 10.0 and dis_angle < 90.0:
