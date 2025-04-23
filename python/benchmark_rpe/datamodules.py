@@ -58,8 +58,8 @@ class DataModule(pl.LightningDataModule):
     def test_dataloader(self):
         dataset = self.dataset_type(self.cfg, 'test')
         dataloader = utils.data.DataLoader(dataset,
-                                           batch_size=self.cfg.TRAINING.BATCH_SIZE,
-                                           num_workers=self.cfg.TRAINING.NUM_WORKERS,
+                                           batch_size=1,
+                                           num_workers=1,
                                            shuffle=False,
                                            drop_last=self.drop_last_val)
         return dataloader
