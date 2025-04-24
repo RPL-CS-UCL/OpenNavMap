@@ -17,14 +17,16 @@ from map_manager import MapManager
 from matching import available_models
 
 ##### Outdoor
-# SUFF_EDGE_THRESH = 100
-# EDGE_THRESH_NORM = 500
-# MAX_DISTANCE = 5.0  # meters
+SUFF_EDGE_THRESH = 100
+EDGE_THRESH_NORM = 500
+MAX_COVIS_DISTANCE = 5.0  # meters
+MAX_TRAV_DISTANCE = 1.5   # meters
 
 ##### Indoor
-SUFF_EDGE_THRESH = 200
-EDGE_THRESH_NORM = 500
-MAX_DISTANCE = 3.5  # meters
+# SUFF_EDGE_THRESH = 100
+# EDGE_THRESH_NORM = 500
+# MAX_COVIS_DISTANCE = 5.0  # meters
+# MAX_TRAV_DISTANCE = 1.0   # meters
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Map processing with covisibility edges')
@@ -64,18 +66,18 @@ def process_map(args):
         # img_matcher.ransac_conf = 0.95
         # img_matcher.ransac_reproj_thresh = 5
 
-        # Build position index for fast neighbor search
-        node_ids = np.array([node.id for node in final_map.covis.nodes.values()], dtype='int64')
+        ##### Process Covis Edges
+        node_ids = np.array(final_map.covis.get_all_id())
         positions = np.array([node.trans for node in final_map.covis.nodes.values()], dtype='float32')
         position_index = faiss.IndexFlatL2(3)
         position_index.add(positions)
 
-        # Process each node
+        # Process each node on the covisibility graph
         edges_nodeAB_covis = []
         for node in tqdm(final_map.covis.nodes.values(), desc="Processing nodes"):
             # Find neighbors within radius
             _, distances, neighbor_indices = position_index.range_search(
-                node.trans.reshape(1, -1), MAX_DISTANCE**2
+                node.trans.reshape(1, -1), MAX_COVIS_DISTANCE**2
             )
             
             # Check the covisibility between the reference node and quey nodes
@@ -85,16 +87,15 @@ def process_map(args):
                     continue  # Skip self
                 
                 neighbor = final_map.covis.get_node(nei_node_idx)
-                
+
                 # Perform image matching
                 try:
                     result = img_matcher(node.rgb_image, neighbor.rgb_image)
                 except:
                     continue
-                
-                num_inliers = result["num_inliers"]
-                
+                             
                 # Calculate covisibility weight <= 1.0
+                num_inliers = result["num_inliers"]
                 covis_weight = min(num_inliers / EDGE_THRESH_NORM, 1.0)
                 
                 # Add edges if thresholds met
@@ -110,9 +111,37 @@ def process_map(args):
             dst_edges = final_map.update_edges(src_edges, dst_graph_type)
             final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 
-        # Save processed graph
+        ##### Process Trav Edges
+        node_ids = np.array(final_map.trav.get_all_id())
+        positions = np.array([node.trans for node in final_map.trav.nodes.values()], dtype='float32')
+        position_index = faiss.IndexFlatL2(3)
+        position_index.add(positions)
+
+        # Update each node on the trav graph by connecting nearby nodes to enhance the tarversiblity
+        edges_nodeAB_trav = []
+        for node in tqdm(final_map.trav.nodes.values(), desc="Processing nodes"):
+            _, distances, neighbor_indices = position_index.range_search(
+                node.trans.reshape(1, -1), MAX_TRAV_DISTANCE**2
+            )
+            for row_idx in neighbor_indices:
+                nei_node_idx = node_ids[row_idx]
+                if nei_node_idx == node.id or nei_node_idx in node.edges:
+                    continue
+
+                neighbor = final_map.trav.get_node(nei_node_idx)
+                edges_nodeAB_trav.append([node, neighbor])
+
+        weight_func = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans)) 
+        final_map.trav.add_inter_edges(edges_nodeAB_trav, weight_func)
+
+        ##### Save processed graph
         if args.output is not None:
             output_path = pathlib.Path(args.output)
+            output_path.mkdir(parents=True, exist_ok=True)       
+            final_map.covis.map_root = output_path
+            final_map.trav.map_root = output_path
+        else:
+            output_path = map_path
             output_path.mkdir(parents=True, exist_ok=True)       
             final_map.covis.map_root = output_path
             final_map.trav.map_root = output_path

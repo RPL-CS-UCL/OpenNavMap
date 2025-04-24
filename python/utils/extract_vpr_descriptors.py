@@ -6,16 +6,14 @@ python extract_vpr_descriptors.py --dataset_path /Rocket_ssd/dataset/data_litevl
 --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
 --num_preds_to_save 3 \
 --image_size 512 288 \
---device cuda \
---save_descriptors
+--device cuda
 
 Usage for Jetson: 
 python extract_vpr_descriptors.py --dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
 --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
 --num_preds_to_save 3 \
 --image_size 512 288 \
---device cuda \
---save_descriptors
+--device cuda
 """
 import os
 import sys
@@ -39,9 +37,6 @@ def main(args):
 	for scene in sorted(os.listdir(args.dataset_path)):
 		scene_path = os.path.join(args.dataset_path, scene)
 		out_dir = scene_path
-
-		# out_dir.mkdir(exist_ok=True, parents=True)
-		# log_dir = setup_log_environment(out_dir, args)
 
 		"""Initialize VPR model"""
 		model = initialize_vpr_model(args.method, args.backbone, args.descriptors_dimension, args.device)
@@ -70,13 +65,12 @@ def main(args):
 		print(f'Extract each VPR descriptor costs: {(time.time() - start_time) / len(db_descriptors):.3f}s')
 
 		"""Save image descriptors"""
-		if args.save_descriptors:
-			print(f"Saving image descriptors to {out_dir}")
-			np.savetxt(
-				os.path.join(out_dir, f'database_descriptors.txt'), 
-				db_descriptors, 
-				fmt='%s ' + '%.9f ' * db_descriptors.shape[1]
-			)
+		print(f"Saving image descriptors to {out_dir}")
+		np.savetxt(
+			os.path.join(out_dir, f'database_descriptors.txt'), 
+			db_descriptors, 
+			fmt='%s ' + '%.9f ' * (db_descriptors.shape[1]-1)
+		)
 
 if __name__ == "__main__":
 	args = parse_arguments()

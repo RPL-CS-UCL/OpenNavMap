@@ -68,7 +68,7 @@ class ImageGraphLoader:
 			for node_id, key in enumerate(poses.keys()):
 				# Read rgb image
 				rgb_img_name = key
-				rgb_img_path = os.path.join(str(map_root/key))
+				rgb_img_path = str(map_root/key)
 				if not load_rgb:
 					rgb_image = None
 				elif load_rgb and os.path.exists(rgb_img_path):
