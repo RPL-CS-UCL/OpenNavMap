@@ -135,9 +135,9 @@ def save_vis_pose_graph(log_dir, db_submap, query_submap, query_submap_id, edges
 			str_title = f"Pose Graph: Find {num_cor_loop} Correct Loops/{len(edges_nodeA_to_nodeB)} (3.0m)"
 	
 	ax.grid(ls='--', color='0.7')
-	plt.axis('equal')
 	plt.xlabel('X-axis')
 	plt.ylabel('Y-axis')
+	plt.axis('equal')
 	plt.title(str_title) 
 	if suffix == '':
 		plt.savefig(os.path.join(log_dir, f"results_{query_submap_id}_posegraph.png"))

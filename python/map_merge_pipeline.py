@@ -272,7 +272,7 @@ def perform_global_loc(
 			query_descs = query_descriptors[start_row : row + 1]
 			_, pred, score = merger.vpr_match_model.match(query_descs)
 			connected_row_indices.append((pred, row, score))
-			logging.debug(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
+			logging.warning(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
 
 		if hasattr(merger.vpr_match_model, 'compute_diff_matrix'):
 			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)

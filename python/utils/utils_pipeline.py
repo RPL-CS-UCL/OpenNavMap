@@ -17,15 +17,20 @@ if not hasattr(sys, "ps1"):
 	matplotlib.use("Agg")
 
 def setup_logging(log_dir, stdout_level='info'):
-	os.makedirs(log_dir, exist_ok=True)
-	log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+	# os.makedirs(log_dir, exist_ok=True)
+	# log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+	# logging.basicConfig(
+	# 	level=getattr(logging, stdout_level.upper(), 'INFO'),
+	# 	format=log_format,
+	# 	handlers=[
+	# 		logging.FileHandler(os.path.join(log_dir, 'info.log')),
+	# 		logging.StreamHandler(sys.stdout)
+	# 	]
+	# )
 	logging.basicConfig(
-		level=getattr(logging, stdout_level.upper(), 'INFO'),
-		format=log_format,
-		handlers=[
-			logging.FileHandler(os.path.join(log_dir, 'info.log')),
-			logging.StreamHandler(sys.stdout)
-		]
+		level=logging.INFO,
+		format='%(asctime)s - %(levelname)s - %(message)s',
+		handlers=[logging.StreamHandler()]
 	)
 
 def setup_log_environment(out_dir, args):
@@ -35,11 +40,11 @@ def setup_log_environment(out_dir, args):
 	tmp_dir = os.path.join(out_dir, f'outputs_{args.vpr_method}_{args.img_matcher}')
 	log_dir = os.path.join(tmp_dir, f'{args.vpr_backbone}_' + start_time.strftime('%Y-%m-%d_%H-%M-%S'))
 	setup_logging(log_dir, stdout_level="info")
-	logging.info(" ".join(sys.argv))
-	logging.info(f"Arguments: {args}")
-	logging.info(f"Testing with {args.vpr_method} with a {args.vpr_backbone} backbone and descriptors dimension {args.vpr_descriptors_dimension}")
-	logging.info(f"Testing with {args.img_matcher} with image size {args.image_size}")
-	logging.info(f"The outputs are being saved in {log_dir}")
+	logging.debug(" ".join(sys.argv))
+	logging.debug(f"Arguments: {args}")
+	logging.debug(f"Testing with {args.vpr_method} with a {args.vpr_backbone} backbone and descriptors dimension {args.vpr_descriptors_dimension}")
+	logging.debug(f"Testing with {args.img_matcher} with image size {args.image_size}")
+	logging.debug(f"The outputs are being saved in {log_dir}")
 	os.makedirs(os.path.join(log_dir, 'preds'))
 	os.system(f"rm {os.path.join(tmp_dir, 'latest')}")
 	os.system(f"ln -s {log_dir} {os.path.join(tmp_dir, 'latest')}")
@@ -117,6 +122,11 @@ def parse_arguments():
 	"""
 	parser.add_argument("--pose_solver", type=str, default="pnp", choices=available_solvers)
 	parser.add_argument("--config_pose_solver", type=str, default="matterport3d.yaml")
+
+	"""
+	Parameters for global planning
+	"""
+	parser.add_argument('--goal_image', type=str, help='Path to the goal image for visualization')
 
 	"""
 	Parse the argments

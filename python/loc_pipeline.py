@@ -99,12 +99,13 @@ class LocPipeline:
 			map_root=map_root,
 			resize=self.args.image_size,
 			depth_scale=self.args.depth_scale,
-			load_rgb=True, 
-			load_depth=True, 
+			# DEBUG(gogojjh):
+			load_rgb=False, 
+			load_depth=False,
 			normalized=False,
 			edge_type='covis'
 		)
-		logging.info(str(self.image_graph))
+		logging.info(f"Loading Covisiblity Graph: {str(self.image_graph)}")
 
 		# Extract VPR descriptors for all nodes in the map
 		self.DB_Node_IDS = [node.id for node in self.image_graph.nodes.values()]
@@ -114,7 +115,7 @@ class LocPipeline:
 			self.DB_POSES[indices, :3] = node.trans
 			self.DB_POSES[indices, 3:] = node.quat
 
-		rospy.logdebug(f"Extracted {self.DB_DESCRIPTORS.shape} VPR descriptors from the map.")
+		logging.debug(f"Extracted {self.DB_DESCRIPTORS.shape} VPR descriptors from the map.")
 
 	def perform_vpr(self, db_descs: np.array, query_desc: np.array):
 		dis, pred = perform_knn_search(

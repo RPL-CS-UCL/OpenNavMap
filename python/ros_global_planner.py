@@ -32,7 +32,6 @@ if __name__ == '__main__':
 	global_planner.loc_pipeline.read_covis_graph_from_files()
 	
 	rospy.init_node('ros_global_planner', anonymous=True)
-	global_planner.loc_pipeline.initalize_ros()
 	global_planner.initalize_ros()
 	global_planner.frame_id_map = rospy.get_param('~frame_id_map', 'map')
 	global_planner.main_freq = rospy.get_param('~main_freq', 1)
