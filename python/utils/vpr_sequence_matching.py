@@ -61,9 +61,9 @@ class PlaceRecognitionSeqMatching:
 
 		self.N, self.L = D.shape
 		template_scores, template_velocities = \
-			self._score_ref_templates(D)
+			self._score_ref_templates(D, self.seqLen)
 		recall_preds, pred, dist = \
-			self._locate_best_match(template_scores, template_velocities, backward)
+			self._locate_best_match(template_scores, template_velocities, self.seqLen, backward)
 		score = self.MAX_DIST - dist
 		
 		return recall_preds, pred, score
@@ -185,11 +185,11 @@ class PlaceRecognitionSeqMatching:
 			) / np.std(D[idx_lower:idx_upper, :], axis=0)
 		return Denhanced
 
-	def _score_ref_templates(self, D):
+	def _score_ref_templates(self, D, seq_len):
 		# v = vMin, vMin+vStep, ..., vMax
 		velocities = np.linspace(self.vMin, self.vMax, self.numVel + 1)
 		# i = 0, ..., max_ind <- truncated so line search not cut off
-		max_ind = int(self.N - 1 - self.vMax * self.L)
+		max_ind = int(self.N - 1 - self.vMax * seq_len)
 		# last template image to begin sequence matching on: 0, 1, ..., max_ind - 1
 		refs = np.arange(max_ind) 
 		# D score for best velocity for each starting point (template image)
@@ -198,7 +198,7 @@ class PlaceRecognitionSeqMatching:
 		optV = np.empty(max_ind); optV[:] = np.inf
 
 		# t = 0, ..., L
-		times = np.arange(self.L)
+		times = np.arange(seq_len)
 		for vel in velocities:
 			# indices in D for line search given a particular velocity
 			# include all template number
@@ -212,7 +212,7 @@ class PlaceRecognitionSeqMatching:
 			# line search indices for the query sequence
 			col_indices = np.tile(times, max_ind)
 			# evaluate D at indices and sum to get aggregate difference
-			Dsum = np.sum(D[row_indices, col_indices].reshape(max_ind, self.L), axis=1)
+			Dsum = np.sum(D[row_indices, col_indices].reshape(max_ind, seq_len), axis=1)
 			# for sequence matching scores better than
 			# prior scores (under different velocities), update
 			ind_better = Dsum < optD
@@ -221,7 +221,7 @@ class PlaceRecognitionSeqMatching:
 
 		return optD, optV
 
-	def _locate_best_match(self, template_scores, template_velocities, backward=False):
+	def _locate_best_match(self, template_scores, template_velocities, seq_len, backward=False):
 		# indices of best match and window around it
 		iOpt = np.argmin(template_scores)
 		iOptV = template_velocities[iOpt]
@@ -229,10 +229,10 @@ class PlaceRecognitionSeqMatching:
 		iWinU = np.minimum(iOpt + int(self.matchWindow / 2), len(template_scores))
 		# check best match outside window
 		outside_scores = np.concatenate((template_scores[:iWinL], template_scores[iWinU:]))
-		optOutside = min(outside_scores)
-		# for negative scores, u \in [0, 1]
-		# increases the score... adjust
 		if np.any(outside_scores):
+			optOutside = min(outside_scores)
+			# for negative scores, u \in [0, 1]
+			# increases the score... adjust
 			if optOutside > 0:
 				mu = template_scores[iOpt] / optOutside
 			else:
@@ -241,14 +241,14 @@ class PlaceRecognitionSeqMatching:
 			mu = template_scores[iOpt]
 
 		if not backward:
-			pred = min(np.floor(iOpt + iOptV * (self.seqLen - 1)).astype(int), self.N - 1)
+			pred = min(np.floor(iOpt + iOptV * (seq_len - 1)).astype(int), self.N - 1)
 			indices = np.argsort(template_scores)[:self.recall_values]
 			recall_preds = [min(self.N - 1, \
-								np.floor(i + template_velocities[i] * (self.seqLen - 1)).astype(int)) \
+								np.floor(i + template_velocities[i] * (seq_len - 1)).astype(int)) \
 								for i in indices]
 		else:
 			pred = iOpt
-			recall_preds = np.argsort(template_scores)[:self.recall_values]
+			recall_preds = np.argsort(template_scores)[:self.recall_values].tolist()
 
 		return recall_preds, pred, mu
 

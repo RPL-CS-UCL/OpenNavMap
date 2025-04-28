@@ -7,7 +7,7 @@ python python/loc_pipeline.py \
 	--query_data_path /Rocket_ssd/dataset/data_litevloc/vnav_eval/matterport3d/s17DRP5sb8fy/merge_finalmap \
 	--image_size 512 288 --device=cuda \
 	--vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256 \
-	--save_descriptors --num_preds_to_save 3 \
+	--num_preds_to_save 3 \
 	--img_matcher master --save_img_matcher \
 	--pose_solver pnp --config_pose_solver python/config/dataset/matterport3d.yaml \
 	--global_pos_threshold 10.0 --min_inliers_threshold 300 \
@@ -38,11 +38,11 @@ import matplotlib
 from utils.utils_pipeline import *
 from utils.utils_geom import read_intrinsics, read_poses, read_descriptors, correct_intrinsic_scale
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error, convert_pose_inv
-from utils.utils_vpr_method import initialize_vpr_model, perform_knn_search, compute_euclidean_dis
+from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, perform_knn_search, compute_euclidean_dis
 from utils.utils_vpr_method import save_visualization as save_vpr_visualization
 from utils.utils_image_matching_method import initialize_img_matcher
 from utils.utils_image_matching_method import save_visualization as save_img_matcher_visualization
-from utils.utils_image import load_rgb_image, load_depth_image, to_numpy, save_rgb_image
+from utils.utils_image import load_rgb_image, load_depth_image, to_numpy
 from utils.utils_ros import ros_msg, ros_vis
 from utils.pose_solver import get_solver
 from benchmark_rpe.rpe_default import cfg
@@ -57,8 +57,7 @@ class LocPipeline:
 		self.args = args
 
 		out_dir.mkdir(exist_ok=True, parents=True)
-		log_dir = setup_log_environment(out_dir, args)
-		self.log_dir = log_dir
+		self.log_dir = setup_log_environment(out_dir, args)
 	
 		self.has_global_pos = False
 		self.has_local_pos = False
@@ -67,18 +66,28 @@ class LocPipeline:
 
 	def init_vpr_model(self):
 		self.vpr_model = initialize_vpr_model(self.args.vpr_method, self.args.vpr_backbone, self.args.vpr_descriptors_dimension, self.args.device)
-		logging.info(f"VPR model: {self.args.vpr_method}")
+		logging.info(f"Initialize VPR model: {self.args.vpr_method}")
+
+	def init_vpr_match_model(self):
+		self.vpr_match_model = initialize_match_model(
+			self.args.vpr_match_model, self.args.vpr_match_seq_len
+		)
+		self.vpr_match_model.initialize_model(
+			self.DB_DESCRIPTORS, recall_values=self.args.num_preds_to_save
+		)
+		self.curr_query_descs = []
+		logging.info(f"Initialize VPR Match Model: {self.args.vpr_match_model}")
 
 	def init_img_matcher(self):
 		self.img_matcher = initialize_img_matcher(self.args.img_matcher, self.args.device, self.args.n_kpts)
 		if self.args.img_matcher == "master": 
 			self.img_matcher.min_conf_thr = self.args.min_master_conf_thre
-		logging.info(f"Image matcher: {self.args.img_matcher}")
+		logging.info(f"Initialize Image matcher: {self.args.img_matcher}")
 		
 	def init_pose_solver(self):
 		cfg.merge_from_file(self.args.config_pose_solver)
 		self.pose_solver = get_solver(self.args.pose_solver, cfg)
-		logging.info(f"Pose solver: {self.args.pose_solver}")
+		logging.info(f"Initialize Pose solver: {self.args.pose_solver}")
 
 	def initalize_ros(self):
 		self.pub_graph = rospy.Publisher('/graph', MarkerArray, queue_size=10)
@@ -99,8 +108,7 @@ class LocPipeline:
 			map_root=map_root,
 			resize=self.args.image_size,
 			depth_scale=self.args.depth_scale,
-			# DEBUG(gogojjh):
-			load_rgb=False, 
+			load_rgb=True, 
 			load_depth=False,
 			normalized=False,
 			edge_type='covis'
@@ -114,16 +122,7 @@ class LocPipeline:
 		for indices, (_, node) in enumerate(self.image_graph.nodes.items()):
 			self.DB_POSES[indices, :3] = node.trans
 			self.DB_POSES[indices, 3:] = node.quat
-
-		logging.debug(f"Extracted {self.DB_DESCRIPTORS.shape} VPR descriptors from the map.")
-
-	def perform_vpr(self, db_descs: np.array, query_desc: np.array):
-		dis, pred = perform_knn_search(
-			db_descs, query_desc,
-			self.args.vpr_descriptors_dimension, 
-			self.args.recall_values
-		)
-		return dis, pred
+		logging.debug(f"Extracting {self.DB_DESCRIPTORS.shape} VPR descriptors from the map.")
 
 	def perform_image_matching(self, matcher, map_node, obs_node):
 		try:
@@ -175,19 +174,46 @@ class LocPipeline:
 
 	def perform_global_loc(self, save_viz=False):
 		query_desc = self.curr_obs_node.get_descriptor()
-		_, vpr_pred = self.perform_vpr(self.DB_DESCRIPTORS, query_desc.reshape(1, -1))
+		assert query_desc.shape[1] == self.DB_DESCRIPTORS.shape[1]
+		assert query_desc.shape[1] == self.args.vpr_descriptors_dimension		
 		
-		if save_viz:
-			img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
-			for i in range(len(vpr_pred[0, :self.args.num_preds_to_save])):
-				node_id = self.DB_Node_IDS[vpr_pred[0, i]]
-				map_node = self.image_graph.get_node(node_id)
-				img_paths.append(str(self.image_graph.map_root / map_node.rgb_img_name))
-			preds_correct = [None] * len(img_paths)
-			save_vpr_visualization(self.log_dir, 0, img_paths, preds_correct)
-		
-		return {'succ': True, 'map_id': self.DB_Node_IDS[vpr_pred[0, 0]]}
-	
+		if len(self.curr_query_descs) < self.vpr_match_model.seqLen:
+			self.curr_query_descs.append(query_desc)
+			return {'succ': False, 'map_id': None}
+		else:
+			# Perform sequence match
+			self.curr_query_descs.pop(0)
+			self.curr_query_descs.append(query_desc)
+			query_descs = np.array(self.curr_query_descs).reshape(-1, self.args.vpr_descriptors_dimension)
+			recall_preds, pred, _ = self.vpr_match_model.match(query_descs)
+
+			# Perform geometric verification on the Top-1 match
+			map_node_id = self.DB_Node_IDS[pred]
+			map_node = self.image_graph.get_node(map_node_id)
+			result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
+			num_inlier = result['num_inliers']
+			logging.info(f"Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
+			
+			if save_viz:
+				img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
+				for i in range(len(recall_preds)):
+					node_id = self.DB_Node_IDS[recall_preds[i]]
+					map_node = self.image_graph.get_node(node_id)
+					img_paths.append(str(self.image_graph.map_root / map_node.rgb_img_name))
+				preds_correct = [None] * len(img_paths)
+				save_vpr_visualization(self.log_dir, 0, img_paths, preds_correct)
+				
+				if hasattr(self.vpr_match_model, 'compute_diff_matrix'):
+					D_all = self.vpr_match_model.compute_diff_matrix(query_descs)
+				else:
+					D_all = None
+				self.vpr_match_model.save_diff_matrix_fitting(
+					os.path.join(self.log_dir, 'preds'),
+					[], [], [], [], D_all, None, None
+				)
+
+			if num_inlier >= GV_SCORE_THRESHOLD: 
+				return {'succ': True, 'map_id': map_node_id}			
 	def perform_local_loc(self):
 		result_fail = {'succ': False, 'T_w_obs': None, 'solver_inliers': 0}
 
@@ -296,8 +322,8 @@ def perform_localization(loc: LocPipeline, args):
 	intrs = read_intrinsics(os.path.join(args.query_data_path, 'intrinsics.txt'))
 	descs = read_descriptors(os.path.join(args.query_data_path, 'database_descriptors.txt'))
 	resize = args.image_size
-	
 	loc.last_obs_node = None
+	
 	for node_id, (rgb_img_name, pose) in enumerate(poses.items()):
 		if rospy.is_shutdown(): break	
 		print(f"Loading observation {rgb_img_name}")
@@ -322,7 +348,7 @@ def perform_localization(loc: LocPipeline, args):
 
 		# Create observation node
 		obs_node = ImageNode(
-			node_id, rgb_img, depth_img, descs[rgb_img_name],
+			node_id, rgb_img, depth_img, descs[rgb_img_name].reshape(1, -1),
 			rospy.Time.now().to_sec(),
 			np.zeros(3), np.array([0, 0, 0, 1]),
 			K, img_size,
@@ -335,7 +361,6 @@ def perform_localization(loc: LocPipeline, args):
 			'xyzw'
 		)
 		obs_node.set_pose_gt(trans, quat)
-
 		loc.curr_obs_node = obs_node
 
 		"""Perform global localization via. visual place recognition"""
@@ -399,13 +424,11 @@ if __name__ == '__main__':
 
 	# Initialize the localization pipeline
 	loc_pipeline = LocPipeline(args, out_dir)
-	rospy.loginfo('Initialize VPR Model')
 	loc_pipeline.init_vpr_model()
-	rospy.loginfo('Initialize Image Matcher')
 	loc_pipeline.init_img_matcher()
-	rospy.loginfo('Initialize Pose Solver')
 	loc_pipeline.init_pose_solver()
 	loc_pipeline.read_covis_graph_from_files()
+	loc_pipeline.init_vpr_match_model()
 
 	rospy.init_node('loc_pipeline_node', anonymous=True)
 	loc_pipeline.initalize_ros()

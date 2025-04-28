@@ -194,7 +194,7 @@ def parse_arguments():
 											 "longest edge of all images to this value, while keeping aspect ratio")
 
 	parser.add_argument("--vpr_match_model", type=str, default="sequence_match", 
-											 help="single_match, topo_filter, sequence_match, sequence_match_ransac")
+						help="single_match, topo_filter, sequence_match, sequence_match_ransac, sequence_match_adaptive")
 	parser.add_argument("--vpr_match_seq_len", type=int, default=10, help="Sequence length for VPR")
 
 	parser.add_argument("--pose_estimation_method", type=str, default="master", help=f"{available_models}")

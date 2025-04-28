@@ -8,6 +8,8 @@ import matplotlib
 from matching import available_models
 from utils.pose_solver import available_solvers
 
+GV_SCORE_THRESHOLD = 300.0
+
 sys.path.extend([
 	os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../VPR-methods-evaluation'),
 	os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../VPR-methods-evaluation/third_party/deep-image-retrieval')
@@ -79,14 +81,16 @@ def parse_arguments():
 	parser.add_argument("--positive_dist_threshold", type=int, default=25,
 											help="distance (in meters) for a prediction to be considered a positive")
 	parser.add_argument("--vpr_method", type=str, default="cosplace",
-											choices=["netvlad", "apgem", "sfrs", "cosplace", "convap", "mixvpr", "eigenplaces", 
-													 "eigenplaces-indoor", "anyloc", "salad", "salad-indoor", "cricavpr"],
-											help="_")
+											choices=["netvlad", "apgem", "sfrs", "cosplace", "convap", "mixvpr", "eigenplaces", "eigenplaces-indoor", "anyloc", "salad", "salad-indoor", "cricavpr"], help="_")
 	parser.add_argument("--vpr_backbone", type=str, default=None,
 											choices=[None, "VGG16", "ResNet18", "ResNet50", "ResNet101", "ResNet152"],
 											help="_")
 	parser.add_argument("--vpr_descriptors_dimension", type=int, default=None,
 											help="_")
+
+	parser.add_argument("--vpr_match_model", type=str, default="sequence_match", 
+						help="single_match, topo_filter, sequence_match, sequence_match_ransac, sequence_match_adaptive")
+	parser.add_argument("--vpr_match_seq_len", type=int, default=10, help="Sequence length for VPR")
 	
 	parser.add_argument("--num_workers", type=int, default=4,
 											help="_")
