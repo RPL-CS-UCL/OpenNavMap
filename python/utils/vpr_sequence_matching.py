@@ -20,7 +20,7 @@ class PlaceRecognitionSeqMatching:
 		self.matchWindow = 10
 				
 		# Velocity parameters (expanded range)
-		self.vMin = 0.4                
+		self.vMin = 0.6
 		self.vMax = 2.5
 		self.numVel = 20
 		

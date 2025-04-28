@@ -88,7 +88,7 @@ def parse_arguments():
 	parser.add_argument("--vpr_descriptors_dimension", type=int, default=None,
 											help="_")
 
-	parser.add_argument("--vpr_match_model", type=str, default="sequence_match", 
+	parser.add_argument("--vpr_match_model", type=str, default="single_match", 
 						help="single_match, topo_filter, sequence_match, sequence_match_ransac, sequence_match_adaptive")
 	parser.add_argument("--vpr_match_seq_len", type=int, default=10, help="Sequence length for VPR")
 	

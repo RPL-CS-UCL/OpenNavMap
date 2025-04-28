@@ -73,20 +73,6 @@ class MergePipeline:
 		)
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
-	def initalize_ros(self):
-		# self.pub_graph = rospy.Publisher('/graph', MarkerArray, queue_size=10)
-		# self.pub_graph_poses = rospy.Publisher('/graph/poses', PoseArray, queue_size=10)
-		
-		# self.pub_odom = rospy.Publisher('/vloc/odometry', Odometry, queue_size=10)
-		# self.pub_path = rospy.Publisher('/vloc/path', Path, queue_size=10)
-		# self.pub_path_gt = rospy.Publisher('/vloc/path_gt', Path, queue_size=10)
-		# self.pub_map_obs = rospy.Publisher('/vloc/image_map_obs', Image, queue_size=10)
-
-		# self.br = tf2_ros.TransformBroadcaster()
-		# self.path_msg = Path()
-		# self.path_gt_msg = Path()
-		pass
-
 	def read_map_from_file(self):
 		for submap_path in self.args.input_submap_path:
 			submap_id = len(self.submaps)
@@ -371,7 +357,12 @@ def perform_local_loc(
 			continue
 		try:
 			# Prepare database references
-			db_node_pair = [db_node, db_node.edges[next(iter(db_node.edges))][0]]
+			_, max_db_node = min(
+				((np.linalg.norm(node.global_descriptor - query_node.global_descriptor), node) 
+				for node in (cur_graph.get_node(id) for id in db_node.edges.keys())),
+				default=(10.0, None)
+			)
+			db_node_pair = [db_node, max_db_node]
 			db_names = [n.rgb_img_name for n in db_node_pair]
 			db_poses = [torch.from_numpy(convert_vec_to_matrix(n.trans, n.quat, 'xyzw')) for n in db_node_pair]
 			db_intrs = [{
@@ -652,14 +643,8 @@ if __name__ == '__main__':
 
 	# Initialize the map merging pipeline
 	merger = MergePipeline(args, log_dir)
-	# rospy.loginfo('Initialize Pose Estimator')
 	merger.init_vpr_match_model()
 	merger.init_pose_estimator()
 	merger.read_map_from_file()
-
-	# rospy.init_node('map_merge_pipeline_node', anonymous=True)
-	# merger.initalize_ros()
-	# loc_pipeline.frame_id_map = rospy.get_param('~frame_id_map', 'map')
-	# loc_pipeline.child_frame_id = rospy.get_param('~child_frame_id', 'camera')
 
 	perform_submap_merging(merger, args)

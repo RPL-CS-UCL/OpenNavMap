@@ -64,6 +64,15 @@ class LocPipeline:
 		self.frame_id_map = 'map'
 		self.depth_range = (0.1, 15.0)
 
+		# Pipeline
+		self.vpr_model = None
+		self.vpr_match_model = None
+		self.img_matcher = None
+		self.pose_solver = None
+
+		# Variable
+		self.ref_map_node = None
+
 	def init_vpr_model(self):
 		self.vpr_model = initialize_vpr_model(self.args.vpr_method, self.args.vpr_backbone, self.args.vpr_descriptors_dimension, self.args.device)
 		logging.info(f"Initialize VPR model: {self.args.vpr_method}")
@@ -73,7 +82,7 @@ class LocPipeline:
 			self.args.vpr_match_model, self.args.vpr_match_seq_len
 		)
 		self.vpr_match_model.initialize_model(
-			self.DB_DESCRIPTORS, recall_values=self.args.num_preds_to_save
+			self.DB_DESCRIPTORS, recall_values=1
 		)
 		self.curr_query_descs = []
 		logging.info(f"Initialize VPR Match Model: {self.args.vpr_match_model}")
@@ -102,15 +111,15 @@ class LocPipeline:
 		self.path_msg = Path()
 		self.path_gt_msg = Path()
 
-	def read_covis_graph_from_files(self):
+	def read_covis_graph_from_files(self, config):
 		map_root = pathlib.Path(self.args.map_path)
 		self.image_graph = GraphLoader.load_data(
 			map_root=map_root,
-			resize=self.args.image_size,
-			depth_scale=self.args.depth_scale,
-			load_rgb=True, 
-			load_depth=False,
-			normalized=False,
+			resize=config['resize'],
+			depth_scale=config['depth_scale'],
+			load_rgb=config['load_rgb'], 
+			load_depth=config['load_depth'],
+			normalized=config['normalized'],
 			edge_type='covis'
 		)
 		logging.info(f"Loading Covisiblity Graph: {str(self.image_graph)}")
@@ -177,23 +186,13 @@ class LocPipeline:
 		assert query_desc.shape[1] == self.DB_DESCRIPTORS.shape[1]
 		assert query_desc.shape[1] == self.args.vpr_descriptors_dimension		
 		
-		if len(self.curr_query_descs) < self.vpr_match_model.seqLen:
-			self.curr_query_descs.append(query_desc)
-			return {'succ': False, 'map_id': None}
-		else:
+		self.curr_query_descs.append(query_desc)
+		self.curr_query_descs = self.curr_query_descs[-self.vpr_match_model.seqLen:]
+		if len(self.curr_query_descs) >= self.vpr_match_model.seqLen:
 			# Perform sequence match
-			self.curr_query_descs.pop(0)
-			self.curr_query_descs.append(query_desc)
-			query_descs = np.array(self.curr_query_descs).reshape(-1, self.args.vpr_descriptors_dimension)
+			query_descs = np.array(self.curr_query_descs).reshape(-1, query_desc.shape[1])
 			recall_preds, pred, _ = self.vpr_match_model.match(query_descs)
 
-			# Perform geometric verification on the Top-1 match
-			map_node_id = self.DB_Node_IDS[pred]
-			map_node = self.image_graph.get_node(map_node_id)
-			result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
-			num_inlier = result['num_inliers']
-			logging.info(f"Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
-			
 			if save_viz:
 				img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
 				for i in range(len(recall_preds)):
@@ -212,8 +211,20 @@ class LocPipeline:
 					[], [], [], [], D_all, None, None
 				)
 
-			if num_inlier >= GV_SCORE_THRESHOLD: 
-				return {'succ': True, 'map_id': map_node_id}			
+			# Perform geometric verification on the Top-1 match
+			map_node_id = self.DB_Node_IDS[pred]
+			if self.img_matcher is not None:
+				map_node = self.image_graph.get_node(map_node_id)
+				result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
+				num_inlier = result['num_inliers']
+				logging.info(f"Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
+				if num_inlier >= GV_SCORE_THRESHOLD: 
+					return {'succ': True, 'map_id': map_node_id}
+			else:
+				return {'succ': True, 'map_id': map_node_id}
+
+		return {'succ': False, 'map_id': None}		
+	
 	def perform_local_loc(self):
 		result_fail = {'succ': False, 'T_w_obs': None, 'solver_inliers': 0}
 
@@ -375,6 +386,7 @@ def perform_localization(loc: LocPipeline, args):
 				loc.curr_obs_node.set_pose(loc.ref_map_node.trans, loc.ref_map_node.quat)
 				rospy.logwarn(f'Found VPR Node in global position: {matched_map_id}')
 			else:
+				loc.ref_map_node = None
 				rospy.logwarn('[Fail] to determine the global position since no VPR results.')
 				continue
 		else:
@@ -421,13 +433,17 @@ def perform_localization(loc: LocPipeline, args):
 if __name__ == '__main__':
 	args = parse_arguments()
 	out_dir = pathlib.Path(os.path.join(args.map_path, 'tmp/output_loc_pipeline'))
+	config = dict(
+		resize=args.image_size, depth_scale=args.depth_scale, 
+		load_rgb=True, load_depth=False, normalized=False
+	)
 
 	# Initialize the localization pipeline
 	loc_pipeline = LocPipeline(args, out_dir)
 	loc_pipeline.init_vpr_model()
 	loc_pipeline.init_img_matcher()
 	loc_pipeline.init_pose_solver()
-	loc_pipeline.read_covis_graph_from_files()
+	loc_pipeline.read_covis_graph_from_files(config)
 	loc_pipeline.init_vpr_match_model()
 
 	rospy.init_node('loc_pipeline_node', anonymous=True)

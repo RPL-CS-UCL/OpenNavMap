@@ -29,7 +29,6 @@ if __name__ == "__main__":
 	import argparse
 	from image_graph import ImageGraphLoader as GraphLoader
 	from tqdm import tqdm
-	from utils.utils_geom import compute_pose_error
 
 	# Parse arguments
 	parser = argparse.ArgumentParser()

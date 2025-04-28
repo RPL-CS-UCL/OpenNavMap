@@ -151,9 +151,9 @@ class GlobalPlanner:
 					self.is_goal_init = True
 					self.planner_status.data = 1
 					##### DEBUG(gogojjh): User specify the goal image, only True during Debug
-					if self.args.goal_image:
-						print('Visualize graph')
-						self.visualize_graph(tra_path, self.args.goal_image)
+					# if self.args.goal_image:
+					# 	print('Visualize graph')
+					# 	self.visualize_graph(tra_path, self.args.goal_image)
 					#####
 				else:
 					print('Fail to plan a path')
@@ -244,12 +244,17 @@ class GlobalPlanner:
 
 if __name__ == '__main__':
 	args = parse_arguments()
-
+	
 	logging_level = logging.INFO
 	logging.basicConfig(
 		level=logging_level,
 		format='%(asctime)s - %(levelname)s - %(message)s',
 		handlers=[logging.StreamHandler()]
+	)
+
+	config = dict(
+		resize=args.image_size, depth_scale=args.depth_scale, 
+		load_rgb=False, load_depth=False, normalized=False
 	)
 
 	# Set map path and log folder
@@ -262,7 +267,8 @@ if __name__ == '__main__':
 	# Initialize the localization pipeline
 	global_planner.loc_pipeline = LocPipeline(args, map_root/'tmp/output_global_planner')
 	global_planner.loc_pipeline.init_vpr_model()
-	global_planner.loc_pipeline.read_covis_graph_from_files()
+	global_planner.loc_pipeline.read_covis_graph_from_files(config)
+	global_planner.loc_pipeline.init_vpr_match_model()
 	
 	rospy.init_node('global_planner', anonymous=True)
 	global_planner.initalize_ros()

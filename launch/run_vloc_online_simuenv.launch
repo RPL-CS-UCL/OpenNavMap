@@ -12,8 +12,8 @@
 
 	<!-- Localization Parameters -->
 	<!-- trigger global localization if distance to the closest map node exceeds it -->
-	<!-- indoor: 10.0; outdoor: 15.0 -->
-	<arg name="global_pos_threshold" default="10.0" /> 
+	<!-- indoor: 7.5; outdoor: 15.0 -->
+	<arg name="global_pos_threshold" default="7.5" /> 
 	<arg name="vloc_freq" default="1" />
 
 	<!-- Launch Environment -->
@@ -24,7 +24,9 @@
 			<arg name="environment_directory" value="$(find benchmark_visual_nav)/data/matterport/$(arg env_id)" />
 			<arg name="gazebo_gui" value="$(arg gazebo_gui)" />
 			<arg name="useLocalPlanner" value="$(arg useLocalPlanner)" />
-			<arg name="use_rviz" value="false" />
+			<group unless="$(arg use_nav)">
+				<arg name="use_rviz" value="false" />
+			</group>
 			
 			<group if="$(arg useLocalPlanner)">
 				<arg name="odomTopic" value="/state_estimation" />
@@ -58,7 +60,8 @@
 		<node name="ros_global_planner" pkg="litevloc" type="ros_global_planner.py" output="log"
 			args="--map_path $(arg map_path) \
 						--image_size 512 288 --device cuda \
-						--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256" >
+						--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256 \
+						--vpr_match_model single_match" >
 			<param name="frame_id_map" value="vloc_map" />
 			<param name="main_freq" value="1" />
 			<param name="conv_dist" value="0.5" />
@@ -74,7 +77,7 @@
 		args="--map_path $(arg map_path)
 					--image_size 512 288 --device cuda 
 					--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256 
-					--vpr_match_model sequence_match --vpr_match_seq_len 10
+					--vpr_match_model sequence_match --vpr_match_seq_len 5
 					--img_matcher master --pose_solver pnp 
 					--config_pose_solver $(find litevloc)/python/config/dataset/matterport3d.yaml
 					--ros_rgb_img_type raw
