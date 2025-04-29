@@ -4,7 +4,7 @@
 Usage: 
 python python/global_planner.py \
 	--map_path /Rocket_ssd/dataset/data_litevloc/vnav_eval/matterport3d/s17DRP5sb8fy/merge_finalmap \
-	--goal_image goal_image.jpg (optional)
+	--goal_image goal_image.jpg (optional) \
 	--image_size 512 288 --device cuda \
 	--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256
 """
@@ -151,9 +151,9 @@ class GlobalPlanner:
 					self.is_goal_init = True
 					self.planner_status.data = 1
 					##### DEBUG(gogojjh): User specify the goal image, only True during Debug
-					# if self.args.goal_image:
-					# 	print('Visualize graph')
-					# 	self.visualize_graph(tra_path, self.args.goal_image)
+					if self.args.goal_image and self.args.viz:
+						print('Visualize graph')
+						self.visualize_graph(tra_path, self.args.goal_image)
 					#####
 				else:
 					print('Fail to plan a path')

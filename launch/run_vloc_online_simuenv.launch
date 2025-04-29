@@ -1,9 +1,10 @@
 <launch>
 
 	<!-- Base Parameters -->
-	<arg name="env_id" default="17DRP5sb8fy" />
-	<arg name="data_path" default="data_litevloc/vnav_eval/matterport3d" />
-	<arg name="map_path" default="$(arg data_path)/s$(arg env_id)/merge_finalmap" />
+	<arg name="env_id" default="matterport3d" />
+	<arg name="scene_id" default="17DRP5sb8fy" />
+	<arg name="data_path" default="/Rocket_ssd/dataset/data_litevloc/vnav_eval" />
+	<arg name="map_path" default="$(arg data_path)/$(arg env_id)/s$(arg scene_id)/merge_finalmap" />
 	<arg name="setup_simu_env" default="true" />
 	<arg name="use_rviz" default="true" />
 	<arg name="use_nav" default="true" />
@@ -58,9 +59,9 @@
 	<!-- Planning -->
 	<group if="$(arg setup_simu_env)">
 		<node name="ros_global_planner" pkg="litevloc" type="ros_global_planner.py" output="log"
-			args="--map_path $(arg map_path) \
-						--image_size 512 288 --device cuda \
-						--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256 \
+			args="--map_path $(arg map_path)
+						--image_size 512 288 --device cuda
+						--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256
 						--vpr_match_model single_match" >
 			<param name="frame_id_map" value="vloc_map" />
 			<param name="main_freq" value="1" />
