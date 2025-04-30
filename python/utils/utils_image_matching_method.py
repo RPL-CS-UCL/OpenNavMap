@@ -243,7 +243,7 @@ def parse_arguments():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--dataset_path", type=str, default="matterport3d", help="path to dataset_path"
+        "--map_path", type=str, default="matterport3d", help="path to dataset_path"
     )
     parser.add_argument(
         "--matcher",

@@ -151,7 +151,7 @@ class LocPipeline:
 		except Exception as e:
 			logging.error(f"Error in image matching: {e}")
 			null_kpts = np.zeros((0, 2), dtype=np.float32)
-			return {"num_inliers_kpts": 0, "num_inliers": 0, "inliers0": null_kpts, "inliers1": null_kpts}
+			return {"num_inliers": 0, "inlier_kpts0": null_kpts, "inlier_kpts1": null_kpts}
 
 	def search_keyframe_from_graph(self, obs_node):
 		"""
@@ -183,7 +183,7 @@ class LocPipeline:
 	def perform_global_loc(self, save_viz=False):
 		query_desc = self.curr_obs_node.get_descriptor()
 		assert query_desc.shape[1] == self.DB_DESCRIPTORS.shape[1]
-		assert query_desc.shape[1] == self.args.vpr_descriptors_dimension		
+		assert query_desc.shape[1] == self.args.vpr_descriptors_dimension
 		
 		self.curr_query_descs.append(query_desc)
 		self.curr_query_descs = self.curr_query_descs[-self.vpr_match_model.seqLen:]
@@ -191,6 +191,7 @@ class LocPipeline:
 			# Perform sequence match
 			query_descs = np.array(self.curr_query_descs).reshape(-1, query_desc.shape[1])
 			recall_preds, pred, _ = self.vpr_match_model.match(query_descs)
+			print(recall_preds)
 
 			if save_viz:
 				img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
@@ -229,9 +230,10 @@ class LocPipeline:
 
 		matching_start_time = time.time()
 		ref_node = self.search_keyframe_from_graph(self.curr_obs_node)
-		if ref_node is None: return result_fail
-		
+		if ref_node is None: 
+			return result_fail
 		self.ref_map_node = ref_node
+		
 		match_result = self.perform_image_matching(self.img_matcher, self.ref_map_node, self.curr_obs_node)
 		w_ratio = self.ref_map_node.raw_img_size[0] / self.ref_map_node.img_size[0] 
 		h_ratio = self.ref_map_node.raw_img_size[1] / self.ref_map_node.img_size[1]
@@ -262,7 +264,7 @@ class LocPipeline:
 			else:
 				T_mapnode_obs = np.eye(4)
 				T_mapnode_obs[:3, :3], T_mapnode_obs[:3, 3] = R, t.reshape(3)
-				T_w_mapnode = convert_vec_to_matrix(self.ref_map_node.trans_gt, self.ref_map_node.quat_gt, 'xyzw')
+				T_w_mapnode = convert_vec_to_matrix(self.ref_map_node.trans, self.ref_map_node.quat, 'xyzw')
 				T_w_obs = T_w_mapnode @ T_mapnode_obs
 				rospy.logwarn(f'[Succ] sufficient number {num_solver_inliers} solver inliers')
 		
@@ -333,7 +335,7 @@ def perform_localization(loc: LocPipeline, args):
 	poses = read_poses(os.path.join(args.query_data_path, 'poses.txt'))
 	intrs = read_intrinsics(os.path.join(args.query_data_path, 'intrinsics.txt'))
 	descs = read_descriptors(os.path.join(args.query_data_path, 'database_descriptors.txt'))
-	resize = args.image_size
+	resize = args.image_size # WxH
 	loc.last_obs_node = None
 	
 	for node_id, (rgb_img_name, pose) in enumerate(poses.items()):
@@ -352,7 +354,9 @@ def perform_localization(loc: LocPipeline, args):
 		raw_K = np.array([intr[0], 0, intr[2], 0, intr[1], intr[3], 0, 0, 1], dtype=np.float32).reshape(3, 3)
 		raw_size = (width, height)
 		if resize is not None:
-			K = correct_intrinsic_scale(raw_K, resize[0] / width, resize[1] / height) 
+			K = correct_intrinsic_scale(
+				raw_K, resize[0] / width, resize[1] / height
+			) 
 			img_size = np.array([int(resize[0]), int(resize[1])])
 		else:
 			K = raw_K
@@ -385,7 +389,7 @@ def perform_localization(loc: LocPipeline, args):
 				loc.has_global_pos = True
 				loc.ref_map_node = loc.image_graph.get_node(matched_map_id)
 				loc.curr_obs_node.set_pose(loc.ref_map_node.trans, loc.ref_map_node.quat)
-				rospy.logwarn(f'Found VPR Node in global position: {matched_map_id}')
+				rospy.logwarn(f'[Succed] Found VPR Node in global position: {matched_map_id}')
 			else:
 				loc.ref_map_node = None
 				rospy.logwarn('[Fail] to determine the global position since no VPR results.')

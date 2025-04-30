@@ -8,7 +8,7 @@ import matplotlib
 from matching import available_models
 from utils.pose_solver import available_solvers
 
-GV_SCORE_THRESHOLD = 300.0
+GV_SCORE_THRESHOLD = 100.0
 
 sys.path.extend([
 	os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../VPR-methods-evaluation'),

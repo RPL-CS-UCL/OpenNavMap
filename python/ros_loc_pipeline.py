@@ -79,7 +79,9 @@ def perform_localization(loc: LocPipeline, args):
 			raw_K = np.array(camera_info_msg.K).reshape((3, 3))
 			raw_img_size = (int(camera_info_msg.width), int(camera_info_msg.height))
 			if resize is not None:
-				K = correct_intrinsic_scale(raw_K, resize[0] / raw_img_size[0], resize[1] / raw_img_size[1])
+				K = correct_intrinsic_scale(
+					raw_K, resize[0] / raw_img_size[0], resize[1] / raw_img_size[1]
+				)
 				img_size = (int(resize[0]), int(resize[1]))
 			else:
 				K = raw_K
@@ -156,7 +158,8 @@ if __name__ == '__main__':
 	out_dir = pathlib.Path(os.path.join(args.map_path, 'tmp/output_ros_loc_pipeline'))
 	config = dict(
 		resize=args.image_size, depth_scale=args.depth_scale, 
-		load_rgb=True, load_depth=False, normalized=False
+		load_rgb=True, load_depth=False, normalized=False,
+		color_correct=False
 	)
 
 	# Initialize the localization pipeline

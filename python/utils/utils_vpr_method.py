@@ -149,7 +149,7 @@ def save_prec_recall_curve(save_dir, precision_curve, recall_curve, avg_precisio
 def parse_arguments():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-	parser.add_argument("--dataset_path", type=str, default="matterport3d", help="path to dataset_path")
+	parser.add_argument("--map_path", type=str, default="matterport3d", help="path to dataset_path")
 	parser.add_argument("--image_size", type=int, default=None, nargs="+",
 											help="Resizing shape for images (WxH). If a single int is passed, set the"
 											"smallest edge of all images to this value, while keeping aspect ratio")

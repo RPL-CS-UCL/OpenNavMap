@@ -4,7 +4,7 @@
 	<!-- Base Parameters -->
 	<arg name="env_id" default="ucl_campus" />
 	<arg name="scene_id" default="ops_msg_202411" />
-	<arg name="map_path" default="/Rocket_ssd/dataset/data_litevloc/vnav_eval/$(arg env_id)/$(arg scene_id)/merge_finalmap" />
+	<arg name="map_path" default="/Rocket_ssd/dataset/data_litevloc/vnav_eval/$(arg env_id)/$(arg scene_id)" />
 	<arg name="use_rviz" default="false" />
 	<arg name="use_nav" default="false" />
 	<param name="use_sim_time" value="false" />
@@ -13,7 +13,7 @@
 	<!-- Parameters -->
 	<!-- trigger global localization if distance to the closest map node exceeds it -->
 	<!-- indoor: 10.0; outdoor: 15.0 -->
-	<arg name="global_pos_threshold" default="10.0" /> 
+	<arg name="global_pos_threshold" default="7.5" /> 
 	<arg name="vloc_freq" default="1.0" />
 
   <!-- Navigation Interface -->
@@ -39,12 +39,12 @@
 
 	<!-- Global Planning -->
 	<node name="ros_global_planner" pkg="litevloc" type="ros_global_planner.py" output="screen"
-		args="--dataset_path $(arg map_path)
+		args="--map_path $(arg map_path)
 					--image_size 512 288 --device=cuda
 					--vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256
 					--vpr_match_model single_match" >
 		<param name="frame_id_map" value="vloc_map" />
-		<param name="main_freq" value="1" />
+		<param name="main_freq" value="$(arg vloc_freq)" />
 		<param name="conv_dist" value="1.0" />
 	</node>
 
@@ -54,28 +54,28 @@
 	
 	<!-- Localization -->
 	<node name="ros_loc_pipeline" pkg="litevloc" type="ros_loc_pipeline.py" output="screen"
-		args="--dataset_path $(arg map_path)
+		args="--map_path $(arg map_path)
 					--image_size 512 288 --device=cuda 
 					--vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256 
-					--vpr_match_model singl_match
+					--vpr_match_model single_match
 					--img_matcher master --pose_solver pnp 
 					--config_pose_solver $(find litevloc)/python/config/dataset/ucl_campus_robot.yaml --viz
 					--ros_rgb_img_type compressed
 					--global_pos_threshold $(arg global_pos_threshold)
-					--min_master_conf_thre 1.2
-					--min_kpts_inliers_thre 300 
-					--min_solver_inliers_thre 150" >
+					--min_master_conf_thre 0.7
+					--min_kpts_inliers_thre 150 
+					--min_solver_inliers_thre 100" >
 		<remap from="/color/image" to="/zed2/zed_node/left/image_rect_color/compressed" />
 		<remap from="/depth/image" to="/zed2/zed_node/depth/depth_registered" />
 		<remap from="/color/camera_info" to="/zed2/zed_node/left/camera_info" />
-		<param name="main_freq" value="1.0" />
+		<param name="main_freq" value="$(arg vloc_freq)" />
 		<param name="min_depth" value="0.001" />
 		<param name="max_depth" value="13.0" />
 		<param name="frame_id_map" value="vloc_map" />
 	</node>
 
-	<node name="ros_pose_fusion" pkg="litevloc" type="ros_pose_fusion.py" output="log" 
-		args="--env_type indoor">
+	<node name="ros_pose_fusion" pkg="litevloc" type="ros_pose_fusion.py" output="screen" 
+		args="--env_type outdoor">
 		<remap from="/local/odometry" to="/state_estimator/odometry" />
 		<remap from="/global/odometry" to="/vloc/odometry" />
 		<param name="frame_id_map" value="vloc_map" />

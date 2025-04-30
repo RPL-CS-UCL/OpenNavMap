@@ -36,7 +36,6 @@ class PublishGoalImage():
             rospy.loginfo(f'{goal_img_path} does not exist')
             rospy.loginfo(f'Switch to goal_img_0')
             self.goal_img_start_idx = 0
-
             return
         
         goal_img = cv2.imread(goal_img_path)

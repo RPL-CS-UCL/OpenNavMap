@@ -52,6 +52,7 @@ def odom_local_callback(odom_msg):
 	global frame_id_lsensor, frame_id_gsensor, T_gsensor_lsensor, init_extrinsics
 	global path_publish_freq, last_timestamp
 	frame_id_lsensor = odom_msg.child_frame_id
+		
 	if frame_id_gsensor is None: return
 	if not init_extrinsics:
 		try:
@@ -100,7 +101,10 @@ def odom_local_callback(odom_msg):
 		while not odom_global_queue.empty():
 			# Skip the localization odometry that is newer than the current odometry
 			# cannot determine the id of variable
-			if odom_msg.header.stamp < odom_global_queue.queue[0].header.stamp: return
+			if odom_msg.header.stamp < odom_global_queue.queue[0].header.stamp: 
+				rospy.logwarn(f"Time mismatch (local odom and global odom): ")
+				rospy.logwarn(f"{odom_msg.header.stamp} {odom_global_queue.queue[0].header.stamp}")
+				return
 			lock_odom_global.acquire()
 			odom_global_msg = odom_global_queue.get()
 			lock_odom_global.release()
@@ -118,6 +122,7 @@ def odom_local_callback(odom_msg):
 		# Update the current pose after optimization
 		curr_stamped_pose = (curr_time, pose_fusion.current_estimate.atPose3(curr_idx))
 		marginal_cov = pose_fusion.get_margin_covariance(curr_idx)
+		print(init_system)
 		if not init_system:
 			# The system is initialized after the first global odometry
 			init_system = True
@@ -175,10 +180,10 @@ if __name__ == '__main__':
 	# Subscribe different sources of odometry
 	# 1. local odometry
 	# 2, global odometry
-	odom_local = rospy.Subscriber('/local/odometry', Odometry, odom_local_callback)
-	odom_global = rospy.Subscriber('/global/odometry', Odometry, odom_global_callback)
+	odom_local = rospy.Subscriber('/state_estimator/odometry', Odometry, odom_local_callback)
+	odom_global = rospy.Subscriber('/vloc/odometry', Odometry, odom_global_callback)
 
-	frame_id_map = rospy.get_param('~frame_id_map', 'map')
+	frame_id_map = rospy.get_param('~frame_id_map', 'vloc_map')
 	rospy.loginfo(f"Frame id map: {frame_id_map}")
 	path_publish_freq = rospy.get_param('~path_publish_freq', 1)
 	rospy.loginfo(f"Path publish frequency: {path_publish_freq}")	
