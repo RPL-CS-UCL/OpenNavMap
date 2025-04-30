@@ -36,7 +36,6 @@ import tf2_ros
 import matplotlib
 
 from utils.utils_pipeline import *
-from utils.utils_geom import read_intrinsics, read_poses, read_descriptors, correct_intrinsic_scale
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error, convert_pose_inv
 from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, perform_knn_search, compute_euclidean_dis
 from utils.utils_vpr_method import save_visualization as save_vpr_visualization
@@ -204,12 +203,12 @@ class LocPipeline:
 				
 				if hasattr(self.vpr_match_model, 'compute_diff_matrix'):
 					D_all = self.vpr_match_model.compute_diff_matrix(query_descs)
+					self.vpr_match_model.save_diff_matrix_fitting(
+						os.path.join(self.log_dir, 'preds'),
+						[], [], [], [], D_all, None, None
+					)
 				else:
 					D_all = None
-				self.vpr_match_model.save_diff_matrix_fitting(
-					os.path.join(self.log_dir, 'preds'),
-					[], [], [], [], D_all, None, None
-				)
 
 			# Perform geometric verification on the Top-1 match
 			map_node_id = self.DB_Node_IDS[pred]
@@ -328,6 +327,8 @@ class LocPipeline:
 
 # Test loc_pipeline without using ROS
 def perform_localization(loc: LocPipeline, args):
+	from utils.utils_geom import read_intrinsics, read_poses, read_descriptors, correct_intrinsic_scale
+
 	"""Main loop for processing observations"""
 	poses = read_poses(os.path.join(args.query_data_path, 'poses.txt'))
 	intrs = read_intrinsics(os.path.join(args.query_data_path, 'intrinsics.txt'))

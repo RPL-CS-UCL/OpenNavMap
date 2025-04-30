@@ -59,7 +59,7 @@
 					--vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256 
 					--vpr_match_model singl_match
 					--img_matcher master --pose_solver pnp 
-					--config_pose_solver $(find litevloc)/python/config/dataset/ucl_campus.yaml --viz
+					--config_pose_solver $(find litevloc)/python/config/dataset/ucl_campus_robot.yaml --viz
 					--ros_rgb_img_type compressed
 					--global_pos_threshold $(arg global_pos_threshold)
 					--min_master_conf_thre 1.2

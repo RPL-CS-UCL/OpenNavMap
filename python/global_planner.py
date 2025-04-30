@@ -4,9 +4,9 @@
 Usage: 
 python python/global_planner.py \
 	--map_path /Rocket_ssd/dataset/data_litevloc/vnav_eval/matterport3d/s17DRP5sb8fy/merge_finalmap \
-	--goal_image goal_image.jpg (optional) \
 	--image_size 512 288 --device cuda \
-	--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256
+	--vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256 \
+	--goal_image goal_image.jpg (optional)
 """
 
 import os
