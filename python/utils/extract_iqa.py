@@ -37,6 +37,7 @@ def main(args):
 	
 	dataset_path = Path(args.dataset_path)
 	for scene in sorted(os.listdir(args.dataset_path)):
+		if 's' not in scene: continue
 		poses = read_poses(dataset_path/scene/"poses.txt")
 		scores = np.empty((len(poses), 2), dtype=object)
 		for indice, (img_name, _) in enumerate(poses.items()):

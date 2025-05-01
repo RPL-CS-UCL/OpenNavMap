@@ -99,6 +99,7 @@ def perform_localization(loc: LocPipeline, args):
 			)
 			obs_node.set_raw_intrinsics(raw_K, raw_img_size)
 			loc.curr_obs_node = obs_node
+			obs_id += 1
 
 			"""Perform global localization via. visual place recognition"""
 			if not loc.has_global_pos:
@@ -159,7 +160,7 @@ if __name__ == '__main__':
 	config = dict(
 		resize=args.image_size, depth_scale=args.depth_scale, 
 		load_rgb=True, load_depth=False, normalized=False,
-		color_correct=False
+		color_correct=False # Set False always
 	)
 
 	# Initialize the localization pipeline

@@ -74,7 +74,7 @@ class LocPipeline:
 
 	def init_vpr_model(self):
 		self.vpr_model = initialize_vpr_model(self.args.vpr_method, self.args.vpr_backbone, self.args.vpr_descriptors_dimension, self.args.device)
-		logging.info(f"Initialize VPR model: {self.args.vpr_method}")
+		rospy.loginfo(f"Initialize VPR model: {self.args.vpr_method}")
 
 	def init_vpr_match_model(self):
 		self.vpr_match_model = initialize_match_model(
@@ -84,18 +84,18 @@ class LocPipeline:
 			self.DB_DESCRIPTORS, recall_values=1
 		)
 		self.curr_query_descs = []
-		logging.info(f"Initialize VPR Match Model: {self.args.vpr_match_model}")
+		rospy.loginfo(f"Initialize VPR Match Model: {self.args.vpr_match_model}")
 
 	def init_img_matcher(self):
 		self.img_matcher = initialize_img_matcher(self.args.img_matcher, self.args.device, self.args.n_kpts)
 		if self.args.img_matcher == "master": 
 			self.img_matcher.min_conf_thr = self.args.min_master_conf_thre
-		logging.info(f"Initialize Image matcher: {self.args.img_matcher}")
+		rospy.loginfo(f"Initialize Image matcher: {self.args.img_matcher}")
 		
 	def init_pose_solver(self):
 		cfg.merge_from_file(self.args.config_pose_solver)
 		self.pose_solver = get_solver(self.args.pose_solver, cfg)
-		logging.info(f"Initialize Pose solver: {self.args.pose_solver}")
+		rospy.loginfo(f"Initialize Pose solver: {self.args.pose_solver}")
 
 	def initalize_ros(self):
 		self.pub_graph = rospy.Publisher('/graph', MarkerArray, queue_size=10)
@@ -121,7 +121,7 @@ class LocPipeline:
 			normalized=config['normalized'],
 			edge_type='covis'
 		)
-		logging.info(f"Loading Covisiblity Graph: {str(self.image_graph)}")
+		rospy.loginfo(f"Loading Covisiblity Graph: {str(self.image_graph)}")
 
 		# Extract VPR descriptors for all nodes in the map
 		self.DB_Node_IDS = [node.id for node in self.image_graph.nodes.values()]
@@ -191,7 +191,6 @@ class LocPipeline:
 			# Perform sequence match
 			query_descs = np.array(self.curr_query_descs).reshape(-1, query_desc.shape[1])
 			recall_preds, pred, _ = self.vpr_match_model.match(query_descs)
-			print(recall_preds)
 
 			if save_viz:
 				img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
@@ -213,11 +212,12 @@ class LocPipeline:
 
 			# Perform geometric verification on the Top-1 match
 			map_node_id = self.DB_Node_IDS[pred]
+			rospy.loginfo(f"Map node: {map_node_id}")
 			if self.img_matcher is not None:
 				map_node = self.image_graph.get_node(map_node_id)
 				result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
 				num_inlier = result['num_inliers']
-				logging.info(f"Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
+				rospy.loginfo(f"Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
 				if num_inlier >= GV_SCORE_THRESHOLD: 
 					return {'succ': True, 'map_id': map_node_id}
 			else:

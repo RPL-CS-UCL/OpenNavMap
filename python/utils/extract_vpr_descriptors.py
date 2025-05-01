@@ -2,14 +2,14 @@
 
 """
 Usage:
-python extract_vpr_descriptors.py --dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
+python extract_vpr_descriptors.py --map_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
 --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
 --num_preds_to_save 3 \
 --image_size 512 288 \
 --device cuda
 
 Usage for Jetson: 
-python extract_vpr_descriptors.py --dataset_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
+python extract_vpr_descriptors.py --map_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
 --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
 --num_preds_to_save 3 \
 --image_size 512 288 \
@@ -26,7 +26,7 @@ import numpy as np
 import torch
 
 from image_graph import ImageGraphLoader
-from utils.utils_vpr_method import *
+from utils.utils_vpr_method import parse_arguments, initialize_vpr_model
 
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):
@@ -34,8 +34,9 @@ if not hasattr(sys, "ps1"):
 
 def main(args):
 	"""Main function to run the image matching process."""
-	for scene in sorted(os.listdir(args.dataset_path)):
-		scene_path = os.path.join(args.dataset_path, scene)
+	for scene in sorted(os.listdir(args.map_path)):
+		if 's' not in scene: continue
+		scene_path = os.path.join(args.map_path, scene)
 		out_dir = scene_path
 
 		"""Initialize VPR model"""
@@ -48,7 +49,8 @@ def main(args):
 			depth_scale=0.001, 
 			load_rgb=True, 
 			load_depth=False, 
-			normalized=True
+			normalized=True,
+			color_correct=False
 		)
 
 		# Extract VPR descriptors for all nodes in the map
@@ -61,6 +63,7 @@ def main(args):
 				vec = np.empty((1, args.descriptors_dimension + 1), dtype=object)
 				vec[0, 0], vec[0, 1:] = map_node.rgb_img_name, desc[0]
 				db_descriptors[indices, :] = vec[0, :]
+
 		print(f"IDs: {db_descriptors_id} extracted {db_descriptors.shape} VPR descriptors.")
 		print(f'Extract each VPR descriptor costs: {(time.time() - start_time) / len(db_descriptors):.3f}s')
 

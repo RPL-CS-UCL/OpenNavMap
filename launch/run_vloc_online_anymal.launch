@@ -13,7 +13,7 @@
 	<!-- Parameters -->
 	<!-- trigger global localization if distance to the closest map node exceeds it -->
 	<!-- indoor: 10.0; outdoor: 15.0 -->
-	<arg name="global_pos_threshold" default="7.5" /> 
+	<arg name="global_pos_threshold" default="5.0" /> 
 	<arg name="vloc_freq" default="1.0" />
 
   <!-- Navigation Interface -->
@@ -62,9 +62,9 @@
 					--config_pose_solver $(find litevloc)/python/config/dataset/ucl_campus_robot.yaml --viz
 					--ros_rgb_img_type compressed
 					--global_pos_threshold $(arg global_pos_threshold)
-					--min_master_conf_thre 0.7
-					--min_kpts_inliers_thre 150 
-					--min_solver_inliers_thre 100" >
+					--min_master_conf_thre 1.2
+					--min_kpts_inliers_thre 300 
+					--min_solver_inliers_thre 150 --viz" >
 		<remap from="/color/image" to="/zed2/zed_node/left/image_rect_color/compressed" />
 		<remap from="/depth/image" to="/zed2/zed_node/depth/depth_registered" />
 		<remap from="/color/camera_info" to="/zed2/zed_node/left/camera_info" />
@@ -74,7 +74,7 @@
 		<param name="frame_id_map" value="vloc_map" />
 	</node>
 
-	<node name="ros_pose_fusion" pkg="litevloc" type="ros_pose_fusion.py" output="screen" 
+	<node name="ros_pose_fusion" pkg="litevloc" type="ros_pose_fusion.py" output="log" 
 		args="--env_type outdoor">
 		<remap from="/local/odometry" to="/state_estimator/odometry" />
 		<remap from="/global/odometry" to="/vloc/odometry" />

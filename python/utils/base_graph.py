@@ -5,9 +5,7 @@ from pathlib import Path
 class BaseGraph:
 	# Initialize an empty dictionary to store nodes
 	def __init__(self, map_root: Path, edge_type: str):
-		self.map_root = map_root
-		map_root.mkdir(exist_ok=True, parents=True)
-		
+		self.map_root = map_root		
 		self.edge_type = edge_type
 		
 		# Use dict() to ensure the keys (node.id) are uniques
