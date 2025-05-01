@@ -46,7 +46,7 @@ if args.odom_type == 'depth_reg':
 	SIGMA_PRIOR = np.array([np.deg2rad(3.0), np.deg2rad(3.0), np.deg2rad(3.0), 0.1, 0.1, 0.1])
 else:
 	# others:
-	SIGMA_PRIOR = np.array([np.deg2rad(3.0), np.deg2rad(3.0), np.deg2rad(3.0), 0.05, 0.05, 0.5])
+	SIGMA_PRIOR = np.array([np.deg2rad(5.0), np.deg2rad(5.0), np.deg2rad(5.0), 0.5, 0.5, 0.5])
 
 def odom_local_callback(odom_msg):
 	global frame_id_lsensor, frame_id_gsensor, T_gsensor_lsensor, init_extrinsics
@@ -102,9 +102,12 @@ def odom_local_callback(odom_msg):
 			# Skip the localization odometry that is newer than the current odometry
 			# cannot determine the id of variable
 			if odom_msg.header.stamp < odom_global_queue.queue[0].header.stamp: 
-				rospy.logwarn(f"Time mismatch (local odom and global odom): ")
-				rospy.logwarn(f"{odom_msg.header.stamp} {odom_global_queue.queue[0].header.stamp}")
+				out_str =  f"Time mismatch (local odom and global odom): "
+				out_str += f"{odom_msg.header.stamp.to_sec()} < "
+				out_str += f"{odom_global_queue.queue[0].header.stamp.to_sec()}"
+				rospy.logwarn(out_str)
 				return
+			
 			lock_odom_global.acquire()
 			odom_global_msg = odom_global_queue.get()
 			lock_odom_global.release()
@@ -118,15 +121,14 @@ def odom_local_callback(odom_msg):
 			pose_fusion.add_prior_factor(idx_closest, pose3, sigma)
 		
 		# Perform the isam2 optimization 
-		result = pose_fusion.perform_optimization()
+		pose_fusion.perform_optimization()
 		# Update the current pose after optimization
 		curr_stamped_pose = (curr_time, pose_fusion.current_estimate.atPose3(curr_idx))
 		marginal_cov = pose_fusion.get_margin_covariance(curr_idx)
-		print(init_system)
 		if not init_system:
 			# The system is initialized after the first global odometry
 			init_system = True
-			rospy.loginfo("System initialized")
+			rospy.logwarn("System initialized")
 
 	if init_system:
 		# Publish the odometry
@@ -180,8 +182,8 @@ if __name__ == '__main__':
 	# Subscribe different sources of odometry
 	# 1. local odometry
 	# 2, global odometry
-	odom_local = rospy.Subscriber('/state_estimator/odometry', Odometry, odom_local_callback)
-	odom_global = rospy.Subscriber('/vloc/odometry', Odometry, odom_global_callback)
+	odom_local = rospy.Subscriber('/local/odometry', Odometry, odom_local_callback)
+	odom_global = rospy.Subscriber('/global/odometry', Odometry, odom_global_callback)
 
 	frame_id_map = rospy.get_param('~frame_id_map', 'vloc_map')
 	rospy.loginfo(f"Frame id map: {frame_id_map}")

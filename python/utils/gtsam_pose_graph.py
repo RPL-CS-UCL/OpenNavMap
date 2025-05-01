@@ -31,6 +31,7 @@ class PoseGraph:
 			self.initial_estimate.insert(key, pose)
 
 	def perform_optimization(self):
+		# graph_robust = PoseGraph.add_robust_kernel(graph)
 		self.isam.update(self.graph, self.initial_estimate)
 		self.current_estimate = self.isam.calculateEstimate()
 		self.graph.resize(0)
