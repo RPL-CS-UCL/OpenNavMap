@@ -7,11 +7,10 @@ python python/loc_pipeline.py \
 	--query_data_path /Rocket_ssd/dataset/data_litevloc/vnav_eval/matterport3d/s17DRP5sb8fy/merge_finalmap \
 	--image_size 512 288 --device=cuda \
 	--vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256 \
-	--num_preds_to_save 3 \
-	--img_matcher master --save_img_matcher \
+	--img_matcher master \
 	--pose_solver pnp --config_pose_solver python/config/dataset/matterport3d.yaml \
-	--global_pos_threshold 10.0 --min_inliers_threshold 300 \
-	--viz
+	--global_pos_threshold 10.0 --min_solver_inliers_thre 100 \
+	--save_img_matcher --viz --num_preds_to_save 3
 
 Usage: 
 rosbag record -O /Titan/dataset/data_litevloc/anymal_lab_upstair_20240722_0/vloc.bag \
@@ -137,15 +136,16 @@ class LocPipeline:
 			matcher_result = matcher(map_node.rgb_image, obs_node.rgb_image)
 			"""Save matching results"""
 			if self.args.save_img_matcher:
-				mkpts0, mkpts1 = \
-					matcher_result["inlier_kpts0"], matcher_result["inlier_kpts1"],
+				mkpts0, mkpts1 = matcher_result["inlier_kpts0"], matcher_result["inlier_kpts1"],
 				save_img_matcher_visualization(
-					obs_node.rgb_image, map_node.rgb_image,
+					map_node.rgb_image,
+					obs_node.rgb_image,
 					mkpts0, mkpts1, 
 					self.log_dir, 
 					obs_node.id, 
-					n_viz=100
-				)	
+					n_step=10
+				)
+
 			return matcher_result
 		
 		except Exception as e:
@@ -169,13 +169,14 @@ class LocPipeline:
 			return None
 		
 		# Search for the visual closest keyframe in the graph
-		closest_map_node = self.image_graph.get_node(pred[0][0])
+		node_id = self.DB_Node_IDS[pred[0][0]]
+		closest_map_node = self.image_graph.get_node(node_id)
 		all_nei_nodes = [nei_node for nei_node, _ in closest_map_node.edges.values()] + [closest_map_node]
 		list_dis = [compute_euclidean_dis(obs_node.get_descriptor(), node.get_descriptor()) for node in all_nei_nodes]
 		node_min_dis = all_nei_nodes[np.argmin(list_dis)]
 
 		out_str = 'Keyframe candidate: '
-		out_str += ' '.join([f'{node.id}({dis:.2f})' for node, dis in zip(all_nei_nodes, list_dis)]) + f' Closest node: {node_min_dis.id}'
+		out_str += ' '.join([f'{node.id}({dis:.2f})' for node, dis in zip(all_nei_nodes, list_dis)]) + f' Visual Similar node: {node_min_dis.id}'
 		rospy.loginfo(out_str)
 		
 		return node_min_dis
@@ -184,22 +185,26 @@ class LocPipeline:
 		query_desc = self.curr_obs_node.get_descriptor()
 		assert query_desc.shape[1] == self.DB_DESCRIPTORS.shape[1]
 		assert query_desc.shape[1] == self.args.vpr_descriptors_dimension
-		
 		self.curr_query_descs.append(query_desc)
 		self.curr_query_descs = self.curr_query_descs[-self.vpr_match_model.seqLen:]
+		
 		if len(self.curr_query_descs) >= self.vpr_match_model.seqLen:
 			# Perform sequence match
 			query_descs = np.array(self.curr_query_descs).reshape(-1, query_desc.shape[1])
 			recall_preds, pred, _ = self.vpr_match_model.match(query_descs)
 
 			if save_viz:
-				img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
+				if hasattr(self.curr_obs_node, 'map_root'):
+					img_paths = [str(self.curr_obs_node.map_root / self.curr_obs_node.rgb_img_name)]
+				else:
+					img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
 				for i in range(len(recall_preds)):
 					node_id = self.DB_Node_IDS[recall_preds[i]]
 					map_node = self.image_graph.get_node(node_id)
 					img_paths.append(str(self.image_graph.map_root / map_node.rgb_img_name))
+				
 				preds_correct = [None] * len(img_paths)
-				save_vpr_visualization(self.log_dir, 0, img_paths, preds_correct)
+				save_vpr_visualization(self.log_dir, self.curr_obs_node.id, img_paths, preds_correct)
 				
 				if hasattr(self.vpr_match_model, 'compute_diff_matrix'):
 					D_all = self.vpr_match_model.compute_diff_matrix(query_descs)
@@ -212,7 +217,7 @@ class LocPipeline:
 
 			# Perform geometric verification on the Top-1 match
 			map_node_id = self.DB_Node_IDS[pred]
-			rospy.loginfo(f"Map node: {map_node_id}")
+			rospy.loginfo(f"[Global Loc] Map node: {map_node_id}")
 			if self.img_matcher is not None:
 				map_node = self.image_graph.get_node(map_node_id)
 				result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
@@ -230,26 +235,26 @@ class LocPipeline:
 
 		matching_start_time = time.time()
 		ref_node = self.search_keyframe_from_graph(self.curr_obs_node)
-		if ref_node is None: 
-			return result_fail
-		self.ref_map_node = ref_node
+		if ref_node is None: return result_fail
 		
+		self.ref_map_node = ref_node
 		match_result = self.perform_image_matching(self.img_matcher, self.ref_map_node, self.curr_obs_node)
+		mkpts0, mkpts1 = (match_result["inlier_kpts0"], match_result["inlier_kpts1"])
+		# Recover raw position of ref_map_node (camera1)
 		w_ratio = self.ref_map_node.raw_img_size[0] / self.ref_map_node.img_size[0] 
 		h_ratio = self.ref_map_node.raw_img_size[1] / self.ref_map_node.img_size[1]
-		mkpts0, mkpts1 = (match_result["inlier_kpts0"], match_result["inlier_kpts1"])
 		mkpts0_raw = mkpts0 * [w_ratio, h_ratio]
+		# Recover raw position of curr_obs_node (camera2)
+		w_ratio = self.curr_obs_node.raw_img_size[0] / self.curr_obs_node.img_size[0] 
+		h_ratio = self.curr_obs_node.raw_img_size[1] / self.curr_obs_node.img_size[1]
 		mkpts1_raw = mkpts1 * [w_ratio, h_ratio]
 		
 		num_inliers = match_result["num_inliers"]
 		self.ref_map_node.set_matched_kpts(mkpts0, num_inliers)
 		self.curr_obs_node.set_matched_kpts(mkpts1, num_inliers)
-		rospy.loginfo(f'Number of matched inliers: {num_inliers}')
+		rospy.loginfo(f'Number of matched kpts inliers: {num_inliers}')
 		rospy.loginfo(f"Image matching costs: {time.time() - matching_start_time: .3f}s")
 
-		if num_inliers < self.args.min_kpts_inliers_thre:
-			rospy.logwarn(f'[Fail] No sufficient matching kpts')
-			return result_fail
 		try:
 			depth_img1 = to_numpy(self.curr_obs_node.depth_image.squeeze(0))
 			R, t, num_solver_inliers = self.pose_solver.estimate_pose(
@@ -267,8 +272,8 @@ class LocPipeline:
 				T_w_mapnode = convert_vec_to_matrix(self.ref_map_node.trans, self.ref_map_node.quat, 'xyzw')
 				T_w_obs = T_w_mapnode @ T_mapnode_obs
 				rospy.logwarn(f'[Succ] sufficient number {num_solver_inliers} solver inliers')
-		
 				return {'succ': True, 'T_w_obs': T_w_obs, 'solver_inliers': num_solver_inliers}
+		
 		except Exception as e:
 			rospy.logwarn(f'[Fail] to estimate pose with error:', e)
 			return result_fail
@@ -377,6 +382,7 @@ def perform_localization(loc: LocPipeline, args):
 			'xyzw'
 		)
 		obs_node.set_pose_gt(trans, quat)
+		obs_node.map_root = pathlib.Path(args.query_data_path)
 		loc.curr_obs_node = obs_node
 
 		"""Perform global localization via. visual place recognition"""
@@ -393,18 +399,18 @@ def perform_localization(loc: LocPipeline, args):
 			else:
 				loc.ref_map_node = None
 				rospy.logwarn('[Fail] to determine the global position since no VPR results.')
+				# input()
 				continue
 		else:
 			if loc.last_obs_node is not None:
 				init_trans, init_quat = loc.last_obs_node.trans, loc.last_obs_node.quat
 				loc.curr_obs_node.set_pose(init_trans, init_quat)
-
 				dis_trans, _ = compute_pose_error(
 					(init_trans, init_quat), 
 					(loc.ref_map_node.trans, loc.ref_map_node.quat), 
 					mode='vector'
 				)
-				if dis_trans > loc.args.global_pos_threshold:
+				if dis_trans > loc.args.global_pos_threshold * 2.0:
 					rospy.logwarn('Too far distance from the ref_map_node. Losing Visual Tracking. Reset the global position.')
 					loc.has_global_pos = False
 					loc.ref_map_node = None
@@ -427,20 +433,25 @@ def perform_localization(loc: LocPipeline, args):
 			else:
 				loc.has_local_pos = False
 				rospy.logwarn('[Fail] to determine the local position.')
+				# DEBUG(gogojjh):
+				loc.has_global_pos = False
+				loc.ref_map_node = None
+
 
 		loc.publish_message()
 		# Set as the initial guess of the next observation
 		loc.last_obs_node = loc.curr_obs_node
 		time.sleep(0.01)
 
-		input()
+		# input()
 
 if __name__ == '__main__':
 	args = parse_arguments()
 	out_dir = pathlib.Path(os.path.join(args.map_path, 'tmp/output_loc_pipeline'))
 	config = dict(
 		resize=args.image_size, depth_scale=args.depth_scale, 
-		load_rgb=True, load_depth=False, normalized=False
+		load_rgb=True, load_depth=False, normalized=False,
+		color_correct=False
 	)
 
 	# Initialize the localization pipeline

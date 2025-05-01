@@ -160,10 +160,10 @@ def parse_arguments():
 											choices=["netvlad", "apgem", "sfrs", "cosplace", "convap", "mixvpr", "eigenplaces", 
 																"eigenplaces-indoor", "anyloc", "salad", "salad-indoor", "cricavpr"],
 											help="_")
-	parser.add_argument("--backbone", type=str, default=None,
+	parser.add_argument("--backbone", type=str, default='ResNet18',
 											choices=[None, "VGG16", "ResNet18", "ResNet50", "ResNet101", "ResNet152"],
 											help="_")
-	parser.add_argument("--descriptors_dimension", type=int, default=None,
+	parser.add_argument("--descriptors_dimension", type=int, default=256,
 											help="_")
 	parser.add_argument("--num_workers", type=int, default=4,
 											help="_")

@@ -4,9 +4,7 @@
 Usage:
 python extract_vpr_descriptors.py --map_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
 --method cosplace --backbone ResNet18 --descriptors_dimension 256 \
---num_preds_to_save 3 \
---image_size 512 288 \
---device cuda
+--image_size 512 288 --device cuda --num_preds_to_save 3
 
 Usage for Jetson: 
 python extract_vpr_descriptors.py --map_path /Rocket_ssd/dataset/data_litevloc/matterport3d/vloc_17DRP5sb8fy/out_map \
@@ -34,8 +32,9 @@ if not hasattr(sys, "ps1"):
 
 def main(args):
 	"""Main function to run the image matching process."""
-	for scene in sorted(os.listdir(args.map_path)):
-		if 's' not in scene: continue
+	# scenes = os.listdir(args.map_path)
+	scenes = ['0']
+	for scene in scenes:
 		scene_path = os.path.join(args.map_path, scene)
 		out_dir = scene_path
 

@@ -11,7 +11,6 @@ python python/ros_loc_pipeline.py \
 	--ros_rgb_img_type raw \
 	--global_pos_threshold 10.0 \
 	--min_master_conf_thre 1.5 \
-	--min_kpts_inliers_thre 300  \
 	--min_solver_inliers_thre 300
 """
 

@@ -81,12 +81,11 @@ def parse_arguments():
 	parser.add_argument("--positive_dist_threshold", type=int, default=25,
 											help="distance (in meters) for a prediction to be considered a positive")
 	parser.add_argument("--vpr_method", type=str, default="cosplace",
-											choices=["netvlad", "apgem", "sfrs", "cosplace", "convap", "mixvpr", "eigenplaces", "eigenplaces-indoor", "anyloc", "salad", "salad-indoor", "cricavpr"], help="_")
-	parser.add_argument("--vpr_backbone", type=str, default=None,
+										choices=["netvlad", "apgem", "sfrs", "cosplace", "convap", "mixvpr", "eigenplaces", "eigenplaces-indoor", "anyloc", "salad", "salad-indoor", "cricavpr"], help="_")
+	parser.add_argument("--vpr_backbone", type=str, default='ResNet18',
 											choices=[None, "VGG16", "ResNet18", "ResNet50", "ResNet101", "ResNet152"],
 											help="_")
-	parser.add_argument("--vpr_descriptors_dimension", type=int, default=None,
-											help="_")
+	parser.add_argument("--vpr_descriptors_dimension", type=int, default=256, help="Depending on the specific model")
 
 	parser.add_argument("--vpr_match_model", type=str, default="single_match", 
 						help="single_match, topo_filter, sequence_match, sequence_match_ransac, sequence_match_adaptive")
