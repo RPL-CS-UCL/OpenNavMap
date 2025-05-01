@@ -32,8 +32,8 @@ if not hasattr(sys, "ps1"):
 
 def main(args):
 	"""Main function to run the image matching process."""
-	# scenes = os.listdir(args.map_path)
-	scenes = ['0']
+	scenes = os.listdir(args.map_path)
+	# scenes = ['0']
 	for scene in scenes:
 		scene_path = os.path.join(args.map_path, scene)
 		out_dir = scene_path

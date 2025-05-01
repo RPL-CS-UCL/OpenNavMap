@@ -33,11 +33,11 @@ import pyiqa
 from utils.utils_geom import read_poses
 
 def main(args):
+	scenes = os.listdir(args.map_path)
+	# scenes = ['0']
+
 	iqa_metric = pyiqa.create_metric(args.metric, device=args.device)	
 	map_path = Path(args.map_path)
-	scenes = ['0']
-	# scenes = os.listdir(args.map_path)
-
 	for scene in sorted(scenes):
 		poses = read_poses(map_path/scene/"poses.txt")
 		scores = np.empty((len(poses), 2), dtype=object)

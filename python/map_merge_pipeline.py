@@ -353,16 +353,21 @@ def perform_local_loc(
 	for edge in tqdm(edges_nodeA_to_nodeB_coarse):
 		db_node, query_node = edge[:2]
 		# Check whether the node has more than one edge
-		if not db_node.edges: 
+		if len(db_node.edges) == 0: 
 			continue
+		
 		try:
 			# Prepare database references
-			_, max_db_node = min(
-				((np.linalg.norm(node.global_descriptor - query_node.global_descriptor), node) 
-				for node in (cur_graph.get_node(id) for id in db_node.edges.keys())),
-				default=(10.0, None)
-			)
-			db_node_pair = [db_node, max_db_node]
+			other_db_node, min_dis = None, float('inf')
+			for node_weight in db_node.edges.values():
+				desc_dis = np.linalg.norm(
+					node_weight[0].global_descriptor - query_node.global_descriptor
+				)
+				if desc_dis < min_dis:
+					min_dis = desc_dis
+					other_db_node = node_weight[0]
+
+			db_node_pair = [db_node, other_db_node]
 			db_names = [n.rgb_img_name for n in db_node_pair]
 			db_poses = [torch.from_numpy(convert_vec_to_matrix(n.trans, n.quat, 'xyzw')) for n in db_node_pair]
 			db_intrs = [{
