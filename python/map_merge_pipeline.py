@@ -585,6 +585,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
 								node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
 							)
+							
 				logging.warning('Removing nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_remove]))
 
 			##### Perform map update and merging

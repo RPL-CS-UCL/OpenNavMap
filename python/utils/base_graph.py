@@ -179,6 +179,7 @@ class BaseGraph:
 		subgraphs = []
 		for id, component in enumerate(sorted_components):
 			# Create subgraph, but use reference operation to store nodes
+			(self.map_root/f"submap_disc_{id}").mkdir(parents=True, exist_ok=True)
 			subgraph = type(self)(self.map_root/f"submap_disc_{id}", self.edge_type)
 			for node in component:
 				subgraph.add_node(node)

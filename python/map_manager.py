@@ -93,6 +93,7 @@ class MapManager:
 			for graph_id, subgraph in enumerate(subgraphs):
 				print(f'Saving disconnected subgraph {graph_id} with {subgraph.get_num_node()} nodes')
 				subgraph.save_to_file(edge_only=False)
+				
 		if 'trav' in self.graphs:
 			self.trav.save_to_file(edge_only=True)
 

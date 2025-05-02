@@ -78,7 +78,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	print("Shape of queries_descriptors: ", queries_descriptors.shape)
 
 	# Initial and Run VPR Match Model
-	vpr_match_model.initialize_model(database_descriptors, recall_values=1)
+	vpr_match_model.initialize_model(database_descriptors)
 	init_results_dict, init_db_query_indices = defaultdict(list), []
 	total_vpr_time = 0.0
 	for query_indice in range(len(queries_descriptors)):

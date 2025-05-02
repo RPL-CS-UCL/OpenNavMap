@@ -21,7 +21,6 @@ import os
 import sys
 import pathlib
 import numpy as np
-# import torch
 import time
 import cv2
 import logging
@@ -34,7 +33,8 @@ from visualization_msgs.msg import MarkerArray
 import tf2_ros
 import matplotlib
 
-from utils.utils_pipeline import *
+from utils.utils_pipeline import parse_arguments, setup_log_environment
+from utils.utils_pipeline import GV_SCORE_THRESHOLD
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error, convert_pose_inv
 from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, perform_knn_search, compute_euclidean_dis
 from utils.utils_vpr_method import save_visualization as save_vpr_visualization
@@ -70,6 +70,9 @@ class LocPipeline:
 
 		# Variable
 		self.ref_map_node = None
+		
+		# ROS Publish Rate
+		self.publish_graph = False
 
 	def init_vpr_model(self):
 		self.vpr_model = initialize_vpr_model(self.args.vpr_method, self.args.vpr_backbone, self.args.vpr_descriptors_dimension, self.args.device)
@@ -77,11 +80,10 @@ class LocPipeline:
 
 	def init_vpr_match_model(self):
 		self.vpr_match_model = initialize_match_model(
-			self.args.vpr_match_model, self.args.vpr_match_seq_len
+			self.args.vpr_match_model, 
+			self.args.vpr_match_seq_len
 		)
-		self.vpr_match_model.initialize_model(
-			self.DB_DESCRIPTORS, recall_values=1
-		)
+		self.vpr_match_model.initialize_model(self.DB_DESCRIPTORS)
 		self.curr_query_descs = []
 		rospy.loginfo(f"Initialize VPR Match Model: {self.args.vpr_match_model}")
 
@@ -134,7 +136,7 @@ class LocPipeline:
 	def perform_image_matching(self, matcher, map_node, obs_node):
 		try:
 			matcher_result = matcher(map_node.rgb_image, obs_node.rgb_image)
-			"""Save matching results"""
+
 			if self.args.save_img_matcher:
 				mkpts0, mkpts1 = matcher_result["inlier_kpts0"], matcher_result["inlier_kpts1"],
 				save_img_matcher_visualization(
@@ -165,16 +167,22 @@ class LocPipeline:
 		# Search for the physical closest keyframe in the graph
 		query_pose = obs_node.trans.reshape(1, 3)
 		dis, pred = perform_knn_search(self.DB_POSES[:, :3], query_pose, 3, [1])
-		if len(pred[0]) == 0 or dis[0][0] > self.args.global_pos_threshold: 
-			return None
+		if len(pred[0]) == 0: return None
 		
 		# Search for the visual closest keyframe in the graph
 		node_id = self.DB_Node_IDS[pred[0][0]]
 		closest_map_node = self.image_graph.get_node(node_id)
-		all_nei_nodes = [nei_node for nei_node, _ in closest_map_node.edges.values()] + [closest_map_node]
+		tmp_nodes = [nei_node for nei_node, _ in closest_map_node.edges.values()] + [closest_map_node]
+		all_nei_nodes = []
+		for node in tmp_nodes:
+			dis_t, dis_angle = node.compute_distance(obs_node)
+			if dis_t < self.args.global_pos_threshold and dis_angle < 90.0:
+				all_nei_nodes.append(node)
+		
+		if len(all_nei_nodes) == 0: return None
+
 		list_dis = [compute_euclidean_dis(obs_node.get_descriptor(), node.get_descriptor()) for node in all_nei_nodes]
 		node_min_dis = all_nei_nodes[np.argmin(list_dis)]
-
 		out_str = 'Keyframe candidate: '
 		out_str += ' '.join([f'{node.id}({dis:.2f})' for node, dis in zip(all_nei_nodes, list_dis)]) + f' Visual Similar node: {node_min_dis.id}'
 		rospy.loginfo(out_str)
@@ -191,15 +199,17 @@ class LocPipeline:
 		if len(self.curr_query_descs) >= self.vpr_match_model.seqLen:
 			# Perform sequence match
 			query_descs = np.array(self.curr_query_descs).reshape(-1, query_desc.shape[1])
-			recall_preds, pred, _ = self.vpr_match_model.match(query_descs)
+			recall_preds, _, _ = self.vpr_match_model.match(query_descs, recall_values=5)
+			rospy.loginfo(recall_preds)
 
 			if save_viz:
 				if hasattr(self.curr_obs_node, 'map_root'):
 					img_paths = [str(self.curr_obs_node.map_root / self.curr_obs_node.rgb_img_name)]
 				else:
 					img_paths = [str(self.image_graph.map_root / self.curr_obs_node.rgb_img_name)]
-				for i in range(len(recall_preds)):
-					node_id = self.DB_Node_IDS[recall_preds[i]]
+				
+				for pred in recall_preds:
+					node_id = self.DB_Node_IDS[pred]
 					map_node = self.image_graph.get_node(node_id)
 					img_paths.append(str(self.image_graph.map_root / map_node.rgb_img_name))
 				
@@ -215,18 +225,27 @@ class LocPipeline:
 				else:
 					D_all = None
 
-			# Perform geometric verification on the Top-1 match
-			map_node_id = self.DB_Node_IDS[pred]
-			rospy.loginfo(f"[Global Loc] Map node: {map_node_id}")
+			# Perform geometric verification on the Top-K match
+			# Return the one with the maximum number of inliers
+			best_map_node_id, max_num_inliers = self.DB_Node_IDS[recall_preds[0]], 0
 			if self.img_matcher is not None:
-				map_node = self.image_graph.get_node(map_node_id)
-				result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
-				num_inlier = result['num_inliers']
-				rospy.loginfo(f"Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
-				if num_inlier >= GV_SCORE_THRESHOLD: 
-					return {'succ': True, 'map_id': map_node_id}
+				for pred in recall_preds:
+					map_node_id = self.DB_Node_IDS[pred]
+					map_node = self.image_graph.get_node(map_node_id)
+					result = self.img_matcher(map_node.rgb_image, self.curr_obs_node.rgb_image)
+					num_inliers = result['num_inliers']
+					if num_inliers > max_num_inliers:
+						best_map_node_id, max_num_inliers = map_node_id, num_inliers
+					
+					out_str  = f"[GV] Query {self.curr_obs_node.rgb_img_name} - DB {map_node.rgb_img_name}\n"
+					out_str += f"Number of matched kpts: {num_inliers}"
+					rospy.loginfo(out_str)
+
+				rospy.loginfo(f"[Global Loc] Map node: {best_map_node_id}")
+				if max_num_inliers >= GV_SCORE_THRESHOLD: 
+					return {'succ': True, 'map_id': best_map_node_id}
 			else:
-				return {'succ': True, 'map_id': map_node_id}
+				return {'succ': True, 'map_id': best_map_node_id}
 
 		return {'succ': False, 'map_id': None}		
 	
@@ -279,16 +298,7 @@ class LocPipeline:
 			return result_fail
 
 	def publish_message(self):
-		header = Header(stamp=rospy.Time.now(), frame_id=self.frame_id_map)
-		tf_msg = ros_msg.convert_vec_to_rostf(
-			np.array([0, 0, -2.0]), np.array([0, 0, 0, 1]), header, f"{self.frame_id_map}_graph"
-		)
-		self.br.sendTransform(tf_msg)
-		header.frame_id += '_graph'
-		ros_vis.publish_graph(
-			self.image_graph, header, self.pub_graph, self.pub_graph_poses
-		)
-
+		# Publish Sensor Data
 		if self.curr_obs_node is not None:
 			header = Header(stamp=rospy.Time.from_sec(self.curr_obs_node.time), frame_id=self.frame_id_map)
 			
@@ -399,7 +409,6 @@ def perform_localization(loc: LocPipeline, args):
 			else:
 				loc.ref_map_node = None
 				rospy.logwarn('[Fail] to determine the global position since no VPR results.')
-				# input()
 				continue
 		else:
 			if loc.last_obs_node is not None:
@@ -442,8 +451,7 @@ def perform_localization(loc: LocPipeline, args):
 		# Set as the initial guess of the next observation
 		loc.last_obs_node = loc.curr_obs_node
 		time.sleep(0.01)
-
-		# input()
+		#input()
 
 if __name__ == '__main__':
 	args = parse_arguments()

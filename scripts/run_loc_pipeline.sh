@@ -1,4 +1,4 @@
-export MAP_PATH='/Rocket_ssd/dataset/data_litevloc/vnav_eval/ucl_campus/sops_msg_202411'
+export MAP_PATH='/Rocket_ssd/dataset/data_litevloc/vnav_eval/ucl_campus/sops_msg_olympic_202505'
 export QUERY_DATA_PATH='/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_robot/s00000_data/0'
 
 rosrun litevloc loc_pipeline.py \

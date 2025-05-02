@@ -32,7 +32,7 @@ import message_filters
 
 # Others
 from utils.utils_image import rgb_image_to_tensor, depth_image_to_tensor, to_numpy
-from utils.utils_pipeline import *
+from utils.utils_pipeline import parse_arguments
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error, correct_intrinsic_scale
 from utils.utils_ros import ros_msg
 from utils.utils_stamped_poses import StampedPoses

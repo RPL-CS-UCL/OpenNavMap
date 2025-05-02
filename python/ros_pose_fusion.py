@@ -46,7 +46,7 @@ if args.odom_type == 'depth_reg':
 	SIGMA_PRIOR = np.array([np.deg2rad(3.0), np.deg2rad(3.0), np.deg2rad(3.0), 0.1, 0.1, 0.1])
 else:
 	# others:
-	SIGMA_PRIOR = np.array([np.deg2rad(5.0), np.deg2rad(5.0), np.deg2rad(5.0), 0.5, 0.5, 0.5])
+	SIGMA_PRIOR = np.array([np.deg2rad(3.0), np.deg2rad(3.0), np.deg2rad(3.0), 0.05, 0.05, 0.5])
 
 def odom_local_callback(odom_msg):
 	global frame_id_lsensor, frame_id_gsensor, T_gsensor_lsensor, init_extrinsics

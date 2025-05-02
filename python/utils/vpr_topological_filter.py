@@ -12,7 +12,7 @@ class PlaceRecognitionTopologicalFilter:
     def __init__(self):
         pass
 
-    def initialize_model(self, db_descriptors, delta=5, recall_values=5):
+    def initialize_model(self, db_descriptors, delta=5):
         """
         Initialize the VPRTopologicalFilter object.
         Initialize the belief distribution - uniform distribution
@@ -21,11 +21,9 @@ class PlaceRecognitionTopologicalFilter:
             db_descriptors (numpy.ndarray): The map descriptors.
             delta (int, optional): The delta value. Defaults to 5.
             prop_radius (float, optional): The propagation radius. Defaults to 10.0.
-            recall_values (int, optional): The number of recall values. Defaults to 5.
         """
         # get map descriptors
         self.db_descriptors = db_descriptors
-        self.recall_values = recall_values  
 
         # initialize hidden states and obs likelihood parameters
         self.delta = delta
@@ -59,7 +57,7 @@ class PlaceRecognitionTopologicalFilter:
         vsim = np.exp(-self.lambda1 * dists)
         return vsim
 
-    def match(self, db_map, query_desc: Union[np.ndarray, torch.Tensor]):
+    def match(self, db_map, query_desc: Union[np.ndarray, torch.Tensor], recall_values=1):
         '''
         Match the query image to the topological map.
 
@@ -100,7 +98,7 @@ class PlaceRecognitionTopologicalFilter:
         # print(str)
 
         # Get the top recall values
-        recall_preds = np.argsort(self.belief)[-self.recall_values:][::-1]
+        recall_preds = np.argsort(self.belief)[-recall_values:][::-1]
         pred = np.argmax(self.belief)
         prob = self.belief[pred]
     
@@ -140,11 +138,11 @@ if __name__ == "__main__":
     # Performance test
     db_descriptors = np.array([node.get_descriptor() for _, node in db_map.nodes.items()], dtype="float32")
     model = PlaceRecognitionTopologicalFilter()
-    model.initialize_model(db_descriptors, recall_values=5)
+    model.initialize_model(db_descriptors)
     preds = []
     for node in tqdm(query_map.nodes.values()):
         query_desc = node.get_descriptor()
-        recall_preds, pred, score = model.match(db_map, query_desc.reshape(1, -1))
+        recall_preds, pred, score = model.match(db_map, query_desc.reshape(1, -1), recall_values=5)
         preds.append(recall_preds)
 
     succ = 0

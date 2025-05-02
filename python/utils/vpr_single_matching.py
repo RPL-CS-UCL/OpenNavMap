@@ -9,16 +9,13 @@ class PlaceRecognitionSingleMatching:
 	def __init__(self):
 		self.seqLen = 1
 
-	def initialize_model(self, db_descriptors, recall_values=5):
-		# get map descriptors
+	def initialize_model(self, db_descriptors):
 		self.db_descriptors = db_descriptors
-		self.recall_values = recall_values  
-
 		self.db_faiss_index = faiss.IndexFlatL2(db_descriptors.shape[1])
 		self.db_faiss_index.add(db_descriptors)
 
-	def match(self, query_desc: np.ndarray):
-		_, recall_preds = self.db_faiss_index.search(query_desc, self.recall_values)
+	def match(self, query_desc: np.ndarray, recall_values=1):
+		_, recall_preds = self.db_faiss_index.search(query_desc, recall_values)
 		score = 2.0 - np.linalg.norm(query_desc - self.db_descriptors[recall_preds[0][0], :])
 		return recall_preds[0], recall_preds[0][0], score
 

@@ -40,11 +40,10 @@ class PlaceRecognitionSeqMatching:
 		# DIFF_MATRIX_SCORE = 1.10 is a strict threshold
 		self.DIFF_MATRIX_SCORE = 1.2
 
-	def initialize_model(self, db_descriptors, recall_values=5):
+	def initialize_model(self, db_descriptors):
 		self.db_descriptors = db_descriptors
-		self.recall_values = recall_values
 		
-	def match(self, query_descriptors, backward=False):
+	def match(self, query_descriptors, backward=False, recall_values=1):
 		"""
 			Return:
 				recall_preds: list of int, top recall values
@@ -53,7 +52,7 @@ class PlaceRecognitionSeqMatching:
 				backward: bool, True for backward sequence matching
 		"""   
 		if query_descriptors.shape[0] < self.seqLen:
-			return self._fallback_match(query_descriptors)
+			return self._fallback_match(query_descriptors, recall_values)
 
 		D = self.compute_diff_matrix(query_descriptors)
 		if self.enhance: 
@@ -63,7 +62,7 @@ class PlaceRecognitionSeqMatching:
 		template_scores, template_velocities = \
 			self._score_ref_templates(D, self.seqLen)
 		recall_preds, pred, dist = \
-			self._locate_best_match(template_scores, template_velocities, self.seqLen, backward)
+			self._locate_best_match(template_scores, template_velocities, self.seqLen, backward, recall_values)
 		score = self.MAX_DIST - dist
 		
 		return recall_preds, pred, score
@@ -156,11 +155,11 @@ class PlaceRecognitionSeqMatching:
 		D = np.linalg.norm(query_descriptors[None, :, :] - self.db_descriptors[:, None, :], axis=2)
 		return D
 
-	def _fallback_match(self, query_descriptors):
+	def _fallback_match(self, query_descriptors, recall_values):
 		"""Handle short query sequences"""
 		query_desc = query_descriptors[-1, :]
 		dists = self._compute_dist_desc(query_desc)
-		recall_preds = np.argsort(dists)[:self.recall_values]
+		recall_preds = np.argsort(dists)[:recall_values]
 		pred = recall_preds[0]
 		score = self.MAX_DIST - dists[pred]
 		return recall_preds, pred, score
@@ -221,7 +220,7 @@ class PlaceRecognitionSeqMatching:
 
 		return optD, optV
 
-	def _locate_best_match(self, template_scores, template_velocities, seq_len, backward=False):
+	def _locate_best_match(self, template_scores, template_velocities, seq_len, backward, recall_values):
 		# indices of best match and window around it
 		iOpt = np.argmin(template_scores)
 		iOptV = template_velocities[iOpt]
@@ -242,13 +241,13 @@ class PlaceRecognitionSeqMatching:
 
 		if not backward:
 			pred = min(np.floor(iOpt + iOptV * (seq_len - 1)).astype(int), self.N - 1)
-			indices = np.argsort(template_scores)[:self.recall_values]
+			indices = np.argsort(template_scores)[:recall_values]
 			recall_preds = [min(self.N - 1, \
 								np.floor(i + template_velocities[i] * (seq_len - 1)).astype(int)) \
 								for i in indices]
 		else:
 			pred = iOpt
-			recall_preds = np.argsort(template_scores)[:self.recall_values].tolist()
+			recall_preds = np.argsort(template_scores)[:recall_values].tolist()
 
 		return recall_preds, pred, mu
 

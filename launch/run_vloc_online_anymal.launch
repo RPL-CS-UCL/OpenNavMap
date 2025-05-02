@@ -13,8 +13,8 @@
 	<!-- Parameters -->
 	<!-- trigger global localization if distance to the closest map node exceeds it -->
 	<!-- indoor: 10.0; outdoor: 15.0 -->
-	<arg name="global_pos_threshold" default="5.0" /> 
-	<arg name="vloc_freq" default="1.0" />
+	<arg name="global_pos_threshold" default="10.0" /> 
+	<arg name="vloc_freq" default="0.5" />
 
   <!-- Navigation Interface -->
 	<!-- Transform the frame_id of localization odometry to robot -->
@@ -63,7 +63,7 @@
 					--config_pose_solver $(find litevloc)/python/config/dataset/ucl_campus_robot.yaml
 					--ros_rgb_img_type compressed
 					--global_pos_threshold $(arg global_pos_threshold)
-					--min_master_conf_thre 1.0 --min_solver_inliers_thre 50 --viz" >
+					--min_master_conf_thre 0.5 --min_solver_inliers_thre 50 --viz" >
 		<remap from="/color/image" to="/zed2/zed_node/left/image_rect_color/compressed" />
 		<remap from="/depth/image" to="/zed2/zed_node/depth/depth_registered" />
 		<remap from="/color/camera_info" to="/zed2/zed_node/left/camera_info" />
@@ -74,15 +74,19 @@
 	</node>
 
 	<node name="ros_pose_fusion" pkg="litevloc" type="ros_pose_fusion.py" output="log" 
-		args="--env_type outdoor">
+		args="--odom_type leg_odom">
 		<remap from="/local/odometry" to="/state_estimator/odometry" />
 		<remap from="/global/odometry" to="/vloc/odometry" />
 		<param name="frame_id_map" value="vloc_map" />
 	</node>
 
-	<!-- RVIZ -->
+	<!-- RVIZ and Visualization-->
 	<group if="$(arg use_rviz)">
 		<node name="rviz" pkg="rviz" type="rviz" args="-d $(find litevloc)/rviz_cfg/topo_graph_anymal.rviz" required="false" />
 	</group>
+
+	<node name="ros_publish_graph" pkg="litevloc" type="ros_publish_graph.py" output="log" 
+		args="--map_path $(arg map_path)">
+	</node>
 
 </launch>
