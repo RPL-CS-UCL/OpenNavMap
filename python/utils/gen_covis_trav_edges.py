@@ -17,13 +17,13 @@ from map_manager import MapManager
 from matching import available_models
 
 ##### Outdoor
-SUFF_EDGE_THRESH = 100
+SUFF_EDGE_THRESH = 150
 EDGE_THRESH_NORM = 500
 MAX_COVIS_DISTANCE = 5.0  # meters
 MAX_TRAV_DISTANCE = 1.5   # meters
 
 ##### Indoor
-# SUFF_EDGE_THRESH = 100
+# SUFF_EDGE_THRESH = 150
 # EDGE_THRESH_NORM = 500
 # MAX_COVIS_DISTANCE = 5.0  # meters
 # MAX_TRAV_DISTANCE = 1.0   # meters
@@ -62,7 +62,7 @@ def process_map(args):
 
         # Initialize image matcher
         img_matcher = initialize_img_matcher(args.matcher, args.device, args.n_kpts)
-        img_matcher.ransac_iters = 1000
+        # img_matcher.ransac_iters = 1000
         # img_matcher.ransac_conf = 0.95
         # img_matcher.ransac_reproj_thresh = 5
 
@@ -77,7 +77,7 @@ def process_map(args):
         for node in tqdm(final_map.covis.nodes.values(), desc="Processing nodes"):
             # Find neighbors within radius
             _, distances, neighbor_indices = position_index.range_search(
-                node.trans.reshape(1, -1), MAX_COVIS_DISTANCE**2
+                node.trans.reshape(1, -1), MAX_COVIS_DISTANCE
             )
             
             # Check the covisibility between the reference node and quey nodes
@@ -121,7 +121,7 @@ def process_map(args):
         edges_nodeAB_trav = []
         for node in tqdm(final_map.trav.nodes.values(), desc="Processing nodes"):
             _, distances, neighbor_indices = position_index.range_search(
-                node.trans.reshape(1, -1), MAX_TRAV_DISTANCE**2
+                node.trans.reshape(1, -1), MAX_TRAV_DISTANCE
             )
             for row_idx in neighbor_indices:
                 nei_node_idx = node_ids[row_idx]
