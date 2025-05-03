@@ -19,10 +19,13 @@ from torch.utils.data.dataset import Subset
 
 import parser
 from dataloader import TestDataset
-from utils.utils_vpr_method import *
+from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, save_visualization
 from utils.utils_image_matching_method import initialize_img_matcher
 
 def extract_descriptors(model, test_ds, args):
+	global descriptors_dimension
+	total_db_desc_time, total_query_desc_time = 0.0, 0.0
+	
 	"""Extract and return all descriptors from the test dataset."""
 	with torch.inference_mode():
 		# Extract database descriptors
@@ -36,10 +39,12 @@ def extract_descriptors(model, test_ds, args):
 			batch_size=args.batch_size,
 		)
 		all_descriptors = np.empty(
-			(len(test_ds), args.descriptors_dimension), dtype="float32"
+			(len(test_ds), descriptors_dimension), dtype="float32"
 		)
 		for images, indices, _ in tqdm(database_dataloader):
+			start_time = time.time()
 			descriptors = model(images.to(args.device))
+			total_db_desc_time += time.time() - start_time
 			descriptors = descriptors.cpu().numpy()
 			all_descriptors[indices.numpy(), :] = descriptors
 
@@ -57,19 +62,20 @@ def extract_descriptors(model, test_ds, args):
 			batch_size=args.batch_size
 		)
 		for images, indices, _ in tqdm(queries_dataloader):
+			start_time = time.time()
 			descriptors = model(images.to(args.device))
+			total_query_desc_time += time.time() - start_time
 			descriptors = descriptors.cpu().numpy()
 			all_descriptors[indices.numpy(), :] = descriptors
 
 	queries_descriptors = all_descriptors[test_ds.num_database :]
 	database_descriptors = all_descriptors[: test_ds.num_database]
-	return queries_descriptors, database_descriptors
+
+	return queries_descriptors, database_descriptors, total_query_desc_time
 
 def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args):
 	# Extract VPR Descriptors
-	start_time = time.time()
-	queries_descriptors, database_descriptors = extract_descriptors(vpr_model, test_ds, args)
-	total_desc_time = time.time() - start_time
+	queries_descriptors, database_descriptors, total_query_desc_time = extract_descriptors(vpr_model, test_ds, args)
 
 	queries_image_names = test_ds.queries_image_names
 	database_image_names = test_ds.database_image_names
@@ -77,7 +83,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	print("Shape of database_descriptors: ", database_descriptors.shape)
 	print("Shape of queries_descriptors: ", queries_descriptors.shape)
 
-	# Initial and Run VPR Match Model
+	##### Initial and Run VPR Match Model
 	vpr_match_model.initialize_model(database_descriptors)
 	init_results_dict, init_db_query_indices = defaultdict(list), []
 	total_vpr_time = 0.0
@@ -92,41 +98,45 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 		init_db_query_indices.append((pred, query_indice, score))
 		init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
 	
-	D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
+	if hasattr(vpr_match_model, 'compute_diff_matrix'):
+		D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
 
+	# DEBUG(gogojjh): disable the RANSAC-based fitting
 	# RANSAC-based fitting for outlier rejection
-	if hasattr(vpr_match_model, 'ENABLE_RANSAC') and vpr_match_model.ENABLE_RANSAC:
-		start_time = time.time()
-		filter_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
-			vpr_match_model.ransac_check_match(D_all, init_db_query_indices[vpr_match_model.seqLen:])
-		total_vpr_time += time.time() - start_time
+	# if hasattr(vpr_match_model, 'ENABLE_RANSAC') and vpr_match_model.ENABLE_RANSAC:
+	# 	start_time = time.time()
+	# 	filter_db_query_indices, lines_coeff, cluster_data, cluster_labels = \
+	# 		vpr_match_model.ransac_check_match(D_all, init_db_query_indices[vpr_match_model.seqLen:])
+	# 	total_vpr_time += time.time() - start_time
 
-		# Add reliable results and set high score for acceptance
-		filter_db_query_indices = init_db_query_indices[:vpr_match_model.seqLen] + filter_db_query_indices
-		best_results_dict = defaultdict(list)
-		for db_query_indice in filter_db_query_indices:
-			query_image_name = queries_image_names[db_query_indice[1]]
-			best_results_dict[query_image_name] = init_results_dict[query_image_name]
+	# 	# Add reliable results and set high score for acceptance
+	# 	filter_db_query_indices = init_db_query_indices[:vpr_match_model.seqLen] + filter_db_query_indices
+	# 	best_results_dict = defaultdict(list)
+	# 	for db_query_indice in filter_db_query_indices:
+	# 		query_image_name = queries_image_names[db_query_indice[1]]
+	# 		best_results_dict[query_image_name] = init_results_dict[query_image_name]
 		
-		# Add unreliable results and set zero score for rejection
-		for k, v in init_results_dict.items():
-			if not (k in best_results_dict):
-				best_results_dict[k] = (v[0], v[1], 0)
+	# 	# Add unreliable results and set zero score for rejection
+	# 	for k, v in init_results_dict.items():
+	# 		if not (k in best_results_dict):
+	# 			best_results_dict[k] = (v[0], v[1], 0)
 		
-		vpr_match_model.save_diff_matrix_fitting(\
-			f"{args.out_dir}/{setting}/preds", 
-			init_db_query_indices, filter_db_query_indices, 
-			D_all, None, None, 
-			lines_coeff, cluster_data, cluster_labels)
-	else:
-		best_results_dict = init_results_dict
-		vpr_match_model.save_diff_matrix_fitting(\
-			f"{args.out_dir}/{setting}/preds", 
-			init_db_query_indices, init_db_query_indices, 
-			D_all, None, None, 
-			None, None, None)		
+	# 	vpr_match_model.save_diff_matrix_fitting(\
+	# 		f"{args.out_dir}/{setting}/preds", 
+	# 		init_db_query_indices, filter_db_query_indices, 
+	# 		D_all, None, None, 
+	# 		lines_coeff, cluster_data, cluster_labels)
+	# else:
+	# 	best_results_dict = init_results_dict
+	# 	vpr_match_model.save_diff_matrix_fitting(\
+	# 		f"{args.out_dir}/{setting}/preds", 
+	# 		init_db_query_indices, init_db_query_indices, 
+	# 		D_all, None, None, 
+	# 		None, None, None)		
 
-	# Geometric Verification
+	best_results_dict = init_results_dict
+
+	##### Geometric Verification
 	total_gv_time = 0.0
 	if image_matcher_model is not None:
 		for db_query_indice in init_db_query_indices:
@@ -152,7 +162,8 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 			else:
 				best_results_dict[query_image_name] = (best_results_dict[query_image_name][0], 0, 0)
 		
-	total_runtime = total_desc_time + total_vpr_time + total_gv_time
+	total_runtime = total_query_desc_time + total_vpr_time + total_gv_time
+
 	return best_results_dict, total_runtime
 
 def save_submission(results_dict: dict, output_path: Path):
@@ -191,24 +202,25 @@ def eval(args):
 	database_name = args.database_folder.split('out_map_')[-1]
 	output_time = dict()
 
-	for str_vpr_model in args.vpr_models:
-		for str_vpr_match_model in args.vpr_match_models:
-			for str_image_match_model in args.image_match_models:
-				
+	for str_vpr_match_model in args.vpr_match_models:
+		for str_image_match_model in args.image_match_models:
+			for str_backbone, str_desc_dimension, str_vpr_model in zip(args.str_backbones, args.str_descriptors_dimensions, args.str_vpr_models):		
 				if 'single_match' in str_vpr_match_model:
 					seq_lens = [1]
 				else:
 					seq_lens = args.vpr_match_seq_lens
-
+				
 				for vpr_match_seq_len in seq_lens:
-					setting = f"{str_vpr_model}_{str_vpr_match_model}_{vpr_match_seq_len}_{str_image_match_model}"
+					setting = f"{str_vpr_model}_{str_backbone}_{str_desc_dimension}_{str_vpr_match_model}_{vpr_match_seq_len}_{str_image_match_model}"
 					logging.warning(f"Evaluating VPR Setting: {setting}")
 					log_dir = Path(output_root / f"{setting}")
 					log_dir.mkdir(parents=True, exist_ok=True)
 					Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
+					print(setting)
 					
+					global descriptors_dimension
 					str_vpr_model, backbone, descriptors_dimension = \
-						parser.check_vpr_params(str_vpr_model, args.backbone, args.descriptors_dimension, args.image_size)
+						parser.check_vpr_params(str_vpr_model, str_backbone, int(str_desc_dimension), args.image_size)
 
 					vpr_model = initialize_vpr_model(str_vpr_model, backbone, descriptors_dimension, args.device)
 					vpr_match_model = initialize_match_model(str_vpr_match_model, vpr_match_seq_len)
@@ -216,6 +228,7 @@ def eval(args):
 						image_matcher_model = None
 					else:
 						image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
+
 					results_dict, total_runtime = \
 						predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
 			
