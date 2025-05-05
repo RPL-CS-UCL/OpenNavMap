@@ -15,9 +15,7 @@ import time
 import numpy as np
 from tqdm import tqdm
 from colorama import Fore, Back, Style
-
 from transforms3d.quaternions import mat2quat
-
 from estimator import available_models, get_estimator
 
 from rpe_default import cfg
@@ -69,11 +67,10 @@ def predict(loader, estimator, str_estimator, cfg):
 			print(Fore.GREEN + f'Loading Query Image: {query_image}' + Style.RESET_ALL)
 
 			"""Absolute Pose Estimation"""
-			# TODO(gogojjh): Images and intrinsics are resized inside the estimator
-			# TODO(gogojjh): Joint optimization of intrinsics is better
+			# Images and intrinsics are resized inside the estimator
 			estimation_options = {
 				'known_extrinsics': True,
-				'known_intrinsics': True,
+				'known_intrinsics': False, # False for Joint optimization of intrinsics is better
 				'resize': 512,
 			}
 
@@ -110,7 +107,8 @@ def predict(loader, estimator, str_estimator, cfg):
 				for edge in msp_edges:
 					if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
 						edge_str = f"{edge[0]}_{edge[1]}"
-						conf = weight_i[edge_str].detach().cpu().numpy().mean() * weight_j[edge_str].detach().cpu().numpy().mean()
+						conf = weight_i[edge_str].detach().cpu().numpy().mean() * \
+								weight_j[edge_str].detach().cpu().numpy().mean()
 			else:
 				conf = 0.0
 
@@ -130,14 +128,6 @@ def predict(loader, estimator, str_estimator, cfg):
 				output_estimator_directory.mkdir(parents=True, exist_ok=True)
 				Path(output_estimator_directory / "preds").mkdir(parents=True, exist_ok=True)
 				estimator.save_results(output_estimator_directory)
-
-				# depth_image_names = \
-				# 	[name.replace('.jpg', '.zed.png') for name in reference_image_names] + \
-				# 	[query_image.replace('.jpg', '.zed.png')]
-				# save_log_directory = Path(os.path.join(output_estimator_directory, 'preds', scene_id))
-				# save_log_directory.mkdir(exist_ok=True, parents=True)
-				# average_depth_error, correlation_score = estimator.save_results(save_log_directory, scene_root, depth_image_names, save_indice)
-				# results_debug_dict[scene_id].append([average_depth_error, correlation_score])	
 				save_indice += 1
 		
 			if args.viz:

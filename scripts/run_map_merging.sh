@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ###### Usage: Default order (0)
-# ./run_map_merging.sh 0 kf_spgo_seqmatch
+# ./run_map_merging.sh 0 kf_spgo_seqmatch sequence_match_adaptive
 ###### Usage: Specific order (e.g., 1)
-# ./run_map_merging.sh 1 kf_spgo_seqmatch
+# ./run_map_merging.sh 1 kf_spgo_seqmatch sequence_match_adaptive
 
 set -euo pipefail  # Fail on errors and undefined variables
 
@@ -14,7 +14,7 @@ set -euo pipefail  # Fail on errors and undefined variables
 # ucl_campus/s00000_data
 #   aria: 0-54 (300m length)
 #   google_street_view: 55-56 (300m-1000m length)
-# hkust/s00000
+# hkust_campus/s00000
 #   aria: 0-7 (300m length)
 #   fusionportable: 8-9 (1000m length)
 #   smartphone: 10-12 (<300m length)
@@ -24,24 +24,19 @@ set -euo pipefail  # Fail on errors and undefined variables
 # TODO(gogojjh): Users should change these parameters
 readonly START_SUBMAP_ID=0
 readonly END_SUBMAP_ID=54
-readonly DATASET_NAME="ucl_campus"
+readonly DATASET_NAME="ucl_campus_aria"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 readonly SCENE="s00000"
 
-# readonly METHOD="kf_forward_spgo_seqmatch"
-# readonly METHOD="kf_spgo_seqmatch"
-# readonly METHOD="nokf_spgo_seqmatch"
-# readonly METHOD="kf_spgo_singlematch"
-# readonly METHOD="nokf_spgo_singlematch"
-readonly METHOD="$2" # default: kf_spgo_seqmatch
+readonly METHOD="$2" # default: kf_spgo_cc_seqmatch
+readonly POSE_ESTIMATION_METHOD="$3" # master_nocalib_pretrain, master_calib_pretrain
 readonly DATA_TYPES=("in" "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8")
 
 ########################
 readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 readonly IMAGE_SIZE="512 288"
-readonly VPR_MATCH_MODEL="sequence_match_adaptive" # single_match, sequence_match_adaptive
+readonly VPR_MATCH_MODEL="sequence_match_adaptive" # single_match, sequence_match, sequence_match_adaptive
 readonly VPR_SEQ_LEN=10
-readonly POSE_ESTIMATION_METHOD="master_calib_pretrain"
 readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
 readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
 
@@ -65,7 +60,7 @@ load_scene_order() {
     local -i order_index=${1:-0}
     local -i total_orders=$(wc -l < "$SCENE_ORDER_FILE")  
     
-    (( order_index < total_orders )) || {
+    (( order_index <= total_orders )) || {
         echo "Error: Order index $order_index out of range (total orders: $total_orders)"
         exit 1
     }
@@ -81,7 +76,7 @@ load_scene_order() {
 
 merge_submaps() {
     local input_dir="${PATH_SUBMAP}/${RESULT_NAME}"
-    local submap_dir="${PATH_SUBMAP}/${SCENE}_data"
+    local submap_dir="${PATH_SUBMAP}/${SCENE}_aria_data"
     mkdir -p $input_dir
 
     # Validate processing range
@@ -115,7 +110,8 @@ merge_submaps() {
             --vpr_match_model "$VPR_MATCH_MODEL" \
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-            --viz --prune_keyframe_forward --prune_keyframe_backward # --color_correct
+            --viz
+            # --prune_keyframe_forward --prune_keyframe_backward
 
         base_name="${new_merged_name}"
     done

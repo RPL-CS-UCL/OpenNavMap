@@ -14,3 +14,5 @@ dataset/
 *.rviz
 
 *vis*
+
+paper*

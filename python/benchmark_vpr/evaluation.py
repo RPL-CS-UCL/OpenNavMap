@@ -92,10 +92,19 @@ def compute_metrics(dataset_path, results_vpr,
     precision = precision_score(y_true, y_pred, zero_division=0)
     recall = recall_score(y_true, y_pred, zero_division=0)
     f1 = f1_score(y_true, y_pred, zero_division=0)
+    avg_precision = average_precision_score(y_true, y_score)
 
     # Compute curve data
     prec_values, recall_values, thres = precision_recall_curve(y_true, y_score)
-    avg_precision = average_precision_score(y_true, y_score)
+    mask = (prec_values == 1.0)
+    if np.any(mask):
+        valid_indices = np.where(mask)[0][:-1]  # Exclude the last element (recall=0)
+        if len(valid_indices) > 0:
+            max_recall = np.max(recall_values[valid_indices])
+        else:
+            max_recall = 0.0  # Only the trivial case (no true positives)
+    else:
+        max_recall = 0.0    
     
     # Store results as dict()
     output_metrics = dict()
@@ -105,57 +114,92 @@ def compute_metrics(dataset_path, results_vpr,
     output_metrics['F1 Score'] = f1
     output_metrics['Valid Match Number'] = int(np.sum(y_true))
     output_metrics['Query Number'] = int(len(y_true))
+    output_metrics['Average Precision'] = avg_precision
+    output_metrics['Maximum Recall'] = max_recall
 
     curves_data = dict()
     curves_data['Precision Values'] = prec_values 
     curves_data['Recall Values'] = recall_values
-    curves_data['Average Precision'] = avg_precision
     curves_data['PR Thresholds'] = thres.tolist()
+    curves_data['Maximum Recall'] = max_recall
+
     return output_metrics, curves_data, y_true, y_pred, y_score
 
 def eval(args):
-    output_querydb_metrics = dict()
-    y_true_all, y_pred_all, y_score_all = [], [], []
-    for f in sorted(os.listdir(args.result_dir)):
-        if 'submission-' in f:
-            f_new = f.replace('.txt', '')
-            query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
-            logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
+    output_metrics_methods, curve_metrics_methods = dict(), dict()
+    for method in args.methods:
+        logging.warning(f"Evaluating Method: {method}")
+        # Result_path + Method
+        result_dir = os.path.join(args.result_dir, method)
+        # Metric
+        output_querydb_metrics, curve_querydb_metrics = dict(), dict()
+        
+        y_true_all, y_pred_all, y_score_all = [], [], []
+        for f in sorted(os.listdir(result_dir)):
+            if 'submission-' in f:
+                f_new = f.replace('.txt', '')
+                query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
+                logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
 
-            results_vpr = np.loadtxt(os.path.join(args.result_dir, f), dtype=object)           
-            output_metrics, curves_data, y_true, y_pred, y_score = compute_metrics(
-                args.dataset_path, results_vpr,
-                query_name, database_name,
-                args.trans_threshold, args.ori_threshold
-            )
+                results_vpr = np.loadtxt(os.path.join(result_dir, f), dtype=object)           
+                output_metrics, curves_data, y_true, y_pred, y_score = compute_metrics(
+                    args.dataset_path, results_vpr,
+                    query_name, database_name,
+                    args.trans_threshold, args.ori_threshold
+                )
 
-            querydb_name = f"{query_name}-{database_name}"
-            output_querydb_metrics[querydb_name] = output_metrics
-            y_true_all  += y_true
-            y_pred_all  += y_pred
-            y_score_all += y_score
+                querydb_name = f"{query_name}-{database_name}"
+                output_querydb_metrics[querydb_name] = output_metrics
+                curve_querydb_metrics[querydb_name] = curves_data
+                y_true_all  += y_true
+                y_pred_all  += y_pred
+                y_score_all += y_score
 
-    # Compute mean metrics of all samples
-    accuracy = accuracy_score(y_true_all, y_pred_all)
-    precision = precision_score(y_true_all, y_pred_all, zero_division=0)
-    recall = recall_score(y_true_all, y_pred_all, zero_division=0)
-    f1 = f1_score(y_true_all, y_pred_all, zero_division=0)
-    output_querydb_metrics['Accuracy'] = accuracy
-    output_querydb_metrics['Precision'] = precision
-    output_querydb_metrics['Recall'] = recall
-    output_querydb_metrics['F1 Score'] = f1
-    output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
-    output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
+        # Compute mean metrics of all samples
+        accuracy = accuracy_score(y_true_all, y_pred_all)
+        precision = precision_score(y_true_all, y_pred_all, zero_division=0)
+        recall = recall_score(y_true_all, y_pred_all, zero_division=0)
+        f1 = f1_score(y_true_all, y_pred_all, zero_division=0)
+        output_querydb_metrics['Accuracy'] = accuracy
+        output_querydb_metrics['Precision'] = precision
+        output_querydb_metrics['Recall'] = recall
+        output_querydb_metrics['F1 Score'] = f1
+        output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
+        output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
+        avg_precision = average_precision_score(y_true_all, y_score_all)    
+        output_querydb_metrics['Average Precision'] = avg_precision
 
-    prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
-    avg_precision = average_precision_score(y_true_all, y_score_all)    
-    output_querydb_metrics['Average Precision'] = avg_precision
-    save_prec_recall_curve(args.result_dir, prec_values, recall_values, avg_precision)
+        # Compute PR curve
+        prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
+        mask = (prec_values == 1.0)
+        if np.any(mask):
+            valid_indices = np.where(mask)[0][:-1]  # Exclude the last element (recall=0)
+            if len(valid_indices) > 0:
+                max_recall = np.max(recall_values[valid_indices])
+            else:
+                max_recall = 0.0  # Only the trivial case (no true positives)
+        else:
+            max_recall = 0.0
 
-    # Save metrics as a json file
-    output_json = json.dumps(output_querydb_metrics, indent=2)
-    with open(os.path.join(args.result_dir, 'report_evaluation.json'), 'w') as f:
-        f.write(output_json)
+        output_querydb_metrics['Maximum Recall'] = max_recall
+
+        curve_querydb_metrics['Precision Values'] = prec_values
+        curve_querydb_metrics['Recall Values'] = recall_values
+        curve_querydb_metrics['Average Precision'] = avg_precision
+        curve_querydb_metrics['PR Thresholds'] = thres.tolist()
+        curve_querydb_metrics['Maximum Recall'] = max_recall
+
+        # Save metrics for each method
+        output_metrics_methods[method] = output_querydb_metrics
+        curve_metrics_methods[method] = curve_querydb_metrics
+
+        # Save metrics as a json file
+        output_json = json.dumps(output_querydb_metrics, indent=2)
+        with open(os.path.join(result_dir, 'report_evaluation.json'), 'w') as f:
+            f.write(output_json)
+
+    # Draw the PR curve of all samples
+    save_prec_recall_curve(args.result_dir, curve_metrics_methods)
 
 def summ(args):
     result_method = {}
@@ -186,7 +230,7 @@ def summ(args):
             json_data = json.load(f)
 
         csv_lines.append(f"{querydb}")
-        csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score," + \
+        csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score,Max Recall," + \
                          "Valid Match Number," + \
                          "Total Runtime [ms],Query Number")
         
@@ -197,6 +241,7 @@ def summ(args):
             precision = metrics.get('Precision', 0)
             recall = metrics.get('Recall', 0)
             f1 = metrics.get('F1 Score', 0)
+            max_recall = metrics.get('Maximum Recall', 0)
             num_valid_match = metrics.get('Valid Match Number', 0)
             if method in json_data:
                 total_runtime = json_data[method]['Total Runtime [s]'] * 1000
@@ -205,7 +250,7 @@ def summ(args):
                 total_runtime = float('nan')
                 num_query = float('nan')
                 
-            csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
+            csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f},{max_recall*100:.1f}," + \
                              f"{num_valid_match}," + \
                              f"{total_runtime:.1f},{num_query}")
         
@@ -214,7 +259,7 @@ def summ(args):
 
     # Output Mean Results
     csv_lines.append("Mean Results")
-    csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score,Average Precision," + 
+    csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score,Average Precision,Max Recall," + 
                      "Total Valid Match Number,Total Query Number")
     for method in sorted_methods:
         metrics = result_method.get(method, {})
@@ -223,10 +268,11 @@ def summ(args):
         recall = metrics.get('Recall', 0)
         f1 = metrics.get('F1 Score', 0)
         avg_precision = metrics.get('Average Precision', 0)
+        max_recall = metrics.get('Maximum Recall', 0)
         total_valid = metrics.get('Total Valid Match Number', 0)
         total_query = metrics.get('Total Query Number', 0)   
         csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
-                         f"{avg_precision:.3f}," + \
+                         f"{avg_precision:.3f}," + f"{max_recall*100:.1f}," \
                          f"{total_valid},{total_query}") 
 
     # Remove the last empty line to avoid trailing newline
@@ -250,6 +296,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('eval', description='Evaluate submissions for the VPR dataset benchmark')
     parser.add_argument('--result_dir', type=Path, default='',
                         help='Path to the submission files')
+    parser.add_argument('--methods', type=str, nargs='+', help="Different VPR methods")
     parser.add_argument('--dataset_path', type=Path, default=None,
                         help='Path to the dataset folder')
     parser.add_argument('--trans_threshold', type=float, default=7.5, 
@@ -263,4 +310,6 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     logging.basicConfig(level=args.log.upper())
+
+    print(args.methods)
     main(args)

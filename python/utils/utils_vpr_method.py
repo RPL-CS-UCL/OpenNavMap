@@ -19,6 +19,7 @@ from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
 from utils.vpr_single_matching import PlaceRecognitionSingleMatching
 from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
 from utils.vpr_sequence_matching_adaptive import PlaceRecognitionSeqMatchingAdaptive
+from utils.utils_setting_color_font import acquire_color_palette, acquire_marker
 
 def setup_logging(log_dir, stdout_level='info'):
 	os.makedirs(log_dir, exist_ok=True)
@@ -131,19 +132,40 @@ def save_vis_diff_matrix(save_dir, diff_matrix):
 	diff_matrix_path = os.path.join(save_dir, 'preds', "diff_matrix.jpg")
 	plt.savefig(diff_matrix_path)
 
-def save_prec_recall_curve(save_dir, precision_curve, recall_curve, avg_precision):
+def save_prec_recall_curve(save_dir, curve_metrics_methods):
+	# Set basic format
+	from matplotlib import pylab
+	from matplotlib import rc
+	from colorama import init
+	init(autoreset=True)
+	rc('font', **{'size': 14})
+	params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
+	pylab.rcParams.update(params)
+
+	# Set color
+	PALLETE = acquire_color_palette()
+	MARKERS = acquire_marker()
+	min_y = 1.0
+
 	plt.figure(figsize=(8, 6))
-	plt.plot(recall_curve, precision_curve, 
-			 color='b', lw=2, 
-			 label=f'Precision-Recall Curve')
+	for i, (method, metrics) in enumerate(curve_metrics_methods.items()):
+		prec_values, recall_values, max_recall = \
+			metrics['Precision Values'], metrics['Recall Values'], metrics['Maximum Recall']
+		min_y = min(min_y, np.min(prec_values))
+		plt.plot(recall_values, prec_values, color=PALLETE[i%len(PALLETE)], lw=2, label=f"{method}-{max_recall*100:.1f}")
+		plt.vlines(max_recall, np.min(prec_values), np.max(prec_values), color=PALLETE[i%len(PALLETE)], linestyles='dashed')
+		plt.scatter(max_recall, np.max(prec_values), marker=MARKERS[i%len(MARKERS)], color=PALLETE[i%len(PALLETE)])
+
 	plt.xlim([0.0, 1.0])
-	plt.ylim([0.0, 1.05])
+	plt.ylim([min_y, 1.05])
 	plt.xlabel('Recall')
 	plt.ylabel('Precision')
-	plt.title(f"Precision-Recall Curve with Average Precision: {avg_precision:.3f}")
-	plt.legend(loc="upper right")
+	# plt.legend(loc="upper right", bbox_to_anchor=(1.02, 1.2))
+	plt.title(f"Precision-Recall Curve")
 	plt.grid(axis='y', linestyle='--', alpha=0.7)
-	curve_path = os.path.join(save_dir, "prec_recall_curve.jpg")
+	plt.tight_layout()
+
+	curve_path = os.path.join(save_dir, "prec_recall_curve.png")
 	plt.savefig(curve_path, dpi=300)
 
 def parse_arguments():

@@ -20,33 +20,35 @@ export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
-export N_QUERY=30
+export N_QUERY=20
 
 # Model and LoRA configuration
 MODELS=(
-	"hloc_disk_dilg"
-	"vpr_cosplace_resnet18_512"
-	"vpr_netvlad_resnet18_4096"
-	"master_nocalib_pretrain"
+	# "hloc_disk_dilg"
+	# "vpr_cosplace_resnet18_256"
+	# "vpr_netvlad_resnet18_4096"
+	# "duster_nocalib_pretrain"
+	# "duster_calib_pretrain"
+	# "master_nocalib_pretrain"
 	"master_calib_pretrain"
-	"duster_nocalib_pretrain"
-	"duster_calib_pretrain"
 )
 
-LORA_PATHS=(
-	"none"
-	"none"
-	"none"
-	"none"
-	"none"
-	"none"	
-	"none"
-)
+# LORA_PATHS=(
+# 	"none"
+# 	"none"
+# 	"none"
+# 	"none"
+# 	"none"
+# 	"none"	
+# 	"none"
+# )
+
+LORA_PATH="none"
 
 # Create combined model-lora pairs
 MODEL_LORA_PAIRS=()
 for i in "${!MODELS[@]}"; do
-	MODEL_LORA_PAIRS+=("${MODELS[$i]}:${LORA_PATHS[$i]}")
+	MODEL_LORA_PAIRS+=("${MODELS[$i]}:${LORA_PATH}")
 done
 
 # Processing function
@@ -74,7 +76,7 @@ export -f process_model
 export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
-for TOP_K in {2}; do
+for TOP_K in {2..2}; do
 	echo "Processing with TOP_K: $TOP_K"
 	export TOP_K
 

@@ -31,8 +31,13 @@ def acquire_color_palette():
         PALLETE[i] = np.random.random(3)
     return PALLETE
 
+def acquire_marker():
+    MARKERS = ['o', 's', '^', 'D', '*', 'X', 'o', 's', '^', 'D', '*', 'X']
+    return MARKERS
+
 # init(autoreset=True)
-# rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': 10})
+# rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': 14})
 # rc('text', usetex=True)
-# params = {'axes.titlesize': 12, 'legend.fontsize': 10, 'legend.numpoints': 1}
+# rc('font', **{'size': 14})
+# params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
 # pylab.rcParams.update(params)

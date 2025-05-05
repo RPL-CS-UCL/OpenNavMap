@@ -29,10 +29,10 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     ##### Setting for Academic Paper Writing
     STR_BACKBONES="VGG16 ResNet18 ResNet18 ResNet18 ResNet18 DINOv2"
     STR_DESC_DIMENSIONS="4096 128 256 512 256 49152"
-    STR_VPR_MODELS="netvlad cosplace cosplace cosplace eigenplaces anyloc-structured"
+    STR_VPR_MODELS="netvlad cosplace cosplace cosplace eigenplaces anyloc-structured" 
     VPR_MATCH_MODELS="single_match sequence_match sequence_match_adaptive"
     VPR_MATCH_SEQ_LENS="10"
-    IMAGE_MATCH_MODELS="none"
+    IMAGE_MATCH_MODELS="master"
     ##### Default Setting
     # STR_BACKBONES="ResNet18"
     # STR_DESC_DIMENSIONS="256"
