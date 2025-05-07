@@ -11,18 +11,18 @@ set -euo pipefail  # Fail on errors and undefined variables
 # Configuration Section
 # --------------------------
 # Set your desired processing range (0-based indices)
-# ucl_campus/s00000_data
+# ucl_campus_aria/s00000_aria_data
 #   aria: 0-54 (300m length)
 #   google_street_view: 55-56 (300m-1000m length)
-# hkust_campus/s00000
+# hkust_campus/s00000_aria_data
 #   aria: 0-7 (300m length)
 #   fusionportable: 8-9 (1000m length)
 #   smartphone: 10-12 (<300m length)
-# vineyard/
+# vineyard/s00000_aria_data
 #   aria: 0-4 (300m length)
 
 # TODO(gogojjh): Users should change these parameters
-readonly START_SUBMAP_ID=0
+readonly START_SUBMAP_ID=40
 readonly END_SUBMAP_ID=54
 readonly DATASET_NAME="ucl_campus_aria"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"

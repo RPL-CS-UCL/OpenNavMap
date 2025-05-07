@@ -35,9 +35,18 @@ def acquire_marker():
     MARKERS = ['o', 's', '^', 'D', '*', 'X', 'o', 's', '^', 'D', '*', 'X']
     return MARKERS
 
-# init(autoreset=True)
-# rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': 14})
-# rc('text', usetex=True)
-# rc('font', **{'size': 14})
-# params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
-# pylab.rcParams.update(params)
+def setting_font():
+    try:
+        init(autoreset=True)
+        rc('font', **{'family': 'serif', 'serif': ['Times New Roman'], 'size': 14})
+        rc('text', usetex=True)
+        rc('font', **{'size': 12})
+        params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
+        pylab.rcParams.update(params)
+    except:
+        init(autoreset=True)
+        rc('font', **{'family': 'serif', 'serif': ['DejaVu Serif'], 'size': 14})
+        rc('text', usetex=True)
+        rc('font', **{'size': 12})
+        params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
+        pylab.rcParams.update(params)        

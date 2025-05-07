@@ -32,6 +32,14 @@ def is_same_place(poseA, poseB, trans_threshold, ori_threshold):
     dis_trans, dis_angle = compute_pose_error((transA, quatA), (transB, quatB), mode='vector')
     return (dis_trans < trans_threshold and dis_angle < ori_threshold) 
 
+def compute_max_recall(prec_values, recall_values):
+    max_recall = 0
+    for i in range(len(prec_values)):
+        if prec_values[i] >= 1 - 1e-4:
+            max_recall = max(max_recall, recall_values[i])
+    
+    return max_recall
+
 def compute_metrics(dataset_path, results_vpr, 
                     query_name, database_name, 
                     trans_threshold, ori_threshold):
@@ -96,17 +104,9 @@ def compute_metrics(dataset_path, results_vpr,
 
     # Compute curve data
     prec_values, recall_values, thres = precision_recall_curve(y_true, y_score)
-    mask = (prec_values == 1.0)
-    if np.any(mask):
-        valid_indices = np.where(mask)[0][:-1]  # Exclude the last element (recall=0)
-        if len(valid_indices) > 0:
-            max_recall = np.max(recall_values[valid_indices])
-        else:
-            max_recall = 0.0  # Only the trivial case (no true positives)
-    else:
-        max_recall = 0.0    
+    max_recall = compute_max_recall(prec_values, recall_values)
     
-    # Store results as dict()
+    # Store metrics
     output_metrics = dict()
     output_metrics['Accuracy'] = accuracy
     output_metrics['Precision'] = precision
@@ -129,12 +129,14 @@ def eval(args):
     output_metrics_methods, curve_metrics_methods = dict(), dict()
     for method in args.methods:
         logging.warning(f"Evaluating Method: {method}")
-        # Result_path + Method
-        result_dir = os.path.join(args.result_dir, method)
         # Metric
         output_querydb_metrics, curve_querydb_metrics = dict(), dict()
         
+        # Result_path + Method
+        result_dir = os.path.join(args.result_dir, method)
         y_true_all, y_pred_all, y_score_all = [], [], []
+
+        # Traverse results for each database-query pair
         for f in sorted(os.listdir(result_dir)):
             if 'submission-' in f:
                 f_new = f.replace('.txt', '')
@@ -160,37 +162,28 @@ def eval(args):
         precision = precision_score(y_true_all, y_pred_all, zero_division=0)
         recall = recall_score(y_true_all, y_pred_all, zero_division=0)
         f1 = f1_score(y_true_all, y_pred_all, zero_division=0)
+        avg_precision = average_precision_score(y_true_all, y_score_all)    
+
+        # Compute PR curve
+        prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
+        max_recall = compute_max_recall(prec_values, recall_values)
+
+        # Store metrics
         output_querydb_metrics['Accuracy'] = accuracy
         output_querydb_metrics['Precision'] = precision
         output_querydb_metrics['Recall'] = recall
         output_querydb_metrics['F1 Score'] = f1
         output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
         output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
-        avg_precision = average_precision_score(y_true_all, y_score_all)    
         output_querydb_metrics['Average Precision'] = avg_precision
-
-        # Compute PR curve
-        prec_values, recall_values, thres = precision_recall_curve(y_true_all, y_score_all)
-        mask = (prec_values == 1.0)
-        if np.any(mask):
-            valid_indices = np.where(mask)[0][:-1]  # Exclude the last element (recall=0)
-            if len(valid_indices) > 0:
-                max_recall = np.max(recall_values[valid_indices])
-            else:
-                max_recall = 0.0  # Only the trivial case (no true positives)
-        else:
-            max_recall = 0.0
-
         output_querydb_metrics['Maximum Recall'] = max_recall
+        output_metrics_methods[method] = output_querydb_metrics
 
         curve_querydb_metrics['Precision Values'] = prec_values
         curve_querydb_metrics['Recall Values'] = recall_values
         curve_querydb_metrics['Average Precision'] = avg_precision
         curve_querydb_metrics['PR Thresholds'] = thres.tolist()
         curve_querydb_metrics['Maximum Recall'] = max_recall
-
-        # Save metrics for each method
-        output_metrics_methods[method] = output_querydb_metrics
         curve_metrics_methods[method] = curve_querydb_metrics
 
         # Save metrics as a json file
@@ -198,7 +191,11 @@ def eval(args):
         with open(os.path.join(result_dir, 'report_evaluation.json'), 'w') as f:
             f.write(output_json)
 
-    # Draw the PR curve of all samples
+        # Save precision-curve for the method
+        print(f'Saving PR Curve to {os.path.join(args.result_dir, method)}')
+        # save_prec_recall_curve(os.path.join(args.result_dir, method), {method: curve_querydb_metrics})
+
+    # Draw the PR curve of all methods
     save_prec_recall_curve(args.result_dir, curve_metrics_methods)
 
 def summ(args):
@@ -250,7 +247,7 @@ def summ(args):
                 total_runtime = float('nan')
                 num_query = float('nan')
                 
-            csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f},{max_recall*100:.1f}," + \
+            csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f},{max_recall:.1f}," + \
                              f"{num_valid_match}," + \
                              f"{total_runtime:.1f},{num_query}")
         
@@ -272,7 +269,7 @@ def summ(args):
         total_valid = metrics.get('Total Valid Match Number', 0)
         total_query = metrics.get('Total Query Number', 0)   
         csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
-                         f"{avg_precision:.3f}," + f"{max_recall*100:.1f}," \
+                         f"{avg_precision:.3f}," + f"{max_recall:.1f}," \
                          f"{total_valid},{total_query}") 
 
     # Remove the last empty line to avoid trailing newline

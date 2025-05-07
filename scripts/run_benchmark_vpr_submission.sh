@@ -1,10 +1,4 @@
 #!/bin/bash
-# bash run_benchmark_vpr_submission.sh /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00000 && \
-# bash run_benchmark_vpr_submission.sh /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00001 && \
-# bash run_benchmark_vpr_submission.sh /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00002 && \
-# bash run_benchmark_vpr_submission.sh /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00003 && 
-# bash run_benchmark_vpr_submission.sh /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00004 && \
-# bash run_benchmark_vpr_submission.sh /Rocket_ssd/dataset/data_litevloc/vpr_eval/ucl_campus/s00005
 
 # Check if DATASET_PATH is provided
 if [ -z "$1" ]; then
@@ -32,7 +26,7 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     STR_VPR_MODELS="netvlad cosplace cosplace cosplace eigenplaces anyloc-structured" 
     VPR_MATCH_MODELS="single_match sequence_match sequence_match_adaptive"
     VPR_MATCH_SEQ_LENS="10"
-    IMAGE_MATCH_MODELS="master"
+    IMAGE_MATCH_MODELS="none master"
     ##### Default Setting
     # STR_BACKBONES="ResNet18"
     # STR_DESC_DIMENSIONS="256"
