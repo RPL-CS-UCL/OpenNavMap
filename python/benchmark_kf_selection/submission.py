@@ -24,7 +24,6 @@ from utils.utils_vpr_method import perform_knn_search
 from utils.pose_solver import available_solvers, get_solver
 from benchmark_rpe.rpe_default import cfg
 from image_node import ImageNode
-from image_graph import ImageGraph
 from keyframe_selection import DB_Ratio
 
 # Matching framework imports
@@ -67,13 +66,15 @@ def predict(matcher, solver, cfg, out_dir, args):
 			load_data(scene_path, keyframe_path, args)
 		
 		# Split database and query sets
+		# database: [0, DB_Ratio]
+		# query:    [DB_Ratio, 1]		
 		num_query = max(1, int(len(submap_splits) * (1 - DB_Ratio)))
 		num_database = len(submap_splits) - num_query
 		db_submaps = submap_splits[:num_database]
 		query_submaps = submap_splits[num_database:]
 
 		# Build database graph
-		graph = ImageGraph(scene_path)
+		all_nodes = {}
 		for submap in db_submaps:
 			for img_name in submap['frames']:
 				if img_name in keyframes:
@@ -82,11 +83,9 @@ def predict(matcher, solver, cfg, out_dir, args):
 						scene_path, img_name, args.image_size, 
 						descs[img_name], intrinsics[img_name], poses[img_name]
 					)
-					graph.add_node(node)
+					all_nodes[node.id] = node
 		
-		db_descs = np.array([node.get_descriptor() for node in graph.nodes.values()], dtype=np.float32)
-		# print(f'Map with {graph.get_num_node()} Nodes')
-		# print(', '.join([node.id for node in graph.nodes.values()]))
+		db_descs = np.array([node.get_descriptor() for node in all_nodes.values()], dtype=np.float32)
 
 		# Prepare query set
 		queries = []
@@ -106,7 +105,7 @@ def predict(matcher, solver, cfg, out_dir, args):
 				# Perform descriptor matching
 				query_desc = query_node.get_descriptor().reshape(1, -1)
 				_, pred = perform_knn_search(db_descs, query_desc, query_desc.shape[1], [1])
-				map_node = list(graph.nodes.values())[pred[0][0]]
+				map_node = list(all_nodes.values())[pred[0][0]]
 
 				# Image matching
 				match_result = matcher(map_node.rgb_image, query_node.rgb_image)

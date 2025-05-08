@@ -140,6 +140,8 @@ def aggregate_results(all_results, all_failures, eval_config):
 	output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
 	output_metrics[f'AUC @ VCRE < {config.vcre_threshold}px'] = auc_vcre
 	output_metrics[f'Estimates for % of frames'] = len(all_metrics['trans_err']) / total_samples
+	output_metrics[f'Frames Number for Estimation'] = total_samples
+	
 	return output_metrics, curves_data
 
 def count_unexpected_scenes(scenes: tuple, submission_zip: ZipFile):

@@ -314,6 +314,9 @@ def select_keyframes(scene_path, scene_data, args):
     num_mkpts = scene_data['num_mkpts'].item()
     submap_splits = scene_data['submap_splits']
 
+    # NOTE(gogojjh): the criteria to split submap
+    # database: [0, DB_Ratio]
+    # query:    [DB_Ratio, 1]
     num_query = max(1, int(len(submap_splits) * (1 - DB_Ratio)))
     num_database = len(submap_splits) - num_query
     submap_database = submap_splits[:num_database]

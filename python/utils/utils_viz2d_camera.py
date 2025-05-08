@@ -65,7 +65,7 @@ def plot_camera_poses(poses: np.ndarray, sample_rate: int, title: str) -> plt.Fi
         title: Plot title
     
     Returns:
-        Matplotlib figure object
+        Matplotlib figure object: Green (database), Gray (Query), Red (Remove)
     """
     bounds = np.max(poses[:, :3], axis=0) - np.min(poses[:, :3], axis=0)
     max_bound = np.max(bounds) / 2
