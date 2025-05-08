@@ -6,7 +6,7 @@ NUM_PARALLEL=2  # Set desired parallelism level here
 # Check if DATASET_NAME is provided
 if [ -z "$1" ] || [ -z "$2" ]; then
 	echo "Error: DATASET_NAME is not specified."
-	echo "Usage: ./run_benchmark_rpe_submission.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus, mapfree, hkust_aria) 
+	echo "Usage: ./run_benchmark_rpe_submission.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus_aria, mapfree) 
 	<SPLIT> (train, val, test)"
 	exit 1
 fi
@@ -20,28 +20,20 @@ export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
-export N_QUERY=20
+export N_QUERY=10
 
 # Model and LoRA configuration
 MODELS=(
-	# "hloc_disk_dilg"
-	# "vpr_cosplace_resnet18_256"
-	# "vpr_netvlad_resnet18_4096"
-	# "duster_nocalib_pretrain"
-	# "duster_calib_pretrain"
-	# "master_nocalib_pretrain"
+	"hloc_disk_dilg"
+	"hloc_suerpoint_splg"
+	"vpr_cosplace_resnet18_256"
+	"vpr_netvlad_resnet18_4096"
+	"reloc3r"
+	"duster_nocalib_pretrain"
+	"duster_calib_pretrain"
+	"master_nocalib_pretrain"
 	"master_calib_pretrain"
 )
-
-# LORA_PATHS=(
-# 	"none"
-# 	"none"
-# 	"none"
-# 	"none"
-# 	"none"
-# 	"none"	
-# 	"none"
-# )
 
 LORA_PATH="none"
 
@@ -54,10 +46,8 @@ done
 # Processing function
 process_model() {
 	local pair="$1"
-	local top_k="$2"
-	
+	local top_k="$2"	
 	IFS=":" read -r MODEL LORA_PATH <<< "$pair"
-	
 	echo "Processing model: $MODEL with LoRA weight: $LORA_PATH"
 	python "$PROJECT_PATH/python/benchmark_rpe/submission.py" \
 		--config "$CONFIG_FILE" \
@@ -66,7 +56,7 @@ process_model() {
 		--n_query "$N_QUERY" \
 		--top_k "$top_k" \
 		--lora_path "$LORA_PATH" \
-		--split "$SPLIT"
+		--split "$SPLIT" # --debug --viz
 	echo ""
 	sleep 3
 }
@@ -76,11 +66,9 @@ export -f process_model
 export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
-for TOP_K in {2..2}; do
+for TOP_K in $(seq 2 3 14); do
 	echo "Processing with TOP_K: $TOP_K"
 	export TOP_K
-
-	# Run models in parallel
 	printf "%s\n" "${MODEL_LORA_PAIRS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}
 
 	# Unzip files

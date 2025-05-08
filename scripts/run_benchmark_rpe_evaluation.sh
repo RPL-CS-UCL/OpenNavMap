@@ -16,20 +16,22 @@ SPLIT=$2
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
-export N_QUERY=30
-export EVAL_CONFIGS=("config_05_10") # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
+export N_QUERY=10
+export EVAL_CONFIGS=("config_025_5") # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
 
 export MODELS=(
 	"hloc_disk_dilg"
-	"vpr_cosplace_resnet18_512"
+  "hloc_suerpoint_splg"
+	"vpr_cosplace_resnet18_256"
 	"vpr_netvlad_resnet18_4096"
+  "reloc3r"
+  "duster_nocalib_pretrain"
+  "duster_calib_pretrain"
   "master_nocalib_pretrain"
   "master_calib_pretrain"
-	"duster_nocalib_pretrain"
-  "duster_calib_pretrain"
 )
 
-for TOP_K in {2..10}; do
+for TOP_K in $(seq 2 3 14); do # 2 5 8 11 14
   echo "Processing with TOP_K: $TOP_K"
 
   for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"
@@ -44,7 +46,7 @@ for TOP_K in {2..10}; do
         --n_query $N_QUERY \
         --split $SPLIT \
         --eval_config $EVAL_CONFIG \
-        --log warning
+        --log error
       echo ""
     done
   done

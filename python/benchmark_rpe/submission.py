@@ -93,7 +93,7 @@ def predict(loader, estimator, str_estimator, cfg):
 				raise ValueError(f"{str_estimator} - Estimated pose is None.")
 			elif np.isnan(im_pose).any():
 				raise ValueError("Estimated pose is NaN or infinite.")
-					   
+						
 			"""Save Results"""
 			# Pose that transforms camera point into world
 			T_w2c = np.eye(4); T_w2c[:3, :3] = im_pose[:3, :3]; T_w2c[:3, 3] = im_pose[:3, 3]
@@ -178,10 +178,13 @@ def eval(args):
 	output_root = Path(args.out_dir)
 	output_root.mkdir(parents=True, exist_ok=True)
 	for model in args.models:
-		estimator = get_estimator(model, 
-									device=args.device, 
-									out_dir=os.path.join(args.out_dir, f'{model}/preds'),
-									lora_path=args.lora_path)
+		estimator = get_estimator(
+			model, 
+			device=args.device, 
+			max_num_keypoints=2048,
+			out_dir=os.path.join(args.out_dir, f'{model}/preds'),
+			lora_path=args.lora_path
+		)
 		results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg)
 
 		if args.debug:

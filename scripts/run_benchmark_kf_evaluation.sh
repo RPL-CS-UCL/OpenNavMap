@@ -20,11 +20,11 @@ DATASET_NAME=$1
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval"
-export EVAL_CONFIGS=("config_025_5" "config_05_10" "config_1_10") # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
+export EVAL_CONFIGS=("config_005_5") # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
 
 export MODELS=(
   "master_pnp"
-  "master_essentialmatrix"
+  # "master_essentialmatrix"
   # "roma_pnp"
   # "tiny-roma_pnp"
   # "duster_pnp"

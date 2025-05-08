@@ -15,6 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../uti
 from benchmark.utils import load_poses, subsample_poses, load_K, precision_recall
 from benchmark.metrics import MetricManager, Inputs
 from rpe_default import cfg
+
 def save_prec_recall_curve(save_dir, precision_curve, recall_curve, eval_config):
 	config = importlib.import_module(f"benchmark.{eval_config}")
 	
@@ -98,24 +99,27 @@ def aggregate_results(all_results, all_failures, eval_config):
 
 	# aggregate metrics
 	median_metrics = defaultdict(list)
+	max_metrics = defaultdict(list)
 	all_metrics = defaultdict(list)
 	for scene_results in all_results.values():
 		for metric, values in scene_results.items():
 			median_metrics[metric].append(np.median(values))
+			max_metrics[metric].append(np.max(values))
 			all_metrics[metric].extend(values)
 	all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
 	assert all([v.ndim == 1 for v in all_metrics.values()]
 			   ), 'invalid metrics shape'
 
-	# compute avg median metrics
+	# compute avg max and median metrics
 	avg_median_metrics = {metric: np.mean(values) for metric, values in median_metrics.items()}
+	avg_max_metrics = {metric: np.mean(values) for metric, values in max_metrics.items()}
 
 	# compute precision/AUC for pose error and reprojection errors
 	accepted_poses = (all_metrics['trans_err'] < config.t_threshold) * \
 					 (all_metrics['rot_err'] < config.R_threshold)
 	accepted_vcre = all_metrics['reproj_err'] < config.vcre_threshold
 	total_samples = len(next(iter(all_metrics.values()))) + all_failures
-
+	
 	prec_pose = np.sum(accepted_poses) / total_samples
 	prec_vcre = np.sum(accepted_vcre) / total_samples
 
@@ -131,13 +135,16 @@ def aggregate_results(all_results, all_failures, eval_config):
 
 	# output metrics
 	output_metrics = dict()
+	output_metrics['Average Maximum Translation Error'] = avg_max_metrics['trans_err']
+	output_metrics['Average Maximum Rotation Error'] = avg_max_metrics['rot_err']
+	output_metrics['Average Maximum Reprojection Error'] = avg_max_metrics['reproj_err']
 	output_metrics['Average Median Translation Error'] = avg_median_metrics['trans_err']
 	output_metrics['Average Median Rotation Error'] = avg_median_metrics['rot_err']
 	output_metrics['Average Median Reprojection Error'] = avg_median_metrics['reproj_err']
 	output_metrics[f'Precision @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = prec_pose
 	output_metrics[f'AUC @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = auc_pose
-	output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
-	output_metrics[f'AUC @ VCRE < {config.vcre_threshold}px'] = auc_vcre
+	# output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
+	# output_metrics[f'AUC @ VCRE < {config.vcre_threshold}px'] = auc_vcre
 	output_metrics[f'Estimates for % of frames'] = len(all_metrics['trans_err']) / total_samples
 	output_metrics[f'Frames Number for Estimation'] = total_samples
 

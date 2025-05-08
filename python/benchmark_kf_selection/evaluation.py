@@ -98,11 +98,14 @@ def aggregate_results(all_results, all_failures, eval_config):
 
 	# aggregate metrics
 	median_metrics = defaultdict(list)
+	max_metrics = defaultdict(list)
 	all_metrics = defaultdict(list)
 	for scene_results in all_results.values():
 		for metric, values in scene_results.items():
 			median_metrics[metric].append(np.median(values))
+			max_metrics[metric].append(np.max(values))
 			all_metrics[metric].extend(values)
+
 	all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
 	assert all([v.ndim == 1 for v in all_metrics.values()]
 			   ), 'invalid metrics shape'
@@ -110,6 +113,10 @@ def aggregate_results(all_results, all_failures, eval_config):
 	# compute avg median metrics
 	avg_median_metrics = {metric: np.mean(
 		values) for metric, values in median_metrics.items()}
+
+	# compute max median metrics
+	avg_max_metrics = {metric: np.mean(
+		values) for metric, values in max_metrics.items()}
 
 	# compute precision/AUC for pose error and reprojection errors
 	accepted_poses = (all_metrics['trans_err'] < config.t_threshold) * \
@@ -132,6 +139,8 @@ def aggregate_results(all_results, all_failures, eval_config):
 
 	# output metrics
 	output_metrics = dict()
+	output_metrics['Maximum Translation Error'] = avg_max_metrics['trans_err']
+	output_metrics['Maximum Rotation Error'] = avg_max_metrics['rot_err']
 	output_metrics['Average Median Translation Error'] = avg_median_metrics['trans_err']
 	output_metrics['Average Median Rotation Error'] = avg_median_metrics['rot_err']
 	output_metrics['Average Median Reprojection Error'] = avg_median_metrics['reproj_err']

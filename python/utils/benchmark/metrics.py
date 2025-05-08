@@ -2,8 +2,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Callable
 
-from utils.benchmark.reprojection import reprojection_error
-from utils.benchmark.utils import VARIANTS_ANGLE_SIN, quat_angle_error
+from benchmark.reprojection import reprojection_error
+from benchmark.utils import VARIANTS_ANGLE_SIN, quat_angle_error
 
 @dataclass
 class Inputs:
