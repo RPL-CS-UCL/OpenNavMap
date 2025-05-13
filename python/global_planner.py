@@ -290,7 +290,7 @@ if __name__ == '__main__':
 			global_planner.is_goal_init = False
 			global_planner.manual_goal_img = cv2.imread(path_goal_img)
 		else:
-			exit()
+			raise ValueError(f'Not Exist Goal Image {path_goal_img}')
 
 	trans, quat = global_planner.map_node_position[0], np.array([0, 0, 0, 1])
 	robot_node = PointNode(global_planner.robot_id, rospy.Time.now().to_sec(), trans, quat, None)

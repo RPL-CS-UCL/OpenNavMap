@@ -45,8 +45,7 @@ class SubmapManager:
 			return
 			
 		last_time = self.current_submap['end_time']
-		if timestamp - last_time >= self.time_threshold \
-			or self.current_submap['frames'][0] == 'seq0/frame_00000.jpg':
+		if timestamp - last_time >= self.time_threshold:
 			self._finalize_current_submap()
 			self._create_new_submap(img_name, timestamp)
 		else:
@@ -113,11 +112,8 @@ def pre_compute(scene_path, str_matcher, str_estimator):
 		num_img = len(poses)
 		num_database = int(num_img * DB_Ratio)
 		for id, key in enumerate(poses.keys()):
-			if id < num_database:
-				timestamps[key] = np.array([0])
-			else:
-				timestamps[key] = np.array([Time_Threshold])
-
+			timestamps[key] = np.array([int(id / (num_img / 10)) * Time_Threshold])
+			
 	# Validate data consistency
 	for key in poses.keys(): 
 		if key not in timestamps:
@@ -146,44 +142,36 @@ def pre_compute(scene_path, str_matcher, str_estimator):
 	np.save(os.path.join(scene_path, 'submap_split.npy'), np.array(submap_data, dtype=dtype))
 	print(f"{len(submap_data)} submaps are split")
 
-	matcher = get_matcher(str_matcher, device=device)
-	matcher.ransac_iters = 1
-	matcher.ransac_conf = 0.8
-	matcher.ransac_reproj_thresh = 6
-	imgs = dict()
-	for key in poses.keys():
-		imgs[key] = matcher.load_image(os.path.join(original_scene_path, key))
-
 	##### Step 3:  Create iqa.txt
-	print('Processing IQA')
-	IQA_METRIC = 'musiq'
-	iqa_metric = pyiqa.create_metric(IQA_METRIC, device=device)
-	iqa_scores = np.empty((len(poses), 2), dtype=object)
-	for indice, (img_name, _) in enumerate(poses.items()):
-		img_path = os.path.join(original_scene_path, img_name)
-		score = iqa_metric(img_path).detach().squeeze(0).cpu().numpy()[0]
-		iqa_scores[indice, 0], iqa_scores[indice, 1] = img_name, score
-	np.savetxt(os.path.join(scene_path, 'iqa.txt'), iqa_scores, fmt="%s %.4f")
+	# print('Processing IQA')
+	# IQA_METRIC = 'musiq'
+	# iqa_metric = pyiqa.create_metric(IQA_METRIC, device=device)
+	# iqa_scores = np.empty((len(poses), 2), dtype=object)
+	# for indice, (img_name, _) in enumerate(poses.items()):
+	# 	img_path = os.path.join(original_scene_path, img_name)
+	# 	score = iqa_metric(img_path).detach().squeeze(0).cpu().numpy()[0]
+	# 	iqa_scores[indice, 0], iqa_scores[indice, 1] = img_name, score
+	# np.savetxt(os.path.join(scene_path, 'iqa.txt'), iqa_scores, fmt="%s %.4f")
 
 	#### Step 4:  Create descriptor.txt
-	print('Processing Desc')
-	desc_dimenson = 256
-	vpr_model = initialize_vpr_model('cosplace', 'ResNet18', desc_dimenson, device)    
-	transformations = [
-		transforms.ToTensor(),
-		transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-		transforms.Resize(size=resize, antialias=True)
-	]
-	transform = transforms.Compose(transformations)
-	all_descriptors = np.empty((len(poses), desc_dimenson + 1), dtype=object)
-	for indice, (img_name, _) in enumerate(poses.items()):
-		img_path = os.path.join(original_scene_path, img_name)
-		pil_img = Image.open(img_path).convert("RGB")
-		normalized_img = transform(pil_img)
-		descriptors = vpr_model(normalized_img.unsqueeze(0).to(device))
-		descriptors = descriptors.detach().cpu().numpy()
-		all_descriptors[indice, 0], all_descriptors[indice, 1:] = img_name, descriptors
-	np.savetxt(os.path.join(scene_path, 'descriptors.txt'), all_descriptors, fmt="%s" + " %.9f" * desc_dimenson)
+	# print('Processing Desc')
+	# desc_dimenson = 256
+	# vpr_model = initialize_vpr_model('cosplace', 'ResNet18', desc_dimenson, device)    
+	# transformations = [
+	# 	transforms.ToTensor(),
+	# 	transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+	# 	transforms.Resize(size=resize, antialias=True)
+	# ]
+	# transform = transforms.Compose(transformations)
+	# all_descriptors = np.empty((len(poses), desc_dimenson + 1), dtype=object)
+	# for indice, (img_name, _) in enumerate(poses.items()):
+	# 	img_path = os.path.join(original_scene_path, img_name)
+	# 	pil_img = Image.open(img_path).convert("RGB")
+	# 	normalized_img = transform(pil_img)
+	# 	descriptors = vpr_model(normalized_img.unsqueeze(0).to(device))
+	# 	descriptors = descriptors.detach().cpu().numpy()
+	# 	all_descriptors[indice, 0], all_descriptors[indice, 1:] = img_name, descriptors
+	# np.savetxt(os.path.join(scene_path, 'descriptors.txt'), all_descriptors, fmt="%s" + " %.9f" * desc_dimenson)
 
 	##### Step 5:  Create information reduction and information gain
 	print('Processing Overlap')
@@ -312,19 +300,24 @@ def pre_compute(scene_path, str_matcher, str_estimator):
 	np.save(os.path.join(scene_path, 'landmark_gain.npy'), lm_gain)
 
 	##### Step 5:  Create image matcher and relax the threshold for considering more mkpts 
-	print('Processing Matching')
-	kpts_match = {}
-	key_list = list(poses.keys())
-	for id, n0 in enumerate(key_list):
-		if id == len(key_list) - 1: continue
-		for n1 in key_list[id+1:]:
-			result = matcher(imgs[n0], imgs[n1])
-			num_matches = len(result['inlier_kpts0'])
-			kpts_match[(n0, n1)] = num_matches
-			kpts_match[(n1, n0)] = num_matches
-			# print(n0, n1, num_matches)
+	# matcher = get_matcher(str_matcher, device=device)
+	# imgs = dict()
+	# for key in poses.keys():
+	# 	imgs[key] = matcher.load_image(os.path.join(original_scene_path, key))
+	# DEBUG(gogojjh):
+	# print('Processing Matching')
+	# kpts_match = {}
+	# key_list = list(poses.keys())
+	# for id, n0 in enumerate(key_list):
+	# 	if id == len(key_list) - 1: continue
+	# 	for n1 in key_list[id+1:]:
+	# 		result = matcher(imgs[n0], imgs[n1])
+	# 		num_matches = len(result['inlier_kpts0'])
+	# 		kpts_match[(n0, n1)] = num_matches
+	# 		kpts_match[(n1, n0)] = num_matches
+	# 		# print(n0, n1, num_matches)
 
-	np.save(os.path.join(scene_path, f'keypoint_matched_{str_matcher}.npy'), kpts_match)    
+	# np.save(os.path.join(scene_path, f'keypoint_matched_{str_matcher}.npy'), kpts_match)    
 
 	# Copy timestamps
 	import shutil
@@ -348,7 +341,7 @@ def pre_compute(scene_path, str_matcher, str_estimator):
 	
 def load_scene_data(scene_path, str_matcher, str_estimator):
 	"""Improved data loading with submap structure conversion"""
-	required_files = ['iqa.txt', 'landmark_redundancy.npy', 'landmark_gain.npy', f'keypoint_matched_{str_matcher}.npy', 
+	required_files = ['iqa.txt', 'landmark_redundancy.npy', 'landmark_gain.npy', 
 					  'submap_split.npy', 'timestamps.txt', 'descriptors.txt', 'poses.txt']
 	Path(scene_path).mkdir(parents=True, exist_ok=True)
 
@@ -371,7 +364,6 @@ def load_scene_data(scene_path, str_matcher, str_estimator):
 		'iqa_scores': read_timestamps(os.path.join(scene_path, 'iqa.txt')),
 		'lm_redu': np.load(os.path.join(scene_path, 'landmark_redundancy.npy'), allow_pickle=True),
 		'lm_gain': np.load(os.path.join(scene_path, 'landmark_gain.npy'), allow_pickle=True),
-		'num_mkpts': np.load(os.path.join(scene_path, f'keypoint_matched_{str_matcher}.npy'), allow_pickle=True),
 		'submap_splits': submap_splits,
 	}
 
@@ -388,7 +380,6 @@ def select_keyframes(scene_path, scene_data, args):
 	iqa_scores = scene_data['iqa_scores']       
 	lm_redu = scene_data['lm_redu'].item()  
 	lm_gain = scene_data['lm_gain'].item()  
-	num_mkpts = scene_data['num_mkpts'].item()
 	submap_splits = scene_data['submap_splits']
 
 	# NOTE(gogojjh): the criteria to split submap
@@ -413,7 +404,7 @@ def select_keyframes(scene_path, scene_data, args):
 		db_keyframes = kf_selector.select_keyframes(poses, submap_database)
 	elif args.method == 'feature':       # 2D feature
 		kf_selector = FeatureSelector()
-		db_keyframes = kf_selector.select_keyframes(descriptors, num_mkpts, submap_database)
+		db_keyframes = kf_selector.select_keyframes(ori_path, descriptors, submap_database)
 	elif args.method == 'landmark':      # 3D landmark
 		kf_selector = LandmarkSelector()
 		db_keyframes = kf_selector.select_keyframes(ori_path, timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)

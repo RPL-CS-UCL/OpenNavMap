@@ -3,12 +3,12 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../"))
 
 import numpy as np
+import math
+from pathlib import Path
 
 from image_node import ImageNode
-from image_graph import ImageGraph
 from utils.utils_vpr_method import perform_knn_search
 
-import math
 
 class LandmarkSelector:
     def __init__(self):
@@ -56,7 +56,7 @@ class LandmarkSelector:
         P_G = self.gain_probability(G)
         
         acc_prob = P_Q * P_G       
-        print(f"Q: {Q:.3f}, G: {G:.3f}, PQ: {P_Q:.3f}, PG: {P_G:.3f}, P: {acc_prob:.3f}")
+        # print(f"Q: {Q:.3f}, G: {G:.3f}, PQ: {P_Q:.3f}, PG: {P_G:.3f}, P: {acc_prob:.3f}")
 
         return acc_prob
 
@@ -81,28 +81,36 @@ class LandmarkSelector:
         P = P_Q * P_G * P_T + 1e-6
         print(f"P_Q: {P_Q:.3f}, P_G: {P_G:.3f}, P_T: {P_T:.3f}, P: {P:.3f}")
 
-    def update_keyframes(self, submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain):
-        if graph.get_num_node() == 0:
+    def update_keyframes(self, map_root, submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain):
+        if len(graph) == 0:
             for img_name in submap['frames']:
                 curr_node = ImageNode(img_name, None, None, descriptors[img_name], timestamps[img_name][0], None, None, None, None, None, None, None)
-                curr_node.rgb_img_name = os.path.join(graph.map_root, img_name)
+                curr_node.rgb_img_name = str(map_root / img_name)
                 curr_node.iqa_score = iqa_scores[img_name][0]
-                graph.add_node(curr_node)
+                graph[curr_node.id] = curr_node
         else:
-            db_descriptors = np.array([node.get_descriptor() for node in graph.nodes.values()], dtype=np.float32)
+            db_descriptors = np.array([node.get_descriptor() for node in graph.values()], dtype=np.float32)
             for img_name in submap['frames']:
-                curr_node = ImageNode(img_name, None, None, descriptors[img_name], timestamps[img_name][0], None, None, None, None, None, None, None)
-                curr_node.rgb_img_name = os.path.join(graph.map_root, img_name)
+                curr_node = ImageNode(
+                    img_name, 
+                    None, 
+                    None, 
+                    descriptors[img_name], 
+                    timestamps[img_name][0], 
+                    None, None, None, None, None, None, None
+                )
+                curr_node.rgb_img_name = str(map_root / img_name)
                 curr_node.iqa_score = iqa_scores[img_name][0]
 
                 # Find the closest node in the graph
                 query_descriptor = curr_node.get_descriptor().reshape(1, -1)
                 dis, pred = perform_knn_search(db_descriptors, query_descriptor, query_descriptor.shape[1], [1])
-                for idx, node in enumerate(graph.nodes.values()):
+                for idx, node in enumerate(graph.values()):
                     if idx == pred[0][0]:
                         closest_node = node
                         break
 
+                ##### Forward
                 # Determine whether to add new frame
                 acc_prob = self.compute_accept_prob(
                     curr_node.iqa_score, 
@@ -110,9 +118,9 @@ class LandmarkSelector:
                 )
                 # print(f"Accept prob {acc_prob:.3f}: {curr_node.id}")
                 if not acc_prob > self.P_acc_th: continue
-                graph.add_node(curr_node)
-
+                
                 # Add new frame to the graph
+                graph[curr_node.id] = curr_node
                 edge_info = {
                     'R': info_redu[(closest_node.id, curr_node.id)],
                     'G': info_gain[(closest_node.id, curr_node.id)],
@@ -122,13 +130,14 @@ class LandmarkSelector:
             
             # Check whether old keyframe should be deleted
             nodes_to_remove = []
-            for db_node in graph.nodes.values():
+            for db_node in graph.values():
                 # The newest keyframe is not considered for deletion
                 if not db_node.edges: continue
                 
+                ##### Backward
                 # Compute the keeping probability
                 min_keep = min(
-                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['G'], edge[1]['dt']), edge[1])
+                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['G'], edge[1]['dt']), edge[0])
                     for edge in db_node.edges.values()
                 )
                 P_keep, node_to_viz = min_keep
@@ -148,23 +157,42 @@ class LandmarkSelector:
                 #     print(f"Q:{db_node.iqa_score}, R:{edge[1]['R']}, G:{edge[1]['G']}, dT:{edge[1]['dt']}")
                 #     print(f"PQ:{P_Q:.3f} - PR:{P_R:.3f} - PG:{P_G:.3f} - PT:{P_T:.3f}")
 
-            graph.remove_node_list(nodes_to_remove)
+            for node in nodes_to_remove:
+                if node.id in graph:
+                    graph.pop(node.id)
 
-    def select_keyframes(self, data_path, timestamps, descriptors, iqa_scores, info_redu, info_gain, submap_database, max_frames=100):
+    def select_keyframes(self, 
+                         data_path, 
+                         timestamps, 
+                         descriptors, 
+                         iqa_scores, 
+                         info_redu, 
+                         info_gain, 
+                         submap_database):
         """
         Main method to select keyframes from provided data.
-        timestamps, descriptors, iqa_scores, info_redu, info_gain: metadata dictionaries
+        timestamps, 
+        descriptors, iqa_scores, info_redu, info_gain: metadata dictionaries
         submap_database: list of submap dicts containing frame names
         """
 
         # Graph to store keyframes and their overlapping relationships
-        graph = ImageGraph(map_root=data_path)
+        graph = dict()
         
         # Process each submap
         for submap in submap_database:
-            self.update_keyframes(submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain)
+            self.update_keyframes(
+                Path(data_path), 
+                submap, 
+                graph, 
+                timestamps, 
+                descriptors, 
+                iqa_scores, 
+                info_redu, 
+                info_gain
+            )
             
-        keyframes = [key for key in graph.nodes.keys()]
+        keyframes = [key for key in graph.keys()]
         print(f'Selected {len(keyframes)} keyframes')
         print(', '.join(key for key in keyframes))
 
