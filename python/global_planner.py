@@ -185,60 +185,65 @@ class GlobalPlanner:
 		rospy.Rate(self.main_freq).sleep()
 
 	def visualize_graph(self, shortest_path, goal_image_path):
+		from utils.utils_setting_color_font import setting_font, acquire_color_palette 
 		import matplotlib.pyplot as plt
 		import cv2
-		map_name = os.path.splitext(os.path.basename(pathlib.Path(self.args.map_path)))[0]
-
-		plt.figure(figsize=(16, 6))
-		ax1 = plt.subplot(1, 2, 1)
 		
+		PALLETE = acquire_color_palette()
+		setting_font(legend_fontsize=12)
+		plt.figure(figsize=(8, 10))
+
+		# Display goal image if provided
+		ax1 = plt.subplot(2, 1, 1)
+		img = cv2.imread(goal_image_path)
+		img_resize = cv2.resize(img, (int(img.shape[1]/2), int(img.shape[0]/2)))
+		ax1.imshow(cv2.cvtColor(img_resize, cv2.COLOR_BGR2RGB))
+		ax1.axis('off')
+		# ax1.set_title('Goal Image')
+
 		# Plot all nodes in black
+		ax2 = plt.subplot(2, 1, 2)
 		all_nodes = [node.trans for node in self.point_graph.nodes.values()]
 		all_x = [n[0] for n in all_nodes]
 		all_y = [n[1] for n in all_nodes]
-		ax1.scatter(all_x, all_y, c='black', s=10, label='Nodes')
-		
+		ax2.scatter(all_x, all_y, c='black', s=10)
+
 		# Plot all edges in black
 		for node in self.point_graph.nodes.values():
 			for neighbor, weight in node.edges.values():
 				start = node.trans[:2]
 				end = neighbor.trans[:2]
-				ax1.plot([start[0], end[0]], [start[1], end[1]], color='black', linewidth=0.5)
+				ax2.plot([start[0], end[0]], [start[1], end[1]], color='k', linewidth=0.5)
 		
 		# Highlight shortest path in red
 		if shortest_path:
 			path_x = [node.trans[0] for node in shortest_path]
 			path_y = [node.trans[1] for node in shortest_path]
-			ax1.scatter(path_x, path_y, c='g', s=30, label='Shortest Path')
+			ax2.scatter(path_x, path_y, c=PALLETE[0], s=30, label='Shortest Path')
+			ax2.scatter(path_x[0], path_y[0], c=PALLETE[5], s=80, marker='*', label='Start Point', zorder=100)
+			ax2.scatter(path_x[-1], path_y[-1], c=PALLETE[5], s=80, marker='^', label='End Point', zorder=100)
 			for i in range(len(shortest_path)-1):
 				start = shortest_path[i].trans[:2]
 				end = shortest_path[i+1].trans[:2]
-				ax1.plot([start[0], end[0]], [start[1], end[1]], color='g', linewidth=3)
+				ax2.plot([start[0], end[0]], [start[1], end[1]], color=PALLETE[0], linewidth=2)
 		
-		ax1.set_xlabel('X [m]')
-		ax1.set_ylabel('Y [m]')
-		# ax1.set_xlim(min(start[0], end[0])-3, max(start[0], end[0])+3)
-		# ax1.set_ylim(min(start[1], end[1])-3, max(start[1], end[1])+3)
-		ax1.set_title('Shortest Path in the Traversability Graph')
-		# ax1.axis('equal')
-		ax1.grid(ls='--', color='0.7')
-		# ax1.legend()
-		
-		# Display goal image if provided
-		ax2 = plt.subplot(1, 2, 2)
-		img = cv2.imread(goal_image_path)
-		img_resize = cv2.resize(img, (int(img.shape[1]/2), int(img.shape[0]/2)))
-		ax2.imshow(cv2.cvtColor(img_resize, cv2.COLOR_BGR2RGB))
-		ax2.axis('off')
-		ax2.set_title('Goal Image')
+		ax2.set_xlabel('X [m]')
+		ax2.set_ylabel('Y [m]')
+		ax2.set_title('Shortest Path on the Traversability Graph')
+		ax2.grid(ls='--', color='0.7')
+		# ax2.set_xlim(min(start[0], end[0])-3, max(start[0], end[0])+3)
+		# ax2.set_ylim(min(start[1], end[1])-3, max(start[1], end[1])+3)
+		ax2.axis('equal')
+		ax2.legend(ncol=3)
 		
 		# Save or show the plot
+		map_name = os.path.splitext(os.path.basename(pathlib.Path(self.args.map_path)))[0]
 		save_dir = pathlib.Path(goal_image_path).parent
 		(save_dir / 'preds_shortestpath').mkdir(parents=True, exist_ok=True)
 		goal_name = os.path.splitext(os.path.basename(goal_image_path))[0]
-		save_path = save_dir / 'preds_shortestpath' / f'sp_{map_name}_{goal_name}.png'
-		plt.savefig(str(save_path))
-		logging.info(f'Saved visualization to {save_path}')
+		save_path = save_dir / 'preds_shortestpath' / f'sp_{map_name}_{goal_name}.pdf'
+		plt.savefig(str(save_path), dpi=300)
+		print(f'Saved visualization to {save_path}')
 		plt.close()
 
 
@@ -295,6 +300,8 @@ if __name__ == '__main__':
 	trans, quat = global_planner.map_node_position[0], np.array([0, 0, 0, 1])
 	robot_node = PointNode(global_planner.robot_id, rospy.Time.now().to_sec(), trans, quat, None)
 	global_planner.perform_planning(robot_node)
+	if args.viz:
+		exit()
 
 	# Publish other ROS message
 	print('Publishing ROS Message for Visualization ...')
