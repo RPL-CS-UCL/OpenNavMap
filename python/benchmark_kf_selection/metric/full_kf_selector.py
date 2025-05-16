@@ -14,6 +14,6 @@ class FullKFSelector:
             keyframes += [key for key in submap['frames']]
 
         print(f'Selected {len(keyframes)} keyframes')
-        print(', '.join(key for key in keyframes))
+        # print(', '.join(key for key in keyframes))
 
         return keyframes

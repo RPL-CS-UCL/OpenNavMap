@@ -47,7 +47,7 @@ def predict(loader, estimator, str_estimator, cfg):
 	results_debug_dict = defaultdict(list)
 	running_time = []
 	save_indice = 0
-	for data in tqdm(loader):
+	for data_cnt, data in enumerate(tqdm(loader)):
 		try:
 			scene_root = Path(data['scene_root'][0])
 			scene_id = data['scene_id'][0]
@@ -122,7 +122,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			)
 			results_dict[scene_id].append(estimated_pose)
 
-			print(Fore.GREEN + f'Estimated Pose: {trans_c2w.T}' + Style.RESET_ALL)
+			print(Fore.GREEN + f'Estimated Pose in the world: {T_w2c[:3, 3].T}' + Style.RESET_ALL)
 			if args.debug:
 				output_estimator_directory = Path(os.path.join(args.out_dir, f"{str_estimator}"))
 				output_estimator_directory.mkdir(parents=True, exist_ok=True)
@@ -138,7 +138,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			query_image = data['image1_path'][0]
 			tqdm.write(Fore.RED + f"Error with {str_estimator}: {e}" + Style.RESET_ALL)
 			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image}." + Style.RESET_ALL)
-
+		
 	average_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
 	return results_dict, results_debug_dict, average_runtime
 
@@ -181,7 +181,7 @@ def eval(args):
 		estimator = get_estimator(
 			model, 
 			device=args.device, 
-			max_num_keypoints=2048,
+			max_num_keypoints=4096,
 			out_dir=os.path.join(args.out_dir, f'{model}/preds'),
 			lora_path=args.lora_path
 		)

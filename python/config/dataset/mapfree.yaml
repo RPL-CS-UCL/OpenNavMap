@@ -9,7 +9,7 @@ DATASET:
                 s00493, s00494, s00495, s00496, s00497, s00498, s00499, s00500, s00501, s00502, s00503, 
                 s00504, s00505, s00506, s00507, s00508, s00509, s00510, s00511, s00512, s00513, s00514, 
                 s00515, s00516, s00517, s00518, s00519, s00520, s00521, s00522, s00523, s00524] # should be a list [] or None. If none, use all scenes.
-  ESTIMATED_DEPTH: None  # To load estimated depth map, provide the suffix to the depth files, e.g. 'dptnyu', 'dptkitti'
+  ESTIMATED_DEPTH: mickey  # To load estimated depth map, provide the suffix to the depth files, e.g. 'dptnyu', 'dptkitti', 'mickey'
   AUGMENTATION_TYPE: None
   HEIGHT: 512
   WIDTH: 288

@@ -10,6 +10,7 @@ class PoseDensitySelector:
     def __init__(self):
         self.Trans_Threshold = 5.0 # Translation threshold in meters: the smaller, the closer
         self.Rot_Threshold = 45.0  # Rotation threshold in degrees: the smaller, the closer
+
     def update_keyframes(self, submap, graph, poses):
         """Update keyframe graph with pose density criteria"""
         nodes_to_add = []
@@ -31,7 +32,7 @@ class PoseDensitySelector:
                 )
                 if t_error < self.Trans_Threshold and r_error < self.Rot_Threshold:
                     nodes_to_remove.add(idx)
-                print(f"{map_node['id']} -> {new_node['id']} with error {t_error:.3f}, {r_error:.3f}")
+                # print(f"{map_node['id']} -> {new_node['id']} with error {t_error:.3f}, {r_error:.3f}")
 
         print('Remove keyframs: ' + ', '.join([graph[idx]['id'] for idx in nodes_to_remove]))
 
@@ -51,6 +52,6 @@ class PoseDensitySelector:
 
         keyframes = [node['id'] for node in graph]
         print(f'Selected {len(keyframes)} keyframes')
-        print(', '.join(key for key in keyframes))
+        # print(', '.join(key for key in keyframes))
 
         return keyframes

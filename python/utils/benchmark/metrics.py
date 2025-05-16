@@ -1,7 +1,11 @@
+import os
+import sys
+
 import numpy as np
 from dataclasses import dataclass
 from typing import Callable
 
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../"))
 from benchmark.reprojection import reprojection_error
 from benchmark.utils import VARIANTS_ANGLE_SIN, quat_angle_error
 

@@ -35,18 +35,18 @@ def acquire_marker():
     MARKERS = ['o', 's', '^', 'D', '*', 'X', 'o', 's', '^', 'D', '*', 'X']
     return MARKERS
 
-def setting_font():
+def setting_font(fontsize=14, titlesize=14, legend_fontsize=14):
     try:
         init(autoreset=True)
-        rc('font', **{'family': 'serif', 'serif': ['Times New Roman'], 'size': 14})
+        rc('font', **{'family': 'serif', 'serif': ['Times New Roman'], 'size': fontsize})
         rc('text', usetex=True)
-        rc('font', **{'size': 12})
-        params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
+        rc('font', **{'size': fontsize})
+        params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
         pylab.rcParams.update(params)
     except:
         init(autoreset=True)
-        rc('font', **{'family': 'serif', 'serif': ['DejaVu Serif'], 'size': 14})
+        rc('font', **{'family': 'serif', 'serif': ['DejaVu Serif'], 'size': fontsize})
         rc('text', usetex=True)
-        rc('font', **{'size': 12})
-        params = {'axes.titlesize': 14, 'legend.fontsize': 14, 'legend.numpoints': 1}
+        rc('font', **{'size': fontsize})
+        params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
         pylab.rcParams.update(params)        

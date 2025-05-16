@@ -104,6 +104,6 @@ class FeatureSelector:
         # Return selected keyframes
         keyframes = list(graph.keys())
         print(f'Selected {len(keyframes)} keyframes')
-        print(', '.join(key for key in keyframes))
+        # print(', '.join(key for key in keyframes))
         
         return keyframes
