@@ -159,6 +159,7 @@ def odom_local_callback(odom_msg):
 				header = Header(stamp=rospy.Time.from_sec(pose_fusion.timestamp[key]), frame_id=frame_id_map)
 				pose_msg = ros_msg.convert_vec_to_rospose(trans, quat, header)
 				pose_fusion.path_msg_opt.poses.append(pose_msg)
+				
 			pose_fusion.pub_path_opt.publish(pose_fusion.path_msg_opt)
 			last_timestamp = rospy.Time.now().to_sec()
 

@@ -300,8 +300,7 @@ if __name__ == '__main__':
 	trans, quat = global_planner.map_node_position[0], np.array([0, 0, 0, 1])
 	robot_node = PointNode(global_planner.robot_id, rospy.Time.now().to_sec(), trans, quat, None)
 	global_planner.perform_planning(robot_node)
-	if args.viz:
-		exit()
+	if args.viz: exit()
 
 	# Publish other ROS message
 	print('Publishing ROS Message for Visualization ...')

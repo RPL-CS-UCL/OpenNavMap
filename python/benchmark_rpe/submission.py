@@ -82,7 +82,7 @@ def predict(loader, estimator, str_estimator, cfg):
 				reference_image_intrinsics, query_image_intrinsic,
 				estimation_options
 			)
-			estimation_time = time.time() - start_time                       
+			estimation_time = time.time() - start_time
 			running_time.append(estimation_time)
 
 			"""Definition of solver output"""
@@ -138,7 +138,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			query_image = data['image1_path'][0]
 			tqdm.write(Fore.RED + f"Error with {str_estimator}: {e}" + Style.RESET_ALL)
 			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image}." + Style.RESET_ALL)
-		
+
 	average_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
 	return results_dict, results_debug_dict, average_runtime
 
@@ -198,7 +198,7 @@ def eval(args):
 
 		# Save runtimes to txt
 		runtime_str = f"{model}: {avg_runtime:.3f}s"
-		with open(log_dir / "runtime_results.txt", "w") as f:
+		with open(log_dir / f"runtime_results_{args.top_k}.txt", "w") as f:
 			f.write(runtime_str + "\n")
 		tqdm.write(runtime_str)
 
