@@ -21,17 +21,19 @@ export EVAL_CONFIGS=("config_025_5") # Optional: config_005_5, config_025_5, con
 
 export MODELS=(
 	"hloc_disk_dilg"
-  "hloc_suerpoint_splg"
-	"vpr_cosplace_resnet18_256"
-	"vpr_netvlad_resnet18_4096"
-  "reloc3r"
-  "duster_nocalib_pretrain"
-  "duster_calib_pretrain"
-  "master_nocalib_pretrain"
-  "master_calib_pretrain"
+  "hloc_superpoint_splg"
+	# "vpr_cosplace_resnet18_256"
+	# "vpr_netvlad_resnet18_4096"
+  # "reloc3r"
+  # "duster_nocalib_pretrain"
+  # "duster_calib_pretrain"
+  # "master_nocalib_pretrain"
+  # "master_calib_pretrain"
 )
 
-for TOP_K in $(seq 2 3 14); do # 2 5 8 11 14
+# for TOP_K in $(seq 2 3 17); do # 2 5 8 11 14 17
+# for TOP_K in $(seq 20 10 50); do # 20 30 40 50
+for TOP_K in $(seq 50 3 50); do
   echo "Processing with TOP_K: $TOP_K"
 
   for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"

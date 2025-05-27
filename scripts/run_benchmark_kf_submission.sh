@@ -18,7 +18,7 @@ fi
 DATASET_NAME=$1
 
 # Set pose solver based on dataset
-if [ "$DATASET_NAME" = "matterport3d" ] || [ "$DATASET_NAME" = "hkustgz_campus" ]; then
+if [ "$DATASET_NAME" = "matterport3d" ] || [ "$DATASET_NAME" = "hkustgz_campus" ] || [ "$DATASET_NAME" = "mapfree" ]; then
   POSE_SOLVER="pnp"
 else
   POSE_SOLVER="essentialmatrix"

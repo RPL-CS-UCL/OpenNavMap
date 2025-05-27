@@ -6,7 +6,7 @@
 # Sparse matching: sift-lg superpoint-lg gim-lg xfeat-lg sift-nn orb-nn gim-dkm xfeat
 
 # Configuration
-NUM_PARALLEL=1 # Set desired parallelism level
+NUM_PARALLEL=2 # Set desired parallelism level
 
 # Validate input
 if [ -z "$1" ]; then
@@ -19,17 +19,16 @@ DATASET_NAME=$1
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval/test"
 export KF_PATH="/Rocket_ssd/dataset/data_litevloc/keyframe_selection_eval/$DATASET_NAME/keyframe_selection_eval/test"
 export ESTIMATOR="master"
-export MATCHER="eloftr"
+export MATCHER="loftr"
 
 # Get scenes with 4-digit numbering and sort numerically
 SCENES=($(python -c "import os; print('\n'.join([d for d in sorted(os.listdir('$DATASET_PATH')) if os.path.isdir(os.path.join('$DATASET_PATH', d))]))"))
-# SCENES="s00460"
 
 export KF_SELECTORS=(
   "full_kf"
-  # "pose_density"
-  # "feature"
-  # "landmark"
+  "pose_density"
+  "feature"
+  "landmark"
 )
 
 # Processing functions
@@ -59,7 +58,7 @@ process_combination() {
 export -f process_precompute process_combination
 
 ##### Precomputation
-# printf "%s\n" "${SCENES[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_precompute "$@"' _ {}
+printf "%s\n" "${SCENES[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_precompute "$@"' _ {}
 
 ##### Keyframe selection
 combinations=()

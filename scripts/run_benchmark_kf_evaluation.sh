@@ -20,7 +20,7 @@ DATASET_NAME=$1
 export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export DATASET_PATH="/Rocket_ssd/dataset/data_litevloc/map_free_eval/$DATASET_NAME/map_free_eval"
-export EVAL_CONFIGS=("config_005_5") # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
+export EVAL_CONFIGS=("config_025_5") # Optional: config_005_5, config_025_5, config_05_10, config_1_10, config_2_20
 
 export MODELS=(
   "master_pnp"
@@ -57,7 +57,7 @@ do
   do
     for model in "${MODELS[@]}"
     do
-      if [ "$DATASET_NAME" = "matterport3d" ] || [ "$DATASET_NAME" = "hkustgz_campus" ]; then
+      if [ "$DATASET_NAME" = "matterport3d" ] || [ "$DATASET_NAME" = "hkustgz_campus" ] || [ "$DATASET_NAME" = "mapfree" ]; then
         echo "Evaluate image matching methods with pose solver: $model and $kf_selector with scale"
         python $PROJECT_PATH/python/benchmark_kf_selection/evaluation.py \
           --submission_path $DATASET_PATH/results_kf/"$model"_"$kf_selector"/submission.zip \

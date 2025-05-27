@@ -145,7 +145,7 @@ def aggregate_results(all_results, all_failures, eval_config):
 	output_metrics[f'AUC @ Pose Error < ({config.t_threshold*100}cm, {config.R_threshold}deg)'] = auc_pose
 	# output_metrics[f'Precision @ VCRE < {config.vcre_threshold}px'] = prec_vcre
 	# output_metrics[f'AUC @ VCRE < {config.vcre_threshold}px'] = auc_vcre
-	output_metrics[f'Estimates for % of frames'] = len(all_metrics['trans_err']) / total_samples
+	output_metrics[f'Estimates % for of frames'] = len(all_metrics['trans_err']) / total_samples * 100
 	output_metrics[f'Frames Number for Estimation'] = total_samples
 
 	return output_metrics, curves_data
