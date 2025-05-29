@@ -122,6 +122,7 @@ class PoseGraph:
 				components.append(component)
 
 		return components
+	
 	@staticmethod
 	def optimize_pose_graph_with_LM(graph, initial, verbose=False, robust_kernel=False):
 		"""
