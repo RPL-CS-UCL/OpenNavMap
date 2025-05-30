@@ -100,6 +100,11 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	
 	if hasattr(vpr_match_model, 'compute_diff_matrix'):
 		D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
+		vpr_match_model.save_diff_matrix_fitting(\
+			f"{args.out_dir}/{setting}/preds", 
+			None, None, None, None,
+			D_all, None, None, 
+			None, None, None)
 
 	# DEBUG(gogojjh): disable the RANSAC-based fitting
 	# RANSAC-based fitting for outlier rejection

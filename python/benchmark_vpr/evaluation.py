@@ -60,7 +60,20 @@ def compute_metrics(dataset_path, results_vpr,
         - If the query image has no valid match (y_true=0):
             - Any Top-1 retrieval -> False Positive (FP) (y_pred=1)
             - No Top-1 retrieval  -> True Negative (TN) (y_pred=0)
+
+    Compute confusion matrix values
+        tp = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 1)
+        tn = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 0)
+        fp = sum(1 for t, p in zip(y_true, y_pred) if t == 0 and p == 1)
+        fn = sum(1 for t, p in zip(y_true, y_pred) if t == 1 and p == 0)
+
+    Compute metrics
+        accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     """
+
     # Generate binary labels
     y_true = [0] * len(results_vpr)
     for ind, result in enumerate(results_vpr):
