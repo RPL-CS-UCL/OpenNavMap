@@ -259,19 +259,20 @@ class PlaceRecognitionSeqMatching:
 								 cluster_data=None, 
 								 cluster_labels=None):
 		fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(13, 4))
-
+		
 		im1 = ax1.imshow(D_all, cmap='viridis', aspect='auto', vmin=0, vmax=2.0)
-		for idx, edge in enumerate(connected_indices):
-			if db_map is not None and query_map is not None:
-				db_node = db_map.get_node(edge[0])
-				query_node = query_map.get_node(edge[1])
-				dis_tsl, _ = query_node.compute_gt_distance(db_node)
-				if dis_tsl < 7.5:
-					ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'go', markersize=5)
+		if connected_indices is not None:
+			for idx, edge in enumerate(connected_indices):
+				if db_map is not None and query_map is not None:
+					db_node = db_map.get_node(edge[0])
+					query_node = query_map.get_node(edge[1])
+					dis_tsl, _ = query_node.compute_gt_distance(db_node)
+					if dis_tsl < 7.5:
+						ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'go', markersize=5)
+					else:
+						ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'ro', markersize=5)
 				else:
 					ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'ro', markersize=5)
-			else:
-				ax1.plot(connected_row_indices[idx][1], connected_row_indices[idx][0], 'ro', markersize=5)
 
 		fig.colorbar(im1, ax=ax1)
 		ax1.set_xlabel('Query Desc Index')
