@@ -13,10 +13,10 @@ def acquire_color_palette():
     PALLETE = spec(20)
 
     # colormap: https://matplotlib.org/3.1.1/tutorials/colors/colormaps.html
-    PALLETE[0] = [0, 1.0 * 152 / 255, 1.0 * 83 / 255]  # green
-    PALLETE[1] = [1.0 * 228 / 255, 1.0 * 53 / 255, 1.0 * 39 / 255]  # red
-    PALLETE[2] = [1.0 * 140 / 255, 1.0 * 3 / 255, 1.0 * 120 / 255]  # purple
-    PALLETE[3] = [0, 1.0 * 95 / 255, 1.0 * 129 / 255]  # blue
+    PALLETE[0] = [0, 152 / 255, 83 / 255]  # green
+    PALLETE[1] = [228 / 255, 53 / 255, 39 / 255]  # red
+    PALLETE[2] = [140 / 255, 3 / 255, 120 / 255]  # purple
+    PALLETE[3] = [0, 95 / 255, 129 / 255]  # blue
     PALLETE[4] = [0.9290, 0.6940, 0.1250]
     PALLETE[5] = [0.6350, 0.0780, 0.1840]
     PALLETE[6] = [0.494, 0.184, 0.556]
@@ -38,7 +38,7 @@ def acquire_marker():
 def setting_font(fontsize=14, titlesize=14, legend_fontsize=14):
     try:
         init(autoreset=True)
-        rc('font', **{'family': 'serif', 'serif': ['Times New Roman'], 'size': fontsize})
+        rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': fontsize})
         rc('text', usetex=True)
         rc('font', **{'size': fontsize})
         params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}

@@ -49,6 +49,8 @@ else:
 	SIGMA_PRIOR = np.array([np.deg2rad(3.0), np.deg2rad(3.0), np.deg2rad(3.0), 0.05, 0.05, 0.5])
 
 def odom_local_callback(odom_msg):
+	# TODO(gogojjh): record the velocity of the local odometry
+	
 	global frame_id_lsensor, frame_id_gsensor, T_gsensor_lsensor, init_extrinsics
 	global path_publish_freq, last_timestamp
 	frame_id_lsensor = odom_msg.child_frame_id
