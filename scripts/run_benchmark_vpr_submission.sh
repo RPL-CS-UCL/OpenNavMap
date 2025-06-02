@@ -31,8 +31,8 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     # STR_BACKBONES="ResNet18"
     # STR_DESC_DIMENSIONS="256"
     # STR_VPR_MODELS="cosplace"
-    # VPR_MATCH_MODELS="single_match"
-    # VPR_MATCH_SEQ_LENS="1"
+    # VPR_MATCH_MODELS="sequence_match"
+    # VPR_MATCH_SEQ_LENS="10"
     # IMAGE_MATCH_MODELS="none"
     ##### 
 
@@ -49,7 +49,8 @@ for db_dir in "$DATASET_PATH"/database/*/; do
       --image_size 512 288 \
       --device cuda \
       --num_workers 4 --batch_size 4 \
-      --out_dir $OUT_DIR
+      --out_dir $OUT_DIR \
+      --debug
       echo ""
   
   done
