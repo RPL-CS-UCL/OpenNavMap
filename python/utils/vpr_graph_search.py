@@ -13,7 +13,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 	def __init__(self):
 		super().__init__()
 		
-		self.jump_len = 3
+		self.MAX_DIST = 1.0 # Maximum distance for score calculation
 
 		# Velocity parameters (expanded range)
 		self.vMin = 0.6
@@ -24,8 +24,8 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 		# DP parameters
 		self.mu = 1
 		self.cost_penalty = 0.3
-		self.MAX_DIST = 1.0
-
+		self.jump_len = 3 # Jump length for relocation sampling
+		
 	def initialize_model(self, db_descs):
 		"""Initialize the model with database descs"""
 		self.db_descs = db_descs
@@ -94,7 +94,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 				else:
 					vel_list = [prev_v]
 
-				# Local search by moving one step at a time
+				# NOTE(gogojjh): Local search by moving one step at a time
 				for v in vel_list:
 					i_next = i_cum + v
 					i_coord_next = int(i_next)
@@ -106,7 +106,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 						if new_cost < prev_best:
 							next_states[key] = (new_cost, i_next, i_coord, v) # keep the same velocity
 
-				# Relocation sampling by jumping to another sequence
+				# NOTE(gogojjh): Relocation sampling by jumping to another sequence
 				lower_i, upper_i = i_coord - self.jump_len, i_coord + self.jump_len
 				for k in range(0, int(lower_i)):
 					cost2 = cost_matrix[k, j+1]

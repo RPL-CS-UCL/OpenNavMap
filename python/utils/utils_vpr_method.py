@@ -95,17 +95,17 @@ def save_descriptors(log_dir, queries_descriptors, database_descriptors):
 	np.save(os.path.join(log_dir, 'preds', "queries_descriptors.npy"), queries_descriptors)
 	np.save(os.path.join(log_dir, 'preds', "database_descriptors.npy"), database_descriptors)
 
-def save_visualization(log_dir, query_index, list_of_images_paths, preds_correct):
+def save_visualization(pred_dir, query_index, list_of_images_paths, preds_correct):
 	"""Save visualization to files."""
-	logging.debug(f"Saving the visualization in {log_dir}")
+	logging.debug(f"Saving the visualization in {pred_dir}")
 	prediction_image = build_prediction_image(list_of_images_paths, preds_correct)
-	pred_image_path = os.path.join(log_dir, 'preds', f"vpr_{query_index:06d}.jpg")
+	pred_image_path = os.path.join(pred_dir, f"vpr_{query_index:06d}.jpg")
 	prediction_image.save(pred_image_path)
 	save_file_with_paths(
 		query_path=list_of_images_paths[0],
 		preds_paths=list_of_images_paths[1:],
 		positives_paths=None,
-		output_path=os.path.join(log_dir, 'preds', f"vpr_{query_index:06d}.txt"),
+		output_path=os.path.join(pred_dir, f"vpr_{query_index:06d}.txt"),
 		use_labels=False
 	)
 
@@ -133,7 +133,7 @@ def save_vis_diff_matrix(save_dir, diff_matrix):
 	diff_matrix_path = os.path.join(save_dir, 'preds', "diff_matrix.jpg")
 	plt.savefig(diff_matrix_path)
 
-def save_prec_recall_curve(save_dir, curve_metrics_methods):
+def save_prec_recall_curve(save_dir, curve_metrics_methods, title):
 	# Set basic format
 	setting_font()
 	# Set color
@@ -155,7 +155,7 @@ def save_prec_recall_curve(save_dir, curve_metrics_methods):
 	plt.xlabel('Recall')
 	plt.ylabel('Precision')
 	# plt.legend(loc="upper right", bbox_to_anchor=(1.02, 1.2))
-	plt.title(f"Precision-Recall Curve")
+	plt.title(title)
 	plt.grid(axis='y', linestyle='--', alpha=0.7)
 	plt.tight_layout()
 

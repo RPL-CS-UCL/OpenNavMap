@@ -21,8 +21,6 @@ import parser
 from dataloader import TestDataset
 from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, save_visualization
 from utils.utils_image_matching_method import initialize_img_matcher
-from utils.vpr_single_matching import PlaceRecognitionSingleMatching
-from utils.vpr_graph_search import PlaceRecognitionGraphSearch
 
 def extract_descriptors(model, test_ds, args):
 	global descriptors_dimension
@@ -75,7 +73,7 @@ def extract_descriptors(model, test_ds, args):
 
 	return queries_descriptors, database_descriptors, total_query_desc_time
 
-def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args):
+def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, args):
 	# Extract VPR Descriptors
 	queries_descriptors, database_descriptors, total_query_desc_time = extract_descriptors(vpr_model, test_ds, args)
 
@@ -121,7 +119,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 			init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
 
 	D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
-	vpr_match_model.viz_diff_matrix(f"{args.out_dir}/{setting}/preds", D_all, init_db_query_indices)
+	vpr_match_model.viz_diff_matrix(pred_dir, D_all, init_db_query_indices)
 	best_results_dict = init_results_dict
 
 	##### Geometric Verification
@@ -166,13 +164,13 @@ def save_submission(results_dict: dict, output_path: Path):
 		
 	np.savetxt(output_path, results, fmt='%s %s %f %s')
 
-def save_predictions(results_dict: dict, test_ds, log_dir):
+def save_predictions(results_dict: dict, test_ds, pred_dir):
 	"""Save visualizations of predictions."""    
 	for query_idx, (query_image_name, db_image_name_score) in enumerate(results_dict.items()):
 		query_path = [os.path.join(test_ds.queries_folder, query_image_name)]
 		database_paths = [os.path.join(test_ds.database_folder, db_image_name_score[0])]
 		image_paths = query_path + database_paths
-		save_visualization(log_dir, query_idx, image_paths, [None] * len(image_paths))
+		save_visualization(pred_dir, query_idx, image_paths, [None] * len(image_paths))
 
 def eval(args):
 	##### Dataloader
@@ -205,7 +203,8 @@ def eval(args):
 					
 					log_dir = Path(output_root / f"{setting}")
 					log_dir.mkdir(parents=True, exist_ok=True)
-					Path(log_dir / f"preds").mkdir(parents=True, exist_ok=True)
+					pred_dir = Path(log_dir / f"preds_{query_name}")
+					pred_dir.mkdir(parents=True, exist_ok=True)
 					
 					global descriptors_dimension
 					str_vpr_model, backbone, descriptors_dimension = \
@@ -215,7 +214,7 @@ def eval(args):
 					vpr_match_model = initialize_match_model(str_vpr_match_model, vpr_match_seq_len)
 					image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
 					results_dict, total_runtime = \
-						predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, args)
+						predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, args)
 			
 					print(Fore.GREEN + 
 						  f"Running {str_vpr_model} [VPR Model] " + 
@@ -231,7 +230,7 @@ def eval(args):
 					# Save predictions to txt per scene
 					save_submission(results_dict, log_dir / f"submission-{query_name}-{database_name}.txt")
 					if args.debug:
-						save_predictions(results_dict, test_ds, log_dir)
+						save_predictions(results_dict, test_ds, pred_dir)
 
 	output_json = json.dumps(output_time, indent=2)
 	with open(os.path.join(args.out_dir, f"runtime_results-{query_name}-{database_name}.json"), 'w') as f:

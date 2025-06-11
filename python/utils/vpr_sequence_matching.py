@@ -16,6 +16,7 @@ class PlaceRecognitionSeqMatching(PlaceRecognitionSingleMatching):
 		# Base sequence length (used as reference)
 		self.seqLen = seqLen
 		self.matchWindow = 10
+		self.MAX_DIST = 1.0
 				
 		# Velocity parameters (expanded range)
 		self.vMin = 0.6
@@ -25,10 +26,9 @@ class PlaceRecognitionSeqMatching(PlaceRecognitionSingleMatching):
 		# Original parameters remain
 		self.wContrast = 10
 		self.enhance = False
-		
-		self.MAX_DIST = 1.0
 
 	def initialize_model(self, db_descs):
+		"""Initialize the model with database descs"""
 		self.db_descs = db_descs
 		
 	def match(self, query_descs, recall_values=1):

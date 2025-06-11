@@ -186,17 +186,17 @@ def eval(args):
         output_querydb_metrics['Precision'] = precision
         output_querydb_metrics['Recall'] = recall
         output_querydb_metrics['F1 Score'] = f1
-        output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
-        output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
         output_querydb_metrics['Average Precision'] = avg_precision
         output_querydb_metrics['Maximum Recall'] = max_recall
+        output_querydb_metrics['Total Valid Match Number'] = int(np.sum(y_true_all))
+        output_querydb_metrics['Total Query Number'] = int(len(y_true_all))
         output_metrics_methods[method] = output_querydb_metrics
 
         curve_querydb_metrics['Precision Values'] = prec_values
         curve_querydb_metrics['Recall Values'] = recall_values
         curve_querydb_metrics['Average Precision'] = avg_precision
-        curve_querydb_metrics['PR Thresholds'] = thres.tolist()
         curve_querydb_metrics['Maximum Recall'] = max_recall
+        curve_querydb_metrics['PR Thresholds'] = thres.tolist()
         curve_metrics_methods[method] = curve_querydb_metrics
 
         # Save metrics as a json file
@@ -209,7 +209,10 @@ def eval(args):
         # save_prec_recall_curve(os.path.join(args.result_dir, method), {method: curve_querydb_metrics})
 
     # Draw the PR curve of all methods
-    save_prec_recall_curve(args.result_dir, curve_metrics_methods)
+    save_prec_recall_curve(\
+        args.result_dir, curve_metrics_methods, \
+        title=f"Precision-Recall Curve [{args.trans_threshold:.1f}m, {args.ori_threshold:.1f}°]"
+    )
 
 def summ(args):
     result_method = {}
@@ -240,19 +243,18 @@ def summ(args):
             json_data = json.load(f)
 
         csv_lines.append(f"{querydb}")
-        csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score,Max Recall," + \
-                         "Valid Match Number," + \
-                         "Total Runtime [ms],Query Number")
+        csv_lines.append("Method,Accuracy[%],Precision[%],Recall[%],F1 Score[%],Max Recall[%]," + \
+                         "Valid Match Number,Total Runtime[ms],Query Number")
         
         for method in sorted_methods:
             metrics = result_method.get(method, {}).get(querydb, {})
-
-            accuracy = metrics.get('Accuracy', 0)
-            precision = metrics.get('Precision', 0)
-            recall = metrics.get('Recall', 0)
-            f1 = metrics.get('F1 Score', 0)
-            max_recall = metrics.get('Maximum Recall', 0)
+            accuracy = metrics.get('Accuracy', 0) * 100
+            precision = metrics.get('Precision', 0) * 100
+            recall = metrics.get('Recall', 0) * 100
+            f1 = metrics.get('F1 Score', 0) * 100
+            max_recall = metrics.get('Maximum Recall', 0) * 100
             num_valid_match = metrics.get('Valid Match Number', 0)
+            
             if method in json_data:
                 total_runtime = json_data[method]['Total Runtime [s]'] * 1000
                 num_query = json_data[method]['Query Number']
@@ -260,7 +262,8 @@ def summ(args):
                 total_runtime = float('nan')
                 num_query = float('nan')
                 
-            csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f},{max_recall:.1f}," + \
+            csv_lines.append(f"{method}," + \
+                             f"{accuracy:.1f},{precision:.1f},{recall:.1f},{f1:.1f},{max_recall:.1f}," + \
                              f"{num_valid_match}," + \
                              f"{total_runtime:.1f},{num_query}")
         
@@ -269,20 +272,22 @@ def summ(args):
 
     # Output Mean Results
     csv_lines.append("Mean Results")
-    csv_lines.append("Method,Accuracy,Precision,Recall,F1 Score,Average Precision,Max Recall," + 
+    csv_lines.append("Method,Accuracy[%],Precision[%],Recall[%],F1 Score[%],Average Precision[%],Max Recall[%]," + \
                      "Total Valid Match Number,Total Query Number")
     for method in sorted_methods:
         metrics = result_method.get(method, {})
-        accuracy = metrics.get('Accuracy')
-        precision = metrics.get('Precision', 0)
-        recall = metrics.get('Recall', 0)
-        f1 = metrics.get('F1 Score', 0)
-        avg_precision = metrics.get('Average Precision', 0)
-        max_recall = metrics.get('Maximum Recall', 0)
+        accuracy = metrics.get('Accuracy', 0) * 100
+        precision = metrics.get('Precision', 0) * 100
+        recall = metrics.get('Recall', 0) * 100
+        f1 = metrics.get('F1 Score', 0) * 100
+        avg_precision = metrics.get('Average Precision', 0) * 100
+        max_recall = metrics.get('Maximum Recall', 0) * 100
         total_valid = metrics.get('Total Valid Match Number', 0)
         total_query = metrics.get('Total Query Number', 0)   
-        csv_lines.append(f"{method},{accuracy:.3f},{precision:.3f},{recall:.3f},{f1:.3f}," + \
-                         f"{avg_precision:.3f}," + f"{max_recall:.1f}," \
+        
+        csv_lines.append(f"{method}," + \
+                         f"{accuracy:.1f},{precision:.1f},{recall:.1f},{f1:.1f}," + \
+                         f"{avg_precision:.1f}," + f"{max_recall:.1f}," \
                          f"{total_valid},{total_query}") 
 
     # Remove the last empty line to avoid trailing newline
