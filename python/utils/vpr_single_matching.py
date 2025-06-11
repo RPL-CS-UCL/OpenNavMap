@@ -51,7 +51,7 @@ class PlaceRecognitionSingleMatching:
 		# D = np.linalg.norm(query_descs[None, :, :] - self.db_descs[:, None, :], axis=2)
 		return D
 	
-	def viz_diff_matrix(self, out_dir, D_all, db_query_indices=None):
+	def viz_diff_matrix(self, save_img_path, D_all, db_query_indices=None):
 		fig = plt.figure(figsize=(18, 9))
 		ax = fig.add_subplot(111)
 		im = ax.imshow(D_all, cmap='Greys', aspect='auto')
@@ -66,7 +66,7 @@ class PlaceRecognitionSingleMatching:
 		ax.set_title("Difference Matrix")
 		ax.set_aspect('equal')
 		plt.tight_layout()
-		plt.savefig(f"{out_dir}/D_matrix.jpg", dpi=300, bbox_inches='tight')
+		plt.savefig(save_img_path, dpi=300, bbox_inches='tight')
 		plt.close()
 
 if __name__ == "__main__":

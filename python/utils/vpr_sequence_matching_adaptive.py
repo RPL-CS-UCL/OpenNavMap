@@ -20,13 +20,7 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 	def match(self, query_descs, recall_values=1):
 		"""Main entry point for sequence matching"""
 		if query_descs.shape[0] < self.max_seq_len:
-			query_desc = query_descs[-1, :].reshape(1, -1)
-			dists = self.compute_dist_desc(query_desc)
-			recall_preds = np.argsort(dists)[:recall_values]
-			pred = recall_preds[0]
-			score = self.MAX_DIST - dists[pred]
-			
-			return recall_preds, pred, score
+			return self._fallback_match(query_descs[-1, :].reshape(1, -1), recall_values)
 
 		# Precompute integral image for fast window sum calculation
 		D_all = self.compute_diff_matrix(query_descs)
@@ -51,4 +45,4 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 				best_score = combined_score
 				best_result = (current_preds, current_pred, self.MAX_DIST - current_mu, seq_len)
 
-		return best_result[:3] if best_result[:3] else self._fallback_match(query_descs, recall_values)
+		return best_result[:3] if best_result[:3] else self._fallback_match(query_descs[-1, :].reshape(1, -1), recall_values)

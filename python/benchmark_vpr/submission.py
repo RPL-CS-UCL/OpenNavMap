@@ -4,6 +4,7 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../'))
 
+import copy
 import time
 import json
 import logging
@@ -119,10 +120,12 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, 
 			init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
 
 	D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
-	vpr_match_model.viz_diff_matrix(pred_dir, D_all, init_db_query_indices)
-	best_results_dict = init_results_dict
+	vpr_match_model.viz_diff_matrix(f"{pred_dir}/D_matrix.jpg", D_all, init_db_query_indices)
 
 	##### Geometric Verification
+	best_db_query_indices = []
+	best_results_dict = copy.deepcopy(init_results_dict)
+
 	total_gv_time = 0.0
 	if image_matcher_model is not None:
 		for db_query_indice in init_db_query_indices:
@@ -141,13 +144,20 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, 
 					result = {'num_inliers': 0.0}
 				total_gv_time += time.time() - start_time
 
-				same_place = int(result['num_inliers'] > 50)
-				best_results_dict[query_image_name] = \
-					(best_results_dict[query_image_name][0], result['num_inliers'], same_place)
+				if result['num_inliers'] > 50:
+					best_db_query_indices.append(db_query_indice)
+					best_results_dict[query_image_name] = \
+						(best_results_dict[query_image_name][0], result['num_inliers'], 0)
+				else:
+					best_results_dict[query_image_name] = \
+						(best_results_dict[query_image_name][0], 0, 0)
 			else:
 				best_results_dict[query_image_name] = \
 					(best_results_dict[query_image_name][0], 0, 0)
-		
+				
+		vpr_match_model.viz_diff_matrix(f"{pred_dir}/D_matrix_gv.jpg", D_all, best_db_query_indices)
+
+	##### Save Results
 	total_runtime = total_query_desc_time + total_vpr_time + total_gv_time
 
 	return best_results_dict, total_runtime
@@ -213,8 +223,9 @@ def eval(args):
 					vpr_model = initialize_vpr_model(str_vpr_model, backbone, descriptors_dimension, args.device)
 					vpr_match_model = initialize_match_model(str_vpr_match_model, vpr_match_seq_len)
 					image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
-					results_dict, total_runtime = \
-						predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, args)
+					results_dict, total_runtime = predict(
+						test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, args
+					)
 			
 					print(Fore.GREEN + 
 						  f"Running {str_vpr_model} [VPR Model] " + 

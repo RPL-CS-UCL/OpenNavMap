@@ -39,13 +39,7 @@ class PlaceRecognitionSeqMatching(PlaceRecognitionSingleMatching):
 				score: float, score of the best match
 		"""   
 		if query_descs.shape[0] < self.seqLen:
-			query_desc = query_descs[-1, :].reshape(1, -1)
-			dists = self.compute_dist_desc(query_desc)
-			recall_preds = np.argsort(dists)[:recall_values]
-			pred = recall_preds[0]
-			score = self.MAX_DIST - dists[pred]
-			
-			return recall_preds, pred, score
+			return self._fallback_match(query_descs[-1, :].reshape(1, -1), recall_values)
 
 		D = self.compute_diff_matrix(query_descs)
 		if self.enhance: 
@@ -57,6 +51,15 @@ class PlaceRecognitionSeqMatching(PlaceRecognitionSingleMatching):
 		recall_preds, pred, dist = \
 			self._locate_best_match(template_scores, template_velocities, self.seqLen, recall_values)
 		score = self.MAX_DIST - dist
+		
+		return recall_preds, pred, score
+
+	def _fallback_match(self, query_desc, recall_values):
+		"""Fallback to single-length matching if no good sequence is found"""
+		dists = self.compute_dist_desc(query_desc)
+		recall_preds = np.argsort(dists)[:recall_values]
+		pred = recall_preds[0]
+		score = self.MAX_DIST - dists[pred]
 		
 		return recall_preds, pred, score
 
