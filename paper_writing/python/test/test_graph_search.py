@@ -12,7 +12,7 @@ def parse_args():
                         help="Path to .npy file containing D_all of shape (n_query, n_db).")
     parser.add_argument('--vMin', type=float, default=0.6,
                         help="Minimum velocity in index units per step.")
-    parser.add_argument('--vMax', type=float, default=2.4,
+    parser.add_argument('--vMax', type=float, default=2.5,
                         help="Maximum velocity in index units per step.")
     parser.add_argument('--numVel', type=int, default=20,
                         help="Number of velocities to sample between vMin and vMax.")
@@ -22,12 +22,11 @@ def parse_args():
                         help="Step size for sampling relocation region.")
     return parser.parse_args()
 
-def dp_search_paths_with_backtrack(D_all, vMin, vMax, numVel, topK, seqLen=3.0):
+def dp_search_paths_with_backtrack(D_all, vMin, vMax, numVel, topK, jump_len=3.0):
     """
     DP with storing layer states for backtracking.
     Returns all end states with weights, best path list of (i, j).
     """
-    eps = 1e-8
     mu = 1
     cost_penalty = 0.3
     
@@ -72,7 +71,7 @@ def dp_search_paths_with_backtrack(D_all, vMin, vMax, numVel, topK, seqLen=3.0):
                         next_states[key] = (new_cost, i_next, i_coord, v) # keep the same velocity
 
             # Relocation sampling by jumping to another sequence
-            lower_i, upper_i = i_coord - seqLen, i_coord + seqLen
+            lower_i, upper_i = i_coord - jump_len, i_coord + jump_len
             for k in range(0, int(lower_i)):
                 cost2 = cost_matrix[k, j+1]
                 new_cost2 = cum_cost + cost2 + cost_penalty # regularization for not using sequence
@@ -122,16 +121,11 @@ def dp_search_paths_with_backtrack(D_all, vMin, vMax, numVel, topK, seqLen=3.0):
     path.reverse()
 
     return cost_matrix, list(final_states.items()), path  # return all end-state info and best path
+
 def plot_results(D_all, cost_matrix, best_path, fig_path):
-    fig = plt.figure(figsize=(18, 10))
+    fig = plt.figure(figsize=(7, 18))
     ax = fig.add_subplot(111)
     im = ax.imshow(cost_matrix, cmap='Greys', aspect='auto')
-    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    im.set_clim(0.0, 1.0)
-    ax.set_xlabel('Query Index', fontsize=14)
-    ax.set_ylabel('Database Index', fontsize=14)
-    ax.set_title("Cost Matrix", fontsize=16)
-
     if best_path:
         ds = [i for i, j in best_path]
         qs = [j for i, j in best_path]
@@ -139,6 +133,11 @@ def plot_results(D_all, cost_matrix, best_path, fig_path):
         ax.plot(qs, ds, 'b-', linewidth=1, alpha=1.0)
         ax.legend()
 
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    im.set_clim(0.0, 1.0)
+    ax.set_xlabel('Query Index', fontsize=14)
+    ax.set_ylabel('Database Index', fontsize=14)
+    ax.set_title("Cost Matrix", fontsize=16)
     ax.set_aspect('equal')
     plt.tight_layout()
     plt.savefig(fig_path)

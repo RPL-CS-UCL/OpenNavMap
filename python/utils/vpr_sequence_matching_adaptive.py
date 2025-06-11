@@ -9,7 +9,7 @@ from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
 
 class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 	def __init__(self, seqLen):
-		super().__init__(seqLen, enable_ransac=False)
+		super().__init__(seqLen)
 
 		# Base sequence parameters
 		self.max_seq_len = seqLen  # Maximum sequence length to try
@@ -17,13 +17,13 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 		self.len_step = 2          # Step size for length reduction
 		self.lambda_len = 0.1      # Weight for length vs cost tradeoff
 
-	def match(self, query_descriptors, backward=False, recall_values=1):
+	def match(self, query_descs, recall_values=1):
 		"""Main entry point for sequence matching"""
-		if query_descriptors.shape[0] < self.max_seq_len:
-			return self._fallback_match(query_descriptors, recall_values)
+		if query_descs.shape[0] < self.max_seq_len:
+			return self._fallback_match(query_descs, recall_values)
 
 		# Precompute integral image for fast window sum calculation
-		D_all = self.compute_diff_matrix(query_descriptors)
+		D_all = self.compute_diff_matrix(query_descs)
 		if self.enhance:
 			D_all = self._enhance_contrast(D)
 
@@ -37,7 +37,7 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 			template_scores, template_velocities = \
 				self._score_ref_templates(D, seq_len)
 			current_preds, current_pred, current_mu = \
-				self._locate_best_match(template_scores, template_velocities, seq_len, backward, recall_values)
+				self._locate_best_match(template_scores, template_velocities, seq_len, recall_values)
 			
 			# Combined score considering both matching quality and sequence length
 			combined_score = (self.MAX_DIST - current_mu) - self.lambda_len * (1.0 / seq_len)
@@ -45,4 +45,4 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 				best_score = combined_score
 				best_result = (current_preds, current_pred, self.MAX_DIST - current_mu, seq_len)
 
-		return best_result[:3] if best_result[:3] else self._fallback_match(query_descriptors, recall_values)
+		return best_result[:3] if best_result[:3] else self._fallback_match(query_descs, recall_values)

@@ -33,8 +33,7 @@ def compute_diff_matrix(db_descs, query_descs, eps=1e-8):
     dots = np.dot(db_descs, query_descs.T)
     db_norms = np.linalg.norm(db_descs, axis=1)[:, None]
     q_norms = np.linalg.norm(query_descs, axis=1)[None, :]
-    sims = dots / (db_norms * q_norms + eps)  # (n_db, n_query)
-    D = 1.0 - sims
+    D = 1.0 - dots / (db_norms * q_norms + eps)  # (n_db, n_query)
 
     return D
 
@@ -53,25 +52,25 @@ def visualize_vpr_data(test_ds, D_all, valid_pairs, output_path):
     # 1. Difference Matrix Plot
     ax1 = fig.add_subplot(131)
     im = ax1.imshow(D_all, cmap='Greys', aspect='auto')
+    for q_idx, db_idx in valid_pairs:
+        ax1.plot(q_idx, db_idx, 'r.', markersize=4, alpha=1.0, markeredgewidth=1)
     plt.colorbar(im, ax=ax1, fraction=0.046, pad=0.04)
     im.set_clim(0.0, 1.0)
     ax1.set_xlabel('Query Index', fontsize=14)
     ax1.set_ylabel('Database Index', fontsize=14)
     ax1.set_title("Difference Matrix", fontsize=16)
-    for q_idx, db_idx in valid_pairs:
-        ax1.plot(q_idx, db_idx, 'r.', markersize=4, alpha=1.0, markeredgewidth=1)
     ax1.set_aspect('equal')
 
     # 2. Weight Matrix Plot
     ax2 = fig.add_subplot(132)
     im = ax2.imshow(1.0 / (D_all + 1e-8), cmap='Greys', aspect='auto')
+    for q_idx, db_idx in valid_pairs:
+        ax2.plot(q_idx, db_idx, 'r.', markersize=4, alpha=1.0, markeredgewidth=1)
     plt.colorbar(im, ax=ax2, fraction=0.046, pad=0.04)
     im.set_clim(0.0, 5.0)
     ax2.set_xlabel('Query Index', fontsize=14)
     ax2.set_ylabel('Database Index', fontsize=14)
     ax2.set_title("Weight Matrix", fontsize=16)
-    for q_idx, db_idx in valid_pairs:
-        ax2.plot(q_idx, db_idx, 'r.', markersize=4, alpha=1.0, markeredgewidth=1)
     ax2.set_aspect('equal')
 
     # 3. Trajectory Plot

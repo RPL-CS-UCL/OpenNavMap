@@ -19,6 +19,7 @@ from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
 from utils.vpr_single_matching import PlaceRecognitionSingleMatching
 from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
 from utils.vpr_sequence_matching_adaptive import PlaceRecognitionSeqMatchingAdaptive
+from utils.vpr_graph_search import PlaceRecognitionGraphSearch
 from utils.utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font
 
 def setup_logging(log_dir, stdout_level='info'):
@@ -60,11 +61,11 @@ def initialize_match_model(model_name, seq_len):
 	elif model_name == 'topo_filter':
 		match_model = PlaceRecognitionTopologicalFilter()
 	elif model_name == 'sequence_match':
-		match_model = PlaceRecognitionSeqMatching(seqLen=seq_len, enable_ransac=False)
-	elif model_name == 'sequence_match_ransac':
-		match_model = PlaceRecognitionSeqMatching(seqLen=seq_len, enable_ransac=True)
+		match_model = PlaceRecognitionSeqMatching(seqLen=seq_len)
 	elif model_name == 'sequence_match_adaptive':
 		match_model = PlaceRecognitionSeqMatchingAdaptive(seqLen=seq_len)
+	elif model_name == 'graph_search':
+		match_model = PlaceRecognitionGraphSearch()
 	return match_model
 
 def perform_knn_search(database_descriptors, queries_descriptors, descriptors_dimension, recall_values):

@@ -4,20 +4,69 @@ import faiss
 import torch
 import numpy as np
 from typing import Union
+from matplotlib import pyplot as plt
 
 class PlaceRecognitionSingleMatching:
 	def __init__(self):
 		self.seqLen = 1
 
-	def initialize_model(self, db_descriptors):
-		self.db_descriptors = db_descriptors
-		self.db_faiss_index = faiss.IndexFlatL2(db_descriptors.shape[1])
-		self.db_faiss_index.add(db_descriptors)
+	def initialize_model(self, db_descs):
+		self.db_descs = db_descs
+		self.db_faiss_index = faiss.IndexFlatL2(db_descs.shape[1])
+		self.db_faiss_index.add(db_descs)
 
 	def match(self, query_desc: np.ndarray, recall_values=1):
 		_, recall_preds = self.db_faiss_index.search(query_desc, recall_values)
-		score = 2.0 - np.linalg.norm(query_desc - self.db_descriptors[recall_preds[0][0], :])
+		
+		dots = np.dot(self.db_descs[recall_preds[0][0], :], query_desc)
+		q_norms = np.linalg.norm(query_desc, axis=1)
+		db_norms = np.linalg.norm(self.db_descs[recall_preds[0][0], :], axis=1)
+		score = dots / (q_norms * db_norms + 1e-8)
+
 		return recall_preds[0], recall_preds[0][0], score
+
+	def compute_dist_desc(self, query_desc: np.ndarray) -> np.ndarray:
+		##### Option 1: cosine similarity
+		dots = np.dot(self.db_descs, query_desc.T).reshape(-1)
+		q_norm = np.linalg.norm(query_desc)
+		db_norms = np.linalg.norm(self.db_descs, axis=1).reshape(-1)
+		dists = 1.0 - dots / (q_norm * db_norms + 1e-8)
+		##### Option 2: euclidean distance
+		# dists = np.linalg.norm(self.db_descs - descriptor, axis=1)
+		return dists
+
+	def compute_diff_matrix(self, query_descs) -> np.ndarray:
+		"""
+			Return:
+				D: np.ndarray, n_db x n_query
+				query_descs: np.ndarray, n_query x descriptor_dim
+		"""
+		##### Option 1: cosine similarity
+		dots = np.dot(self.db_descs, query_descs.T)
+		db_norms = np.linalg.norm(self.db_descs, axis=1)[:, None]
+		q_norms = np.linalg.norm(query_descs, axis=1)[None, :]
+		D = 1.0 - dots / (db_norms * q_norms + 1e-8)
+		##### Option 2: euclidean distance
+		# D = np.linalg.norm(query_descs[None, :, :] - self.db_descs[:, None, :], axis=2)
+		return D
+	
+	def viz_diff_matrix(self, out_dir, D_all, db_query_indices=None):
+		fig = plt.figure(figsize=(18, 9))
+		ax = fig.add_subplot(111)
+		im = ax.imshow(D_all, cmap='Greys', aspect='auto')
+		if db_query_indices is not None:
+			for db_idx, query_idx in db_query_indices:
+				ax.plot(query_idx, db_idx, 'g.', markersize=6, markeredgewidth=1)
+
+		fig.colorbar(im, ax=ax)
+		im.set_clim(0.0, 1.0)
+		ax.set_xlabel('Query Index')
+		ax.set_ylabel('Database Index')
+		ax.set_title("Difference Matrix")
+		ax.set_aspect('equal')
+		plt.tight_layout()
+		plt.savefig(f"{out_dir}/D_matrix.jpg", dpi=300, bbox_inches='tight')
+		plt.close()
 
 if __name__ == "__main__":
 	import os

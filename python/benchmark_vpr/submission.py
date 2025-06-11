@@ -21,6 +21,7 @@ import parser
 from dataloader import TestDataset
 from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, save_visualization
 from utils.utils_image_matching_method import initialize_img_matcher
+from utils.vpr_graph_search import PlaceRecognitionGraphSearch
 
 def extract_descriptors(model, test_ds, args):
 	global descriptors_dimension
@@ -87,24 +88,29 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, setting, a
 	vpr_match_model.initialize_model(database_descriptors)
 	init_results_dict, init_db_query_indices = defaultdict(list), []
 	total_vpr_time = 0.0
-	for query_indice in range(len(queries_descriptors)):
-		query_image_name = queries_image_names[query_indice]
-		query_descs = queries_descriptors[max(0, query_indice-vpr_match_model.seqLen+1) : query_indice+1]
-			
-		start_time = time.time()	
-		_, pred, score = vpr_match_model.match(query_descs)
+
+	##### VPR Matching
+	if isinstance(vpr_match_model, PlaceRecognitionGraphSearch):
+		start_time = time.time()
+		init_db_query_indices, score = vpr_match_model.match(queries_descriptors)
 		total_vpr_time += time.time() - start_time
-	
-		init_db_query_indices.append((pred, query_indice, score))
-		init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
-	
-	if hasattr(vpr_match_model, 'compute_diff_matrix'):
-		D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
-		vpr_match_model.save_diff_matrix_fitting(\
-			f"{args.out_dir}/{setting}/preds", 
-			None, None, None, None,
-			D_all, None, None, 
-			None, None, None)
+		
+		for pred, query_indice in init_db_query_indices:
+			query_image_name = queries_image_names[query_indice]
+			init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
+	else:
+		for query_indice in range(len(queries_descriptors)):
+			start_time = time.time()	
+			query_descs = queries_descriptors[max(0, query_indice-vpr_match_model.seqLen+1) : query_indice+1]
+			_, pred, score = vpr_match_model.match(query_descs)
+			total_vpr_time += time.time() - start_time
+		
+			init_db_query_indices.append((pred, query_indice))
+			query_image_name = queries_image_names[query_indice]
+			init_results_dict[query_image_name] = (database_image_names[pred], score, 1)
+
+	D_all = vpr_match_model.compute_diff_matrix(queries_descriptors)
+	vpr_match_model.viz_diff_matrix(f"{args.out_dir}/{setting}/preds", D_all, init_db_query_indices)
 
 	# DEBUG(gogojjh): disable the RANSAC-based fitting
 	# RANSAC-based fitting for outlier rejection
@@ -189,7 +195,7 @@ def save_predictions(results_dict: dict, test_ds, log_dir):
 		query_path = [os.path.join(test_ds.queries_folder, query_image_name)]
 		database_paths = [os.path.join(test_ds.database_folder, db_image_name_score[0])]
 		image_paths = query_path + database_paths
-		save_visualization(log_dir, query_idx, image_paths, [1] * len(image_paths))
+		save_visualization(log_dir, query_idx, image_paths, [None] * len(image_paths))
 
 def eval(args):
 	##### Dataloader

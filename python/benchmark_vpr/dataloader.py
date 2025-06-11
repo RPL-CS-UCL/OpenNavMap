@@ -7,6 +7,33 @@ import torch.utils.data as data
 import torchvision.transforms as transforms
 from sklearn.neighbors import NearestNeighbors
 
+def read_poses(dataset_folder):
+    pose_path = os.path.join(dataset_folder, 'poses_abs_gt.txt')
+
+    if not os.path.exists(pose_path):
+        print(f"File not found: {pose_path}")
+        return None
+
+    data_dict = {}
+    with open(pose_path, 'r') as f:
+        for line_id, line in enumerate(f):
+            if line.startswith('#'):
+                continue
+
+            parts = line.strip().split()
+            if 'jpg' in parts[0] or 'png' in parts[0]:
+                # provide img_name
+                img_name = parts[0]
+                data = list(map(float, parts[1:]))
+            else:
+                # not provide img_name
+                img_name = "seq/{frame_id:06d}.color.jpg".format(frame_id=line_id)
+                data = list(map(float, parts))
+
+            data_dict[img_name] = np.array(data)
+            
+    return data_dict
+
 
 def read_image_names(dataset_folder):
     """Find images within 'dataset_folder'. If the file
@@ -51,13 +78,15 @@ class TestDataset(data.Dataset):
         self.database_image_paths = [
             os.path.join(database_folder, name) for name in self.database_image_names
         ]
+        self.database_poses = read_poses(database_folder)
 
         self.queries_folder = queries_folder
         self.queries_image_names = read_image_names(queries_folder)
         self.queries_image_paths = [
             os.path.join(queries_folder, name) for name in self.queries_image_names
         ]        
-
+        self.queries_poses = read_poses(queries_folder)
+    
         self.image_names = list(self.database_image_names) + list(self.queries_image_names)
         self.image_paths = list(self.database_image_paths) + list(self.queries_image_paths)
 

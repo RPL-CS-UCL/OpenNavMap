@@ -4,8 +4,8 @@ available_vpr_match_models=[
 	"single_match",
 	"topo_filter",
 	"sequence_match",
-	"sequence_match_ransac",
-	"sequence_match_adaptive"
+	"sequence_match_adaptive",
+	"graph_search"
 ]
 def parse_arguments():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
