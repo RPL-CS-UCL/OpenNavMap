@@ -41,9 +41,12 @@ def setup_log_environment(out_dir, args):
     )
     return log_dir
 
-def initialize_img_matcher(matcher, device, max_num_keypoints):
+def initialize_img_matcher(matcher: str, device: str, max_num_keypoints: int):
     """Initialize the matcher with provided arguments."""
-    return get_matcher(matcher, device=device, max_num_keypoints=max_num_keypoints)
+    if matcher == "none":
+        return None
+    else:
+        return get_matcher(matcher, device=device, max_num_keypoints=max_num_keypoints)
 
 def rgb(ftensor, true_shape=None):
     if isinstance(ftensor, list):

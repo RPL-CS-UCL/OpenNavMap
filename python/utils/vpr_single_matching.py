@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 
 class PlaceRecognitionSingleMatching:
 	def __init__(self):
-		self.seqLen = 1
+		pass
 
 	def initialize_model(self, db_descs):
 		self.db_descs = db_descs
@@ -18,10 +18,11 @@ class PlaceRecognitionSingleMatching:
 	def match(self, query_desc: np.ndarray, recall_values=1):
 		_, recall_preds = self.db_faiss_index.search(query_desc, recall_values)
 		
-		dots = np.dot(self.db_descs[recall_preds[0][0], :], query_desc)
-		q_norms = np.linalg.norm(query_desc, axis=1)
-		db_norms = np.linalg.norm(self.db_descs[recall_preds[0][0], :], axis=1)
-		score = dots / (q_norms * db_norms + 1e-8)
+		dots = np.dot(self.db_descs[recall_preds[0][0], :], query_desc.T).reshape(-1)
+		q_norms = np.linalg.norm(query_desc)
+		db_norms = np.linalg.norm(self.db_descs[recall_preds[0][0], :])
+		sims = dots / (q_norms * db_norms + 1e-8)
+		score = sims
 
 		return recall_preds[0], recall_preds[0][0], score
 
