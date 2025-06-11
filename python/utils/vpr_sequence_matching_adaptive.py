@@ -45,4 +45,7 @@ class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 				best_score = combined_score
 				best_result = (current_preds, current_pred, self.MAX_DIST - current_mu, seq_len)
 
-		return best_result[:3] if best_result[:3] else self._fallback_match(query_descs[-1, :].reshape(1, -1), recall_values)
+		if best_result is not None:
+			return best_result[:3]
+		else:
+			return self._fallback_match(query_descs[-1, :].reshape(1, -1), recall_values)
