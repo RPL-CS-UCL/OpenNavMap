@@ -135,7 +135,7 @@ def save_vis_diff_matrix(save_dir, diff_matrix):
 
 def save_prec_recall_curve(save_dir, curve_metrics_methods, title):
 	# Set basic format
-	setting_font()
+	# setting_font()
 	# Set color
 	PALLETE = acquire_color_palette()
 	MARKERS = acquire_marker()

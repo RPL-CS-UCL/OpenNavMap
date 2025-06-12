@@ -143,14 +143,14 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, 
 					print(f"Error in Image Matching: {e}")
 					result = {'num_inliers': 0.0}
 				total_gv_time += time.time() - start_time
-
+			
 				if result['num_inliers'] > 50:
 					best_db_query_indices.append(db_query_indice)
 					best_results_dict[query_image_name] = \
-						(best_results_dict[query_image_name][0], result['num_inliers'], 0)
+						(best_results_dict[query_image_name][0], result['num_inliers'], 1)
 				else:
 					best_results_dict[query_image_name] = \
-						(best_results_dict[query_image_name][0], 0, 0)
+						(best_results_dict[query_image_name][0], result['num_inliers'], 0)
 			else:
 				best_results_dict[query_image_name] = \
 					(best_results_dict[query_image_name][0], 0, 0)

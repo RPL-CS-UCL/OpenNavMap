@@ -152,23 +152,27 @@ def eval(args):
         # Traverse results for each database-query pair
         for f in sorted(os.listdir(result_dir)):
             if 'submission-' in f:
-                f_new = f.replace('.txt', '')
-                query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
-                logging.warning(f"Evaluating Results of Query: {query_name} Database: {database_name}")
+                try:
+                    f_new = f.replace('.txt', '')
+                    query_name, database_name = f_new.split('-')[1], f_new.split('-')[2]
+                    logging.info(f"Evaluating Results of Query: {query_name} Database: {database_name}")
 
-                results_vpr = np.loadtxt(os.path.join(result_dir, f), dtype=object)           
-                output_metrics, curves_data, y_true, y_pred, y_score = compute_metrics(
-                    args.dataset_path, results_vpr,
-                    query_name, database_name,
-                    args.trans_threshold, args.ori_threshold
-                )
+                    results_vpr = np.loadtxt(os.path.join(result_dir, f), dtype=object)           
+                    output_metrics, curves_data, y_true, y_pred, y_score = compute_metrics(
+                        args.dataset_path, results_vpr,
+                        query_name, database_name,
+                        args.trans_threshold, args.ori_threshold
+                    )
 
-                querydb_name = f"{query_name}-{database_name}"
-                output_querydb_metrics[querydb_name] = output_metrics
-                curve_querydb_metrics[querydb_name] = curves_data
-                y_true_all  += y_true
-                y_pred_all  += y_pred
-                y_score_all += y_score
+                    querydb_name = f"{query_name}-{database_name}"
+                    output_querydb_metrics[querydb_name] = output_metrics
+                    curve_querydb_metrics[querydb_name] = curves_data
+                    y_true_all  += y_true
+                    y_pred_all  += y_pred
+                    y_score_all += y_score
+                except Exception as e:
+                    logging.error(f"Error evaluating method {method}: {e}")
+                    continue
 
         # Compute mean metrics of all samples
         accuracy = accuracy_score(y_true_all, y_pred_all)
@@ -205,12 +209,16 @@ def eval(args):
             f.write(output_json)
 
         # Save precision-curve for the method
-        print(f'Saving PR Curve to {os.path.join(args.result_dir, method)}')
-        # save_prec_recall_curve(os.path.join(args.result_dir, method), {method: curve_querydb_metrics})
+        logging.info(f'Saving PR Curve to {os.path.join(args.result_dir, method)}')
+        save_prec_recall_curve(
+            os.path.join(args.result_dir, method), {method: curve_querydb_metrics}, 
+            title=f"Precision-Recall Curve [{args.trans_threshold:.1f}m, {args.ori_threshold:.1f}°]"
+        )
 
     # Draw the PR curve of all methods
-    save_prec_recall_curve(\
-        args.result_dir, curve_metrics_methods, \
+    logging.info(f'Saving PR Curve to {args.result_dir}')
+    save_prec_recall_curve(
+        args.result_dir, curve_metrics_methods, 
         title=f"Precision-Recall Curve [{args.trans_threshold:.1f}m, {args.ori_threshold:.1f}°]"
     )
 

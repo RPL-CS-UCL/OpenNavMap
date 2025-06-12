@@ -52,7 +52,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 			if cum_cost < min_cost:
 				min_cost = cum_cost
 				best_state = i_final
-		best_score = self.MAX_DIST - min_cost
+		best_score = self.MAX_DIST - min_cost / self.L
 
 		# Backtrack
 		path = []
