@@ -35,7 +35,7 @@ def compute_diff_matrix(db_descs, query_descs, eps=1e-8):
     q_norms = np.linalg.norm(query_descs, axis=1)[None, :]
     D = 1.0 - dots / (db_norms * q_norms + eps)  # (n_db, n_query)
 
-    return D
+    return 1.0 - np.dot(db_descs, query_descs.T)
 
 def convert_pose_to_2d(pose):
     """Convert 7D pose (x,y,z + quaternion) to 2D (x,z) coordinates"""
@@ -78,18 +78,18 @@ def visualize_vpr_data(test_ds, D_all, valid_pairs, output_path):
     
     db_poses = np.array([test_ds.database_poses[test_ds.database_image_names[i]] for i in range(test_ds.num_database)])
     db_xy = np.array([convert_pose_to_2d(p) for p in db_poses])
-    ax3.plot(db_xy[:,0], db_xy[:,1], c=PALLETE[1], linewidth=1, label='Database')
+    ax3.plot(db_xy[:,0], db_xy[:,1], c=PALLETE[1], linewidth=2, linestyle='--', label='Database', zorder=1)
     
     # Plot query trajectory
     query_poses = np.array([test_ds.queries_poses[test_ds.queries_image_names[i]] for i in range(test_ds.num_queries)])
     query_xy = np.array([convert_pose_to_2d(p) for p in query_poses])
-    ax3.plot(query_xy[:,0], query_xy[:,1], c=PALLETE[2], linewidth=1, label='Query')
+    ax3.plot(query_xy[:,0], query_xy[:,1], c=PALLETE[2], linewidth=2, linestyle='-', label='Query', zorder=0)
     
     # Plot connections for valid pairs
     for q_idx, db_idx in valid_pairs:
         ax3.plot([query_xy[q_idx,0], db_xy[db_idx,0]],
                  [query_xy[q_idx,1], db_xy[db_idx,1]],
-                 'g-', linewidth=2)
+                 'g-', linewidth=1, alpha=0.5)
 
     ax3.set_xlabel('X [m]', fontsize=14)
     ax3.set_ylabel('Y [m]', fontsize=14)
@@ -123,7 +123,7 @@ def extract_descriptors(model, test_ds, args):
 
     return all_descs[:test_ds.num_database], all_descs[test_ds.num_database:]
 
-def find_valid_matches(test_ds, trans_thresh, rot_thresh):
+def find_valid_matches(test_ds, trans_thresh, rot_thresh, dataset_name):
     """Find ground-truth valid pairs using pose thresholds"""
     valid_pairs = []
     
@@ -143,8 +143,11 @@ def find_valid_matches(test_ds, trans_thresh, rot_thresh):
             trans_query, quat_query = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
             Tc2w = convert_vec_to_matrix(db_pose[4:], db_pose[:4], 'wxyz')
             trans_db, quat_db = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
-            trans_err, rot_err = compute_pose_error((trans_query, quat_query), (trans_db, quat_db), mode='vector')
-            
+
+            trans_err, rot_err = compute_pose_error(
+                (trans_query, quat_query), 
+                (trans_db, quat_db), mode='vector'
+            )
             if trans_err <= trans_thresh and rot_err <= rot_thresh:
                 err = trans_err
                 if err < min_dist:
@@ -172,7 +175,8 @@ def evaluate_vpr_system(args):
         D_all = compute_diff_matrix(db_descs, query_descs)
         
         # Find ground-truth valid matches
-        valid_pairs = find_valid_matches(test_ds, args.trans_thresh, args.rot_thresh)
+        dataset_name = args.dataset_name
+        valid_pairs = find_valid_matches(test_ds, args.trans_thresh, args.rot_thresh, dataset_name)
         
         # Create visualization
         output_dir = Path(args.output_path)
@@ -185,6 +189,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='VPR Visualization System')
     
     # Dataset parameters
+    parser.add_argument('--dataset_name', type=str, default='ucl_campus',
+                      choices=['ucl_campus', 'robocar', 'fusionportable'],
+                      help='Dataset name')
     parser.add_argument('--database_folder', type=Path, required=True,
                       help='Path to database folder')
     parser.add_argument('--queries_folder', type=Path, required=True, nargs='+',
