@@ -10,7 +10,7 @@ def acquire_color_palette():
         t = np.linspace(-510, 510, N)
         return np.round(np.clip(np.stack([-t, 510 - np.abs(t), t], axis=1), 0, 255)).astype("float32") / 255
 
-    PALLETE = spec(20)
+    PALLETE = spec(60)
 
     # colormap: https://matplotlib.org/3.1.1/tutorials/colors/colormaps.html
     PALLETE[0] = [0, 152 / 255, 83 / 255]  # green
@@ -27,13 +27,17 @@ def acquire_color_palette():
     PALLETE[11] = [0.494, 0.184, 0.556]
     PALLETE[12] = [0.850, 0.3250, 0.0980]
     PALLETE[13] = [0.466, 0.674, 0.188]
-    for i in range(14, 20):
+    for i in range(14, 60):
         PALLETE[i] = np.random.random(3)
     return PALLETE
 
 def acquire_marker():
-    MARKERS = ['o', 's', '^', 'D', '*', 'X', 'o', 's', '^', 'D', '*', 'X']
+    MARKERS = ['o', 's', '^', 'D', 'X', '*', '+', 'o', 's', '^', 'D', '*', 'X']
     return MARKERS
+
+def acquire_linestyle():
+    LINES = ['-', '--', '-.', ':', '-', '--', '-.', ':']
+    return LINES
 
 def setting_font(fontsize=14, titlesize=14, legend_fontsize=14):
     try:
@@ -49,4 +53,4 @@ def setting_font(fontsize=14, titlesize=14, legend_fontsize=14):
         rc('text', usetex=True)
         rc('font', **{'size': fontsize})
         params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
-        pylab.rcParams.update(params)        
+        pylab.rcParams.update(params)

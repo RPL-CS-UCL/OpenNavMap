@@ -17,7 +17,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 
 		# Velocity parameters (expanded range)
 		self.vMin = 0.6
-		self.vMax = 2.5
+		self.vMax = 3.0
 		self.numVel = 20
 		self.velocities = np.linspace(self.vMin, self.vMax, self.numVel).tolist()
 
