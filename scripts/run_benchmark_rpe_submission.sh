@@ -24,15 +24,15 @@ export N_QUERY=10
 
 # Model and LoRA configuration
 MODELS=(
-	"hloc_superpoint_splg"
-	"hloc_disk_dilg"
-	"vpr_cosplace_resnet18_256"
-	"vpr_netvlad_resnet18_4096"
-	"reloc3r"
-	"duster_nocalib_pretrain"
+	# "hloc_superpoint_splg"
+	# "hloc_disk_dilg"
+	# "vpr_cosplace_resnet18_256"
+	# "vpr_netvlad_resnet18_4096"
+	# "reloc3r"
+	# "duster_nocalib_pretrain"
 	"duster_calib_pretrain"
-	"master_nocalib_pretrain"
-	"master_calib_pretrain"
+	# "master_nocalib_pretrain"
+	# "master_calib_pretrain"
 )
 
 LORA_PATH="none"
@@ -56,7 +56,7 @@ process_model() {
 		--n_query "$N_QUERY" \
 		--top_k "$top_k" \
 		--lora_path "$LORA_PATH" \
-		--split "$SPLIT" # --debug --viz
+		--split "$SPLIT" # --debug # --viz
 	echo ""
 	sleep 3
 }
@@ -66,8 +66,10 @@ export -f process_model
 export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
-for TOP_K in $(seq 2 3 17); do
+# for TOP_K in $(seq 2 3 17); do
 # for TOP_K in $(seq 20 10 50); do
+# for TOP_K in $(seq 17 3 17); do
+for TOP_K in $(seq 2 3 8); do
 	echo "Processing with TOP_K: $TOP_K"
 	export TOP_K
 	printf "%s\n" "${MODEL_LORA_PAIRS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}

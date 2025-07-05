@@ -23,6 +23,14 @@ from dataloader import TestDataset
 from utils.utils_vpr_method import initialize_vpr_model, initialize_match_model, save_visualization
 from utils.utils_image_matching_method import initialize_img_matcher
 
+NUM_SUFF_INLIERS = 50
+##### Threshold for UCL Campus Dataset
+# COST_PENALTY = 0.3
+# JUMP_LEN = 3
+##### Threshold for Oxford Robocar Dataset
+COST_PENALTY = 0.6
+JUMP_LEN = 10
+
 def extract_descriptors(model, test_ds, args):
 	global descriptors_dimension
 	total_db_desc_time, total_query_desc_time = 0.0, 0.0
@@ -144,7 +152,7 @@ def predict(test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, 
 					result = {'num_inliers': 0.0}
 				total_gv_time += time.time() - start_time
 			
-				if result['num_inliers'] > 50:
+				if result['num_inliers'] > NUM_SUFF_INLIERS:
 					best_db_query_indices.append(db_query_indice)
 					best_results_dict[query_image_name] = \
 						(best_results_dict[query_image_name][0], result['num_inliers'], 1)
@@ -223,6 +231,10 @@ def eval(args):
 					vpr_model = initialize_vpr_model(str_vpr_model, backbone, descriptors_dimension, args.device)
 					vpr_match_model = initialize_match_model(str_vpr_match_model, vpr_match_seq_len)
 					image_matcher_model = initialize_img_matcher(str_image_match_model, args.device, max_num_keypoints=2048)
+					if hasattr(vpr_model, 'cost_penalty'):
+						vpr_model.cost_penalty = COST_PENALTY
+						vpr_model.jump_len = JUMP_LEN
+						
 					results_dict, total_runtime = predict(
 						test_ds, vpr_model, vpr_match_model, image_matcher_model, pred_dir, args
 					)

@@ -30,6 +30,7 @@ def is_same_place(poseA, poseB, trans_threshold, ori_threshold):
     Tc2w = convert_vec_to_matrix(poseB[4:], poseB[:4], 'wxyz')
     transB, quatB = convert_matrix_to_vec(np.linalg.inv(Tc2w), 'xyzw')
     dis_trans, dis_angle = compute_pose_error((transA, quatA), (transB, quatB), mode='vector')
+    
     return (dis_trans < trans_threshold and dis_angle < ori_threshold) 
 
 def compute_max_recall(prec_values, recall_values):
@@ -140,7 +141,7 @@ def compute_metrics(dataset_path, results_vpr,
 
 def eval(args):
     output_metrics_methods, curve_metrics_methods = dict(), dict()
-    for method in args.methods:
+    for method in sorted(args.methods):
         logging.warning(f"Evaluating Method: {method}")
         # Metric
         output_querydb_metrics, curve_querydb_metrics = dict(), dict()
@@ -224,7 +225,7 @@ def eval(args):
 
 def summ(args):
     result_method = {}
-    for method_name in sorted(os.listdir(args.result_dir)):
+    for method_name in sorted(args.methods):
         method_path = os.path.join(args.result_dir, method_name)
         if os.path.isdir(method_path):
             json_file = os.path.join(method_path, 'report_evaluation.json')

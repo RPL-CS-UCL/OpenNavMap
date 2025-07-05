@@ -47,6 +47,7 @@ def predict(loader, estimator, str_estimator, cfg):
 	results_debug_dict = defaultdict(list)
 	running_time = []
 	save_indice = 0
+	estimator.verbose = True
 	for data_cnt, data in enumerate(tqdm(loader)):
 		try:
 			scene_root = Path(data['scene_root'][0])
@@ -107,8 +108,7 @@ def predict(loader, estimator, str_estimator, cfg):
 				for edge in msp_edges:
 					if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
 						edge_str = f"{edge[0]}_{edge[1]}"
-						conf = weight_i[edge_str].detach().cpu().numpy().mean() * \
-								weight_j[edge_str].detach().cpu().numpy().mean()
+						conf = weight_i[edge_str].mean() * weight_j[edge_str].mean()
 			else:
 				conf = 0.0
 

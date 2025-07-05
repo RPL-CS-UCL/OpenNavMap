@@ -23,8 +23,8 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 
 		# DP parameters
 		self.mu = 1
-		self.cost_penalty = 0.3
-		self.jump_len = 3 # Jump length for relocation sampling
+		self.cost_penalty = 0.7
+		self.jump_len = 10 # Jump length for relocation sampling
 		
 	def initialize_model(self, db_descs):
 		"""Initialize the model with database descs"""
@@ -94,7 +94,6 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 				else:
 					vel_list = [prev_v]
 
-				# NOTE(gogojjh): Local search by moving one step at a time
 				for v in vel_list:
 					i_next = i_cum + v
 					i_coord_next = int(i_next)
@@ -114,7 +113,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 					key2 = k
 					prev_best2 = next_states.get(key2, (np.inf, None, None, None))[0]
 					if new_cost2 < prev_best2:
-						next_states[key2] = (new_cost2, k, i_coord, v) # keep the same velocity
+						next_states[key2] = (new_cost2, k, i_coord, None) # keep the same velocity
 
 				for k in range(int(upper_i), self.N):
 					cost2 = cost_matrix[k, j+1]
@@ -122,7 +121,7 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 					key2 = k
 					prev_best2 = next_states.get(key2, (np.inf, None, None, None))[0]
 					if new_cost2 < prev_best2:
-						next_states[key2] = (new_cost2, k, i_coord, v) # keep the same velocity
+						next_states[key2] = (new_cost2, k, i_coord, None) # keep the same velocity
 
 			if not next_states:
 				print(f"No surviving states at layer {j+1}, stopping early.")

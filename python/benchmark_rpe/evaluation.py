@@ -106,9 +106,30 @@ def aggregate_results(all_results, all_failures, eval_config):
 			median_metrics[metric].append(np.median(values))
 			max_metrics[metric].append(np.max(values))
 			all_metrics[metric].extend(values)
+
 	all_metrics = {k: np.array(v) for k, v in all_metrics.items()}
 	assert all([v.ndim == 1 for v in all_metrics.values()]
 			   ), 'invalid metrics shape'
+
+    ##### 
+	# DEBUG(gogojjh):
+	# all_trans_err = all_metrics['trans_err']
+	# all_rot_err = all_metrics['rot_err']
+	# all_confidence = all_metrics['confidence']
+	# scene_list = list(all_results.keys())
+	# num_scene = len(all_results.keys())
+	# matrix_data = np.column_stack((all_trans_err, all_rot_err, all_confidence))
+	# np.savetxt(
+	# 	'/Rocket_ssd/dataset/data_litevloc/map_free_eval/ucl_campus_aria/map_free_eval/results_rpe/master_nocalib_pretrain/error_conf_9.txt', matrix_data, 
+	# 	fmt='%.6f'
+	# )
+	# print(f"num_scene: {num_scene}")
+	# print(f"num_all_trans_err: {len(all_trans_err)}")
+	# print(f"scene, frame, trans_err, rot_err, confidence")
+	# for idx, trans_err in enumerate(all_trans_err):
+	# 	# print(f"trans_err: {trans_err}, rot_err: {all_rot_err[idx]}, confidence: {all_confidence[idx]}, scene: {scene_list[int(idx/10)]}, frame: {int(idx % 10)}")
+	# 	print(f"{scene_list[int(idx/10)]}, {int(idx % 10)}, {trans_err}, {all_rot_err[idx]}, {all_confidence[idx]}")
+	#####
 
 	# compute avg max and median metrics
 	avg_median_metrics = {metric: np.mean(values) for metric, values in median_metrics.items()}

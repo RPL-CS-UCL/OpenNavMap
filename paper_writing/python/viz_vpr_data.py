@@ -44,7 +44,7 @@ def convert_pose_to_2d(pose):
     
     return (trans[0], trans[1])
 
-def visualize_vpr_data(test_ds, D_all, valid_pairs, output_path):
+def visualize_vpr_data(db_poses, query_poses, D_all, valid_pairs, output_path):
     """Visualization function that creates the dual plot"""
     # D_all is (n_query, n_db)
     fig = plt.figure(figsize=(18, 10))
@@ -76,12 +76,10 @@ def visualize_vpr_data(test_ds, D_all, valid_pairs, output_path):
     # 3. Trajectory Plot
     ax3 = fig.add_subplot(133)
     
-    db_poses = np.array([test_ds.database_poses[test_ds.database_image_names[i]] for i in range(test_ds.num_database)])
     db_xy = np.array([convert_pose_to_2d(p) for p in db_poses])
     ax3.plot(db_xy[:,0], db_xy[:,1], c=PALLETE[1], linewidth=2, linestyle='--', label='Database', zorder=1)
     
     # Plot query trajectory
-    query_poses = np.array([test_ds.queries_poses[test_ds.queries_image_names[i]] for i in range(test_ds.num_queries)])
     query_xy = np.array([convert_pose_to_2d(p) for p in query_poses])
     ax3.plot(query_xy[:,0], query_xy[:,1], c=PALLETE[2], linewidth=2, linestyle='-', label='Query', zorder=0)
     
@@ -97,6 +95,32 @@ def visualize_vpr_data(test_ds, D_all, valid_pairs, output_path):
     ax3.legend(fontsize=12, loc='upper right', bbox_to_anchor=(1.05, 1.0))
     ax3.grid(True, linestyle='--', alpha=0.7)
     ax3.set_aspect('equal')
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def visualize_vpr_data_queries(db_poses, all_query_poses, all_valid_pairs, output_path):
+    fig = plt.figure(figsize=(18, 10))
+    ax = fig.add_subplot(111)
+    db_xy = np.array([convert_pose_to_2d(p) for p in db_poses])
+    ax.plot(db_xy[:,0], db_xy[:,1], c=PALLETE[0], linewidth=2, linestyle='--', label='Reference', zorder=1)
+    
+    # Plot query trajectory
+    for query_id, query_poses in enumerate(all_query_poses):
+        query_xy = np.array([convert_pose_to_2d(p) for p in query_poses])
+        ax.plot(query_xy[:,0], query_xy[:,1], c=PALLETE[query_id + 1], linewidth=2, linestyle='-', label=f'Query {query_id}', zorder=0)
+
+        for q_idx, db_idx in all_valid_pairs[query_id]:
+            ax.plot([query_xy[q_idx,0], db_xy[db_idx,0]],
+                     [query_xy[q_idx,1], db_xy[db_idx,1]],
+                     'g-', linewidth=1.5, alpha=0.5)
+    
+    ax.set_xlabel('X [m]', fontsize=14)
+    ax.set_ylabel('Y [m]', fontsize=14)
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.set_aspect('equal')
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -131,10 +155,9 @@ def find_valid_matches(test_ds, trans_thresh, rot_thresh, dataset_name):
         query_img_name = test_ds.queries_image_names[q_idx]
         query_pose = test_ds.queries_poses[query_img_name]
         
-        min_dist = float('inf')
-        best_db_idx = -1
-        
         # Find nearest database image by position
+        best_db_idx = None
+        best_err = float('inf')
         for db_idx in range(test_ds.num_database):
             db_img_name = test_ds.database_image_names[db_idx]
             db_pose = test_ds.database_poses[db_img_name]
@@ -148,19 +171,25 @@ def find_valid_matches(test_ds, trans_thresh, rot_thresh, dataset_name):
                 (trans_query, quat_query), 
                 (trans_db, quat_db), mode='vector'
             )
-            if trans_err <= trans_thresh and rot_err <= rot_thresh:
-                err = trans_err
-                if err < min_dist:
-                    min_dist = err
-                    best_db_idx = db_idx
 
-        if best_db_idx != -1:
+            if trans_err <= trans_thresh and rot_err <= rot_thresh and trans_err < best_err:
+                best_db_idx = db_idx
+                best_err = trans_err
+        
+        if best_db_idx is not None:
             valid_pairs.append((q_idx, best_db_idx))
             
     return valid_pairs
 
 def evaluate_vpr_system(args):
     """Main evaluation and visualization routine"""
+    all_db_poses = []
+    all_query_poses = []
+    all_valid_pairs = []
+
+    output_dir = Path(args.output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     for query_folder in args.queries_folder:
         # Load dataset
         test_ds = TestDataset(args.database_folder, query_folder, args.image_size)
@@ -177,13 +206,20 @@ def evaluate_vpr_system(args):
         # Find ground-truth valid matches
         dataset_name = args.dataset_name
         valid_pairs = find_valid_matches(test_ds, args.trans_thresh, args.rot_thresh, dataset_name)
+        all_valid_pairs.append(valid_pairs)
+        
+        db_poses = np.array([test_ds.database_poses[test_ds.database_image_names[i]] for i in range(test_ds.num_database)])
+        query_poses = np.array([test_ds.queries_poses[test_ds.queries_image_names[i]] for i in range(test_ds.num_queries)])
+        if len(all_db_poses) == 0:
+            all_db_poses.append(db_poses)
+        all_query_poses.append(query_poses)
         
         # Create visualization
-        output_dir = Path(args.output_path)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        visualize_vpr_data(test_ds, D_all, valid_pairs, output_dir/f"vpr_data_{query_folder.name}.jpg")
-
+        visualize_vpr_data(db_poses, query_poses, D_all, valid_pairs, output_dir/f"vpr_data_{query_folder.name}.jpg")
         np.save(output_dir/f"D_all_{query_folder.name}.npy", D_all)
+
+    visualize_vpr_data_queries(all_db_poses[0], all_query_poses, all_valid_pairs, output_dir/f"vpr_data_queries.jpg")
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='VPR Visualization System')

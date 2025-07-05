@@ -111,7 +111,7 @@ merge_submaps() {
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
             --viz
-            # --prune_keyframe_forward --prune_keyframe_backward
+            --prune_keyframe_forward --prune_keyframe_backward
 
         base_name="${new_merged_name}"
     done

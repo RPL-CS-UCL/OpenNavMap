@@ -13,6 +13,7 @@ for db_dir in "$DATASET_PATH"/database/*/; do
   DATABASE_NAME="$(basename "$db_dir")"
   for query_dir in "$DATASET_PATH"/query/*/; do
     QUERY_NAME="$(basename "$query_dir")"
+    echo "Processing $DATABASE_NAME $QUERY_NAME"
 
     # Export environment variables
     export PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
@@ -21,20 +22,27 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     export OUT_DIR="$DATASET_PATH/results_vpr"
     
     ##### Setting for Academic Paper Writing
-    STR_BACKBONES="VGG16 ResNet18 ResNet18 ResNet18 ResNet18 DINOv2"
-    STR_DESC_DIMENSIONS="4096 128 256 512 256 49152"
-    STR_VPR_MODELS="netvlad cosplace cosplace cosplace eigenplaces anyloc-structured" 
-    VPR_MATCH_MODELS="single_match sequence_match sequence_match_adaptive"
-    VPR_MATCH_SEQ_LENS="10"
-    IMAGE_MATCH_MODELS="none master"
+    # STR_BACKBONES="VGG16 ResNet18 ResNet18 DINOv2"
+    # STR_DESC_DIMENSIONS="4096 256 256 49152"
+    # STR_VPR_MODELS="netvlad cosplace eigenplaces anyloc-structured" 
+    # VPR_MATCH_MODELS="single_match sequence_match graph_search"
+    # VPR_MATCH_SEQ_LENS="10"
+    # IMAGE_MATCH_MODELS="none master"
     ##### Default Setting
     # STR_BACKBONES="ResNet18"
     # STR_DESC_DIMENSIONS="256"
     # STR_VPR_MODELS="cosplace"
-    # VPR_MATCH_MODELS="sequence_match"
-    # VPR_MATCH_SEQ_LENS="10"
+    # VPR_MATCH_MODELS="sequence_match graph_search"
+    # VPR_MATCH_SEQ_LENS="20"
     # IMAGE_MATCH_MODELS="none"
     ##### 
+    STR_BACKBONES="ResNet18"
+    STR_DESC_DIMENSIONS="256"
+    STR_VPR_MODELS="cosplace" 
+    VPR_MATCH_MODELS="sequence_match"
+    VPR_MATCH_SEQ_LENS="50"
+    IMAGE_MATCH_MODELS="none"
+    ### 
 
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \
       --database_folder $DATABASE_PATH \
@@ -52,6 +60,5 @@ for db_dir in "$DATASET_PATH"/database/*/; do
       --out_dir $OUT_DIR \
       --debug
       echo ""
-  
   done
 done
