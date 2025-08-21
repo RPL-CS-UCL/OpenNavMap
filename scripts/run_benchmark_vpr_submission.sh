@@ -21,27 +21,27 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     export QUERY_PATH="$DATASET_PATH/query/$QUERY_NAME"
     export OUT_DIR="$DATASET_PATH/results_vpr"
     
-    ##### Setting for Academic Paper Writing
-    # STR_BACKBONES="VGG16 ResNet18 ResNet18 DINOv2"
-    # STR_DESC_DIMENSIONS="4096 256 256 49152"
-    # STR_VPR_MODELS="netvlad cosplace eigenplaces anyloc-structured" 
-    # VPR_MATCH_MODELS="single_match sequence_match graph_search"
-    # VPR_MATCH_SEQ_LENS="10"
-    # IMAGE_MATCH_MODELS="none master"
+    ##### Setting for baseline comparison
+    STR_BACKBONES="VGG16 ResNet18 ResNet18 DINOv2"
+    STR_DESC_DIMENSIONS="4096 256 256 49152"
+    STR_VPR_MODELS="netvlad cosplace eigenplaces anyloc-structured" 
+    VPR_MATCH_MODELS="single_match sequence_match graph_search"
+    VPR_MATCH_SEQ_LENS="20"
+    IMAGE_MATCH_MODELS="none master"
     ##### Default Setting
     # STR_BACKBONES="ResNet18"
     # STR_DESC_DIMENSIONS="256"
     # STR_VPR_MODELS="cosplace"
     # VPR_MATCH_MODELS="sequence_match graph_search"
-    # VPR_MATCH_SEQ_LENS="20"
-    # IMAGE_MATCH_MODELS="none"
+    # VPR_MATCH_SEQ_LENS="50"
+    # IMAGE_MATCH_MODELS="none master"
     ##### 
-    STR_BACKBONES="ResNet18"
-    STR_DESC_DIMENSIONS="256"
-    STR_VPR_MODELS="cosplace" 
-    VPR_MATCH_MODELS="sequence_match"
-    VPR_MATCH_SEQ_LENS="50"
-    IMAGE_MATCH_MODELS="none"
+    # STR_BACKBONES="ResNet18"
+    # STR_DESC_DIMENSIONS="256"
+    # STR_VPR_MODELS="cosplace" 
+    # VPR_MATCH_MODELS="graph_search sequence_match"
+    # VPR_MATCH_SEQ_LENS="50"
+    # IMAGE_MATCH_MODELS="none master"
     ### 
 
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \
