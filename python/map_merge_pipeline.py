@@ -197,20 +197,18 @@ def compute_lm_pairwise(
 			else:
 				lm_gain_pw.append(('query', all_nodes[i], all_nodes[j], 1.0 - redu))
 
-			if False:
-				import matplotlib.pyplot as plt
-				fig, axs = plt.subplots(1, 2, figsize=(16, 12))
-				im0 = axs[0].imshow(depthmaps[j].detach().cpu().numpy(), cmap='turbo')
-				axs[0].set_title(f'Original Depth Camera {j} onto Camera {j}')
-				plt.colorbar(im0, ax=axs[0], label='Depth')
-				
-				im1 = axs[1].imshow(proj_depth_map.detach().cpu().numpy(), cmap='turbo')
-				axs[1].set_title(f'Projected Depth of Camera {i} onto Camera {j})')
-				plt.colorbar(im1, ax=axs[1], label='Depth')
-
-				plt.tight_layout()
-				plt.savefig(os.path.join('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map_test/preds', f'depth_maps_{i}_to_{j}.jpg'))
-				plt.close()
+			# DEBUG(gogojjh): Visualize the projected depth map
+			# import matplotlib.pyplot as plt
+			# fig, axs = plt.subplots(1, 2, figsize=(16, 12))
+			# im0 = axs[0].imshow(depthmaps[j].detach().cpu().numpy(), cmap='turbo')
+			# axs[0].set_title(f'Original Depth Camera {j} onto Camera {j}')
+			# plt.colorbar(im0, ax=axs[0], label='Depth')			
+			# im1 = axs[1].imshow(proj_depth_map.detach().cpu().numpy(), cmap='turbo')
+			# axs[1].set_title(f'Projected Depth of Camera {i} onto Camera {j})')
+			# plt.colorbar(im1, ax=axs[1], label='Depth')
+			# plt.tight_layout()
+			# plt.savefig(os.path.join('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map_test/preds', f'depth_maps_{i}_to_{j}.jpg'))
+			# plt.close()
 
 	return lm_gain_pw
 

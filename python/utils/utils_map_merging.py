@@ -13,7 +13,7 @@ from estimator import get_estimator, available_models
 from estimator.utils import to_numpy
 import matplotlib.pyplot as plt
 
-from utils.utils_geom import convert_vec_to_matrix, compute_pose_error
+from .utils_geom import convert_vec_to_matrix, compute_pose_error
 
 RMSE_THRESHOLD = 3.0
 VPR_MATCH_THRESHOLD = 0.90
