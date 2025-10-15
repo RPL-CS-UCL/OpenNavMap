@@ -130,6 +130,7 @@ def localize_image(query_img_path):
         map_html = "<div>Map could not be generated.</div>"
         best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
         best_match_img = Image.open(best_match_path).convert("RGB")
+        logger.warning(f"Not pass geometric verification")
         return best_match_img, coords_str, map_html
 
     ##### Local Localization #####
@@ -137,21 +138,29 @@ def localize_image(query_img_path):
     T_query_est_fine = T_query_est_coarse
 
     if ARGS.pose_estimator and POSE_ESTIMATOR:
-        est_T, conf = local_loc(POSE_ESTIMATOR, query_img_path, DATABASE_DS, predictions[0], query_descriptor, DATABASE_DESCRIPTORS, ARGS)
+        est_T, conf = local_loc(
+            POSE_ESTIMATOR, query_img_path, DATABASE_DS, predictions[0], query_descriptor, DATABASE_DESCRIPTORS, ARGS
+        )
         if est_T is not None and conf > RELIABLE_CONF_THRESHOLD:
             T_query_est_fine = est_T
+        else:
+            logger.warning(f"Local localization failed with confidence: {conf:.2f}")
 
-    query_data = utils.parse_image_name(os.path.basename(query_img_path))
-    T_query_gt = np.eye(4)
-    T_query_gt[:3, 3] = utils.get_ecef_coords(
-        query_data['easting'], query_data['northing'], int(query_data['zone_number']),
-        query_data['latitude'], query_data['longitude']
-    )
-    r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
-    T_query_gt[:3, :3] = r.as_matrix()
-    trans_err_coarse, rot_err_coarse = compute_pose_error(T_query_gt, T_query_est_coarse)
-    trans_err_fine, rot_err_fine = compute_pose_error(T_query_gt, T_query_est_fine)
-
+    try:
+        query_data = utils.parse_image_name(os.path.basename(query_img_path))
+        T_query_gt = np.eye(4)
+        T_query_gt[:3, 3] = utils.get_ecef_coords(
+            query_data['easting'], query_data['northing'], int(query_data['zone_number']),
+            query_data['latitude'], query_data['longitude']
+        )
+        r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
+        T_query_gt[:3, :3] = r.as_matrix()
+        trans_err_coarse, rot_err_coarse = compute_pose_error(T_query_gt, T_query_est_coarse)
+        trans_err_fine, rot_err_fine = compute_pose_error(T_query_gt, T_query_est_fine)
+    except Exception as e:
+        trans_err_coarse, rot_err_coarse = -1.0, -1.0
+        trans_err_fine, rot_err_fine = -1.0, -1.0
+        
     best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
     best_match_img = Image.open(best_match_path).convert("RGB")
     
@@ -168,7 +177,6 @@ def localize_image(query_img_path):
         m = folium.Map(location=[latitude, longitude], zoom_start=18)
         folium.Marker([latitude, longitude], popup="Estimated Location").add_to(m)
         map_html = m._repr_html_()
-
     else:
         coords_str = "Could not determine coordinates."
         map_html = "<div>Map could not be generated.</div>"

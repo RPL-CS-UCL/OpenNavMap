@@ -28,11 +28,11 @@ from python.utils.utils_geom import compute_pose_error
 # Import local dataset
 from altas_dataset import AltasDataset
 
-VISUALIZE = False
+VISUALIZE = True
 # Geometric Verification
 MIN_MATCHED_KPTS = 100
 # Local Localization
-TRANS_THRESH_M, ROT_THRESH_DEG = 7.5, 90.0
+TRANS_THRESH_M, ROT_THRESH_DEG = 10.0, 90.0
 N_IMG_LOCAL_LOC = 2
 RELIABLE_CONF_THRESHOLD = 0.5
 
@@ -158,6 +158,9 @@ def local_loc(pose_estimator, query_img_path, database_ds, db_idx, query_descrip
     db_descriptors = database_descriptors[candidate_indices]
     dists = np.linalg.norm(db_descriptors - query_descriptor, axis=1)
     db_indices = candidate_indices[np.argsort(dists)][:N_IMG_LOCAL_LOC]
+    if len(db_indices) <= 1:
+        logger.warning(f"No images found within {TRANS_THRESH_M}m")
+        return None, 0.0
     #################
 
     # Prepare DB and query data
@@ -172,7 +175,7 @@ def local_loc(pose_estimator, query_img_path, database_ds, db_idx, query_descrip
 
     # Perform pose estimation
     logger.info(f"Performing local localization with {args.pose_estimator} using DB images {db_indices}...")
-    est_opts = {'known_extrinsics': True, 'known_intrinsics': False, 'niter': 300}    
+    est_opts = {'known_extrinsics': False, 'known_intrinsics': False, 'niter': 300}    
     result = pose_estimator(
         Path(args.database_folder),
         db_images, query_image,
@@ -273,7 +276,9 @@ if __name__ == "__main__":
     T_query_est_fine = T_query_est_coarse
     if args.pose_estimator and T_query_est_coarse is not None:
         pose_estimator = initialize_pose_estimator(args.pose_estimator, args.device)
-        est_T, conf = local_loc(pose_estimator, args.img_files[-1], database_ds, predictions[0], query_descriptor, database_descriptors, args)
+        est_T, conf = local_loc(
+            pose_estimator, args.img_files[-1], database_ds, predictions[0], query_descriptor, database_descriptors, args
+        )
         if est_T is not None and conf > RELIABLE_CONF_THRESHOLD: 
             T_query_est_fine = est_T
         del pose_estimator
@@ -281,16 +286,21 @@ if __name__ == "__main__":
         conf = 0.0
 
     #### Output results ####
-    query_data = utils.parse_image_name(args.img_files[-1])
-    T_query_gt = np.eye(4)
-    T_query_gt[:3, 3] = utils.get_ecef_coords(
-        query_data['easting'], query_data['northing'], int(query_data['zone_number']),
-        query_data['latitude'], query_data['longitude']
-    )
-    r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
-    T_query_gt[:3, :3] = r.as_matrix()  
+    try:
+        query_data = utils.parse_image_name(args.img_files[-1])
+        T_query_gt = np.eye(4)
+        T_query_gt[:3, 3] = utils.get_ecef_coords(
+            query_data['easting'], query_data['northing'], int(query_data['zone_number']),
+            query_data['latitude'], query_data['longitude']
+        )
+        r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
+        T_query_gt[:3, :3] = r.as_matrix()  
+        logger.info(f'Ground Truth Pose: {T_query_gt[:3, 3].T}')
+    except Exception as e:
+        trans_err_coarse, rot_err_coarse = -1.0, -1.0
+        trans_err_fine, rot_err_fine = -1.0, -1.0
+        logger.error(f"Failed to parse image name: {e}")
 
-    logger.info(f'Ground Truth Pose: {T_query_gt[:3, 3].T}')
     if T_query_est_fine is None:
         logger.info(f"The query is out of the premapped regions. Maximum match KPts: {num_matched_kpts[0]}")
         trans_err_coarse, rot_err_coarse = -1.0, -1.0
