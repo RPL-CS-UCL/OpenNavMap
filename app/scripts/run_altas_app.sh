@@ -10,6 +10,7 @@ DATASET_NAME=$1
 
 echo "Launching the LiteVLoc Atlas App with Gradio UI"
 python ../litevloc_altas_app.py \
+    --dataset_name ${DATASET_NAME} \
     --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
     --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
     --image_size 224 224 \

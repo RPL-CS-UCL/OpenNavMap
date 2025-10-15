@@ -28,7 +28,7 @@ from python.utils.utils_geom import compute_pose_error
 # Import local dataset
 from altas_dataset import AltasDataset
 
-VISUALIZE = True
+VISUALIZE = False
 # Geometric Verification
 MIN_MATCHED_KPTS = 100
 # Local Localization
@@ -175,7 +175,7 @@ def local_loc(pose_estimator, query_img_path, database_ds, db_idx, query_descrip
 
     # Perform pose estimation
     logger.info(f"Performing local localization with {args.pose_estimator} using DB images {db_indices}...")
-    est_opts = {'known_extrinsics': False, 'known_intrinsics': False, 'niter': 300}    
+    est_opts = {'known_extrinsics': True, 'known_intrinsics': False, 'niter': 300}    
     result = pose_estimator(
         Path(args.database_folder),
         db_images, query_image,
@@ -279,7 +279,10 @@ if __name__ == "__main__":
         est_T, conf = local_loc(
             pose_estimator, args.img_files[-1], database_ds, predictions[0], query_descriptor, database_descriptors, args
         )
-        if est_T is not None and conf > RELIABLE_CONF_THRESHOLD: 
+        ##### DEBUG(gogojjh): the computation of confidence is sometimes zero
+        # if est_T is not None and conf > RELIABLE_CONF_THRESHOLD: 
+        #####
+        if est_T is not None:
             T_query_est_fine = est_T
         del pose_estimator
     else:
@@ -296,20 +299,22 @@ if __name__ == "__main__":
         r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
         T_query_gt[:3, :3] = r.as_matrix()  
         logger.info(f'Ground Truth Pose: {T_query_gt[:3, 3].T}')
+        if T_query_est_fine is None:
+            logger.info(f"The query is out of the premapped regions. Maximum match KPts: {num_matched_kpts[0]}")
+            trans_err_coarse, rot_err_coarse = -1.0, -1.0
+            trans_err_fine, rot_err_fine = -1.0, -1.0
+        else:
+            trans_err_coarse, rot_err_coarse = compute_pose_error(T_query_gt, T_query_est_coarse)
+            trans_err_fine, rot_err_fine = compute_pose_error(T_query_gt, T_query_est_fine)
+            logger.info(f'Coarse Estimated Pose: {T_query_est_coarse[:3, 3].T}')
+            logger.info(f'Fine Estimated Pose: {T_query_est_fine[:3, 3].T}')
     except Exception as e:
-        trans_err_coarse, rot_err_coarse = -1.0, -1.0
-        trans_err_fine, rot_err_fine = -1.0, -1.0
         logger.error(f"Failed to parse image name: {e}")
-
-    if T_query_est_fine is None:
-        logger.info(f"The query is out of the premapped regions. Maximum match KPts: {num_matched_kpts[0]}")
         trans_err_coarse, rot_err_coarse = -1.0, -1.0
         trans_err_fine, rot_err_fine = -1.0, -1.0
-    else:
-        trans_err_coarse, rot_err_coarse = compute_pose_error(T_query_gt, T_query_est_coarse)
-        trans_err_fine, rot_err_fine = compute_pose_error(T_query_gt, T_query_est_fine)
-        logger.info(f'Coarse Estimated Pose: {T_query_est_coarse[:3, 3].T}')
-        logger.info(f'Fine Estimated Pose: {T_query_est_fine[:3, 3].T}')
+        if T_query_est_fine is None:
+            logger.info(f'Coarse Estimated Pose: {T_query_est_coarse[:3, 3].T}')
+            logger.info(f'Fine Estimated Pose: {T_query_est_fine[:3, 3].T}')
 
     if args.output_file:
         output_path = Path(args.output_file)
