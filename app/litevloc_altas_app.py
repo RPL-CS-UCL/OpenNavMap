@@ -21,9 +21,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from altas_dataset import AltasDataset
 from python.utils.utils_image import load_rgb_image
-from litevloc_altas import load_megaloc_model, rerank, local_loc, MIN_MATCHED_KPTS
+from litevloc_altas import load_megaloc_model, rerank, local_loc, MIN_MATCHED_KPTS, RELIABLE_CONF_THRESHOLD
 from python.utils.utils_image_matching_method import initialize_img_matcher
 from python.utils.utils_map_merging import initialize_pose_estimator
+from python.utils.utils_geom import compute_pose_error
 
 VPR_MODEL = None
 DATABASE_DS = None
@@ -31,6 +32,8 @@ DATABASE_DESCRIPTORS = None
 FAISS_INDEX = None
 ARGS = None
 TRANSFORM = None
+IMG_MATCHER = None
+POSE_ESTIMATOR = None
 
 def ecef_to_latlon(x, y, z):
     """Converts ECEF coordinates to latitude and longitude."""
@@ -46,7 +49,7 @@ def ecef_to_latlon(x, y, z):
 
 def setup(args):
     """Initializes models and loads the database descriptors."""
-    global VPR_MODEL, DATABASE_DS, DATABASE_DESCRIPTORS, FAISS_INDEX, ARGS, TRANSFORM
+    global VPR_MODEL, DATABASE_DS, DATABASE_DESCRIPTORS, FAISS_INDEX, ARGS, TRANSFORM, IMG_MATCHER, POSE_ESTIMATOR
     
     ARGS = args
     logger.info("Setting up the localization pipeline...")
@@ -78,6 +81,14 @@ def setup(args):
         base_transformations.append(transforms.Resize(size=ARGS.image_size, antialias=True))
     TRANSFORM = transforms.Compose(base_transformations)
 
+    if ARGS.matcher:
+        logger.info(f"Loading image matcher: {ARGS.matcher}")
+        IMG_MATCHER = initialize_img_matcher(ARGS.matcher, ARGS.device, ARGS.n_kpts)
+
+    if ARGS.pose_estimator:
+        logger.info(f"Loading pose estimator: {ARGS.pose_estimator}")
+        POSE_ESTIMATOR = initialize_pose_estimator(ARGS.pose_estimator, ARGS.device)
+
     logger.info("Setup complete. Application is ready.")
 
 def localize_image(query_img_path):
@@ -90,6 +101,7 @@ def localize_image(query_img_path):
     query_img_pil = Image.open(query_img_path).convert("RGB")
     query_tensor = TRANSFORM(query_img_pil).unsqueeze(0).unsqueeze(0).to(ARGS.device)
 
+    ##### Global Localization #####
     with torch.no_grad():
         descriptor = VPR_MODEL(query_tensor)
         query_descriptor = descriptor.cpu().numpy()
@@ -97,66 +109,62 @@ def localize_image(query_img_path):
     _, predictions = FAISS_INDEX.search(query_descriptor, ARGS.recall_k)
     predictions = predictions[0]
 
-    T_query_est = DATABASE_DS.get_image_pose(predictions[0])
+    T_query_est_coarse = DATABASE_DS.get_image_pose(predictions[0])
     best_pred_idx = predictions[0]
-    query_valid = True
-    reranked_predictions = []
 
-    if ARGS.matcher:
+    ##### Reranking #####
+    if ARGS.matcher and IMG_MATCHER:
         logger.info(f"Reranking and verifying with {ARGS.matcher}...")
-        img_matcher = initialize_img_matcher(ARGS.matcher, ARGS.device, ARGS.n_kpts)
-        reranked_predictions, num_matched_kpts = rerank(img_matcher, query_img_path, DATABASE_DS, predictions, ARGS)
-        del img_matcher
-        if not reranked_predictions or num_matched_kpts[0] < MIN_MATCHED_KPTS:
-            query_valid = False
+        predictions, num_matched_kpts = rerank(IMG_MATCHER, query_img_path, DATABASE_DS, predictions, ARGS)
+        if predictions and num_matched_kpts[0] > MIN_MATCHED_KPTS:
+            best_pred_idx = predictions[0]
+            T_query_est_coarse = DATABASE_DS.get_image_pose(best_pred_idx)
         else:
-            best_pred_idx = reranked_predictions[0]
-            T_query_est = DATABASE_DS.get_image_pose(best_pred_idx)
-    
-    if ARGS.pose_estimator and query_valid:
-        if reranked_predictions:
-            pose_estimator = initialize_pose_estimator(ARGS.pose_estimator, ARGS.device)
-            est_pose_matrix = local_loc(pose_estimator, query_img_path, DATABASE_DS, reranked_predictions, ARGS)
-            if est_pose_matrix is not None:
-                T_query_est = est_pose_matrix
-            del pose_estimator
-        else:
-            logger.warning("Reranking must be enabled to use pose estimation. Skipping local localization.")
+            T_query_est_coarse = None
+    else:
+        num_matched_kpts = [0] * len(predictions)
+        logger.info("Skipping reranking.")
 
-    if not query_valid:
-        coords_str = "The query is out of the premapped regions."
+    if T_query_est_coarse is None:
+        coords_str = f"The query is out of the premapped regions. Maximum matched KPts: {num_matched_kpts[0]}"
         map_html = "<div>Map could not be generated.</div>"
         best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
         best_match_img = Image.open(best_match_path).convert("RGB")
         return best_match_img, coords_str, map_html
 
+    ##### Local Localization #####
+    conf = 0.0
+    T_query_est_fine = T_query_est_coarse
+
+    if ARGS.pose_estimator and POSE_ESTIMATOR:
+        est_T, conf = local_loc(POSE_ESTIMATOR, query_img_path, DATABASE_DS, predictions[0], query_descriptor, DATABASE_DESCRIPTORS, ARGS)
+        if est_T is not None and conf > RELIABLE_CONF_THRESHOLD:
+            T_query_est_fine = est_T
+
     query_data = utils.parse_image_name(os.path.basename(query_img_path))
     T_query_gt = np.eye(4)
-    gt_available = False
-    try:
-        T_query_gt[:3, 3] = utils.get_ecef_coords(
-            query_data['easting'], query_data['northing'], int(query_data['zone_number']),
-            query_data['latitude'], query_data['longitude']
-        )
-        r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
-        T_query_gt[:3, :3] = r.as_matrix()
-        error = np.linalg.norm(T_query_est[:3, 3] - T_query_gt[:3, 3])
-        gt_available = True
-    except (KeyError, ValueError) as e:
-        logger.warning(f"Could not parse ground truth from filename '{os.path.basename(query_img_path)}': {e}")
+    T_query_gt[:3, 3] = utils.get_ecef_coords(
+        query_data['easting'], query_data['northing'], int(query_data['zone_number']),
+        query_data['latitude'], query_data['longitude']
+    )
+    r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
+    T_query_gt[:3, :3] = r.as_matrix()
+    trans_err_coarse, rot_err_coarse = compute_pose_error(T_query_gt, T_query_est_coarse)
+    trans_err_fine, rot_err_fine = compute_pose_error(T_query_gt, T_query_est_fine)
 
     best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
     best_match_img = Image.open(best_match_path).convert("RGB")
     
-    x, y, z = T_query_est[:3, 3]
+    x, y, z = T_query_est_fine[:3, 3]
     latitude, longitude = ecef_to_latlon(x, y, z)
-
     if latitude is not None and longitude is not None:
-        if gt_available:
-            coords_str = f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\nPose Error: {error:.2f}m"
-        else:
-            coords_str = f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\nPose Error: Not available (could not parse GT from filename)"
-        
+        coords_str = (
+            f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\n"
+            f"Coarse Pose Error: {trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg\n"
+            f"Fine Pose Error: {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg\n"
+            f"Maximum matched KPts: {num_matched_kpts[0]}\n"
+            f"Confidence: {conf:.3f}"
+        )
         m = folium.Map(location=[latitude, longitude], zoom_start=18)
         folium.Marker([latitude, longitude], popup="Estimated Location").add_to(m)
         map_html = m._repr_html_()
@@ -192,7 +200,7 @@ def main():
                 submit_button = gr.Button("Localize Image")
             with gr.Column():
                 best_match_output = gr.Image(type="pil", label="Best Match from Database")
-                coordinates_output = gr.Textbox(label="Estimated Coordinates", lines=2)
+                coordinates_output = gr.Textbox(label="Estimated Coordinates", lines=4)
         
         with gr.Row():
             map_output_html = gr.HTML(label="Estimated Location on Map")
