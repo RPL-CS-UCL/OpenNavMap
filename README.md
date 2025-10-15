@@ -68,6 +68,8 @@ catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
 2. [Instruction in Running LiteVloc with Offline Data](doc/instruction_vloc_data.md)
 3. [Instruction in Running LiteVloc with Simulated Matterport3d Environment](doc/instruction_vnav_simu_matterport3d.md)
 4. [Instruction in Processing Dataset](doc/instruction_dataset.md)
+5. [Instruction in Running Map Merging](doc/instruction_map_merging.md)
+
 
 ### Issues
 Issue: ```cannot import name 'cache' from 'functools'```
@@ -84,7 +86,7 @@ rm /Rocket_ssd/miniconda3/envs/litevloc/lib/libffi.so.7
 ln -s /usr/lib/aarch64-linux-gnu/libffi.so.7 /Rocket_ssd/miniconda3/envs/litevloc/lib/libffi.so.7
 ```
 ```bash
-/Rocket_ssd/miniconda3/envs/litevloc/lib/libtiff.so.5
+rm /Rocket_ssd/miniconda3/envs/litevloc/lib/libtiff.so.5
 ln -s /usr/lib/x86_64-linux-gnu/libtiff.so.5 /Rocket_ssd/miniconda3/envs/litevloc/lib/libtiff.so.5
 ```
 Issue: ```ImportError: /lib/aarch64-linux-gnu/libgomp.so.1: cannot allocate memory in static TLS block```

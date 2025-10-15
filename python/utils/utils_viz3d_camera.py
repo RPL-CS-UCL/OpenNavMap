@@ -146,6 +146,7 @@ def _load_intrinsics(filepath):
             intrinsics[frame_path] = np.array(list(map(float, parts[1:])))
             
     return intrinsics
+
 def _load_poses(filepath):
     """Loads camera poses from text file (world-to-camera format)."""
     poses = {}
@@ -158,10 +159,10 @@ def _load_poses(filepath):
             quat = list(map(float, parts[1:5]))
             trans = list(map(float, parts[5:8]))
             
-            pose = np.eye(4)
-            pose[:3, :3] = Rotation.from_quat(np.roll(quat, -1)).as_matrix()
-            pose[:3, 3] = trans
-            poses[frame_path] = pose
+            pose_w2c = np.eye(4)
+            pose_w2c[:3, :3] = Rotation.from_quat(np.roll(quat, -1)).as_matrix()
+            pose_w2c[:3, 3] = trans
+            poses[frame_path] = pose_w2c
 
     return poses
 
@@ -411,6 +412,7 @@ def visualize_scenes(scene_data, is_multi_frame, cam_size=0.03, show_image=True,
                         show_image=(True and exist_image)
                     )
                 else:
+                    show_cam_size = cam_size
                     _add_scene_cam(
                         scene=scene,
                         scene_name=scene_name,
