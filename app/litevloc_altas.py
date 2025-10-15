@@ -28,7 +28,12 @@ from python.utils.utils_geom import convert_vec_to_matrix
 # Import local dataset
 from altas_dataset import AltasDataset
 
+VISUALIZE = False
+# Geometric Verification
 MIN_MATCHED_KPTS = 100
+# Local Localization
+TRANS_THRESH_M, ROT_THRESH_DEG = 7.5, 90.0
+N_IMG_LOCAL_LOC = 5
 
 def load_megaloc_model(device='cuda'):
     """Load pre-trained MegaLoc model."""
@@ -95,7 +100,6 @@ def global_loc(model, database_ds, args):
         imgs.append(normalized_img)
     
     query_images = torch.stack(imgs).unsqueeze(0)
-    logger.info(f"Loaded {len(args.img_files)} query images with shape {query_images.shape}")
 
     #### 3. Extract query descriptor ####
     with torch.inference_mode():
@@ -105,7 +109,6 @@ def global_loc(model, database_ds, args):
         query_descriptor = descriptor.cpu().numpy()
 
     #### 4. Perform FAISS search ####
-    logger.info("Building FAISS index...")
     faiss_index = faiss.IndexFlatL2(database_descriptors.shape[1])
     faiss_index.add(database_descriptors)
     
@@ -130,114 +133,75 @@ def rerank(img_matcher, query_img_path, database_ds, predictions, args):
     
     return list(reranked_predictions), list(sorted_kpts)
 
-def get_default_intrinsics(image_size):
-    W, H = image_size
-    f = max(W, H) * 1.2
-    K = torch.tensor([[f, 0, W/2], [0, f, H/2], [0, 0, 1]], dtype=torch.float32)
-    im_size_tensor = torch.tensor([W, H], dtype=torch.float32)
-    return {'K': K, 'im_size': im_size_tensor}
-
-def local_loc(pose_estimator, query_img_path, database_ds, reranked_predictions, args):
-    top_pred_idx = reranked_predictions[0]
-    top_pred_pose = database_ds.get_image_pose(top_pred_idx)
-    top_pred_position = top_pred_pose[:3, 3].reshape(1, -1)
+def local_loc(pose_estimator, query_img_path, database_ds, db_idx, args):
+    db_pose = database_ds.get_image_pose(db_idx)
+    db_position = db_pose[:3, 3].reshape(1, -1)
     all_db_positions = database_ds.database_poses[:, :3, 3].astype(np.float32)
     
     # Retrieve DB images within translation and rotation thresholds
     faiss_index_pos = faiss.IndexFlatL2(3)
     faiss_index_pos.add(all_db_positions)
-    top_pos = top_pred_position.astype(np.float32)
-    _, nn_indices = faiss_index_pos.search(top_pos, len(all_db_positions))
+    _, _, indices = faiss_index_pos.range_search(db_position, TRANS_THRESH_M)
+    candidate_indices = indices
 
-    trans_thresh_m, rot_thresh_deg = 7.5, 60.0
-    top_pose = database_ds.get_image_pose(top_pred_idx)
-    db_indices_candidates = nn_indices[0]
-    filtered_db_indices = []
-    for idx in db_indices_candidates:
-        pose = database_ds.get_image_pose(idx)
-        trans = pose[:3, 3]
-        rot = pose[:3, :3]
-        translation_dist = np.linalg.norm(trans - top_pose[:3, 3])
-        delta_rot = top_pose[:3, :3].T @ rot
-        rot_angle = Rotation.from_matrix(delta_rot).magnitude() * (180.0 / np.pi)
-        if translation_dist <= trans_thresh_m and rot_angle <= rot_thresh_deg:
-            filtered_db_indices.append(idx)
-
+    filtered_db_indices = [
+        idx for idx in candidate_indices
+        if Rotation.from_matrix(db_pose[:3, :3].T @ database_ds.get_image_pose(idx)[:3, :3]).magnitude() * 180/np.pi <= ROT_THRESH_DEG
+    ]
     if len(filtered_db_indices) <= 1:
-        logger.warning(f"No images found within {trans_thresh_m}m and {rot_thresh_deg} degrees. Using second-best reranked prediction as fallback.")
+        logger.warning(f"No images found within {TRANS_THRESH_M}m and {ROT_THRESH_DEG} degrees.")
         return None
-
-    db_indices = filtered_db_indices[:min(5, len(filtered_db_indices))]
+    
+    db_indices = filtered_db_indices[:N_IMG_LOCAL_LOC]
 
     # Prepare DB and query data
     db_image_paths = [database_ds.get_image_path(idx) for idx in db_indices]
-    db_images = [load_rgb_image(p).to(args.device) for p in db_image_paths]
-    db_poses_matrices = [torch.from_numpy(database_ds.get_image_pose(idx)).float() for idx in db_indices]        
-
-    query_image = load_rgb_image(query_img_path).to(args.device)
+    db_images = [load_rgb_image(p, resize=(512, 288)).to(args.device) for p in db_image_paths]
+    T_w_db = database_ds.get_image_pose(db_indices[0])
+    db_poses_matrices = [
+        torch.from_numpy(np.linalg.inv(T_w_db) @ database_ds.get_image_pose(idx)).float() 
+        for idx in db_indices
+    ]
+    query_image = load_rgb_image(query_img_path, resize=(512, 288)).to(args.device)
 
     # Perform pose estimation
-    # logger.info(f"Performing local localization with {args.pose_estimator} using DB images {db_indices}...")
-    # est_opts = {'known_extrinsics': False, 'known_intrinsics': False, 'resize': 512, 'niter': 300}    
-    # result = pose_estimator(
-    #     Path(args.database_folder),
-    #     db_images,
-    #     query_image,
-    #     db_poses_matrices,
-    #     None,
-    #     None,
-    #     est_opts
-    # )
-    # pose_estimator.show_reconstruction()
-    # exit()
-
-    # Visualize DB image positions and their heading (rotation), mark each with ID
-    for p in db_image_paths:
-        name_data = utils.parse_image_name(p.split("/")[-1])
-        print(f"DB Image Name: {name_data['scene']}, {name_data['img_id']}, {name_data['easting']}, {name_data['northing']}, {name_data['height']}")
-        print(f"               {name_data['heading']}, {name_data['pitch']}, {name_data['roll']}")
-
-    import matplotlib.pyplot as plt
-    def plot_db_images(db_image_paths):
-        fig, axs = plt.subplots(1, len(db_image_paths), figsize=(4 * len(db_image_paths), 4))
-        if len(db_image_paths) == 1:
-            axs = [axs]
-        for ax, img_path in zip(axs, db_image_paths):
-            img = load_rgb_image(img_path).permute(1, 2, 0).cpu().numpy()
-            ax.imshow(img)
-            ax.set_title(img_path.split("/")[-1], fontsize=10)
-            ax.axis('off')
-        plt.suptitle('Top DB Images')
-        plt.tight_layout()
-        plt.show()
-
-    plot_db_images(db_image_paths)
-    exit()
+    logger.info(f"Performing local localization with {args.pose_estimator} using DB images {db_indices}...")
+    est_opts = {'known_extrinsics': True, 'known_intrinsics': False, 'resize': 512, 'niter': 300}    
+    result = pose_estimator(
+        Path(args.database_folder),
+        db_images, query_image,
+        db_poses_matrices, None, None,
+        est_opts
+    )
+    if VISUALIZE:
+        pose_estimator.show_reconstruction()
     
     im_pose = result.get("im_pose")
     if im_pose is None or np.isnan(im_pose).any():
         logger.error(f"{args.pose_estimator} - failed to estimate pose.")
         return None
         
+    T_w_query = T_w_db @ im_pose
     logger.info(f"Local localization successful.")
-    return im_pose
 
-def process_and_display_results(title, predictions, database_ds, query_pose_gt_matrix, recall_k, file_handle=None, num_matched_kpts=None):
+    return T_w_query
+
+def process_and_display_results(title, predictions, database_ds, T_query_gt, recall_k, file_handle=None, num_matched_kpts=None):
+    """Process and display results of VPR."""
+
     logger.info(f"Top-{recall_k} Results ({title}):")
     if file_handle:
         file_handle.write(f"\nTop-{recall_k} ({title}):\n")
 
     for rank, idx in enumerate(predictions, 1):
         db_pose_matrix = database_ds.get_image_pose(int(idx))
-        geo_distance = np.linalg.norm(query_pose_gt_matrix[:3, 3] - db_pose_matrix[:3, 3])
+        geo_distance = np.linalg.norm(T_query_gt[:3, 3] - db_pose_matrix[:3, 3])
         image_path = database_ds.get_image_path(int(idx))
         img_name = os.path.basename(image_path)
         
         gd_str = f", {geo_distance:.2f}m"
-        if num_matched_kpts:
-            gd_str += f", {num_matched_kpts[rank-1]}kpts"
+        if num_matched_kpts: gd_str += f", {num_matched_kpts[rank-1]}KPs"
         logger.info(f"R{rank}: ID={int(idx)}, {img_name}{gd_str}")
-        
         if file_handle:
             file_handle.write(f"R{rank}: ID={int(idx)}, {image_path}{gd_str}\n")
 
@@ -261,7 +225,6 @@ if __name__ == "__main__":
 
     logger.remove()
     logger.add(sys.stdout, colorize=True, format="<green>{time:%Y-%m-%d %H:%M:%S}</green> {message}", level="INFO")
-    query_valid = True
 
     #### Global Localization ####    
     vpr_model = load_megaloc_model(args.device)
@@ -272,58 +235,67 @@ if __name__ == "__main__":
     )
     logger.info(f"Database loaded: {database_ds}")
     predictions = global_loc(vpr_model, database_ds, args)
-    query_pose_est_matrix = database_ds.get_image_pose(predictions[0])
+    T_query_est_coarse = database_ds.get_image_pose(predictions[0])
     del vpr_model
 
     #### Rerank using image matching and Verification ####
-    reranked_predictions = []
     if args.matcher:
         logger.info(f"Reranking and verifying with {args.matcher}...")
         img_matcher = initialize_img_matcher(args.matcher, args.device, args.n_kpts)
-        reranked_predictions, num_matched_kpts = rerank(img_matcher, args.img_files[-1], database_ds, predictions, args)
+        predictions, num_matched_kpts = rerank(img_matcher, args.img_files[-1], database_ds, predictions, args)
         del img_matcher
-        if not reranked_predictions or num_matched_kpts[0] < MIN_MATCHED_KPTS:
-            query_valid = False
+        if not predictions or num_matched_kpts[0] < MIN_MATCHED_KPTS:
+            T_query_est_coarse = None
         else:
-            query_pose_est_matrix = database_ds.get_image_pose(reranked_predictions[0])
+            T_query_est_coarse = database_ds.get_image_pose(predictions[0])
     else:
+        num_matched_kpts = [0] * len(predictions)
         logger.info("Skipping reranking.")
 
     #### Local Localization ####
     if args.pose_estimator:
-        if query_valid and reranked_predictions:
+        if T_query_est_coarse is not None:
             pose_estimator = initialize_pose_estimator(args.pose_estimator, args.device)
-            est_pose_matrix = local_loc(pose_estimator, args.img_files[-1], database_ds, reranked_predictions, args)
-            if est_pose_matrix is not None:
-                query_pose_est_matrix = est_pose_matrix
+            est_T = local_loc(pose_estimator, args.img_files[-1], database_ds, predictions[0], args)
+            if est_T is not None: 
+                T_query_est_fine = est_T
+            else:
+                T_query_est_fine = T_query_est_coarse
             del pose_estimator
 
     #### Output results ####
-    query_data = utils.parse_image_name(args.img_files[-1])
-    query_pose_gt_matrix = np.eye(4)
-    query_pose_gt_matrix[:3, 3] = utils.get_ecef_coords(
-        query_data['easting'], query_data['northing'], int(query_data['zone_number']),
-        query_data['latitude'], query_data['longitude']
-    )
-    r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
-    query_pose_gt_matrix[:3, :3] = r.as_matrix()
-    
-    error = np.linalg.norm(query_pose_est_matrix[:3, 3] - query_pose_gt_matrix[:3, 3])
-    logger.info(f"Final Estimated Pose Error: {error:.2f}m")
+    if T_query_est_coarse is None:
+        logger.info("The query is out of the premapped regions.")
+    else:
+        query_data = utils.parse_image_name(args.img_files[-1])
+        T_query_gt = np.eye(4)
+        T_query_gt[:3, 3] = utils.get_ecef_coords(
+            query_data['easting'], query_data['northing'], int(query_data['zone_number']),
+            query_data['latitude'], query_data['longitude']
+        )
+        r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
+        T_query_gt[:3, :3] = r.as_matrix()  
+        error_coarse = np.linalg.norm(T_query_est_coarse[:3, 3] - T_query_gt[:3, 3])
+        error_fine = np.linalg.norm(T_query_est_fine[:3, 3] - T_query_gt[:3, 3])
+        
+        logger.info(f'Ground Truth Pose: {T_query_gt[:3, 3].T}')
+        logger.info(f'Coarse Estimated Pose: {T_query_est_coarse[:3, 3].T}')
+        logger.info(f'Fine Estimated Pose: {T_query_est_fine[:3, 3].T}')
 
     if args.output_file:
         output_path = Path(args.output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
+        with open(output_path, 'a') as f:
             f.write(f"Query: {', '.join(args.img_files)}\n")
             f.write(f"DB: {args.database_folder}\n")
-            f.write(f"Final Pose Error: {error:.2f}m\n")
-            
-            process_and_display_results("Global Ranking", predictions, database_ds, query_pose_gt_matrix, args.recall_k, f)
-            if reranked_predictions:
-                process_and_display_results("Reranked", reranked_predictions, database_ds, query_pose_gt_matrix, args.recall_k, f, num_matched_kpts)
+            process_and_display_results(
+                "VPR w/wo Reranking", predictions, database_ds, T_query_gt, args.recall_k, f, num_matched_kpts
+            )
+            f.write(f"Coarse-to-Fine Pose Error: {error_coarse:.2f}m, {error_fine:.2f}m\n")
+        logger.info(f"Coarse-to-Fine Pose Error: {error_coarse:.2f}m, {error_fine:.2f}m")
         logger.info(f"Results saved to {output_path}")
     else:
-        process_and_display_results("Global Ranking", predictions, database_ds, query_pose_gt_matrix, args.recall_k)
-        if reranked_predictions:
-            process_and_display_results("Reranked", reranked_predictions, database_ds, query_pose_gt_matrix, args.recall_k, num_matched_kpts)
+        process_and_display_results(
+            "VPR w/wo Reranking", predictions, database_ds, T_query_gt, args.recall_k, num_matched_kpts
+        )
+        logger.info(f"Coarse-to-Fine Pose Error: {error_coarse:.2f}m, {error_fine:.2f}m")

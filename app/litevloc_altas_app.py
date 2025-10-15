@@ -13,18 +13,18 @@ import pandas as pd
 import pyproj
 import torchvision.transforms as transforms
 import folium
+from scipy.spatial.transform import Rotation
 
-# --- Add paths to dependencies ---
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../VPR-methods-evaluation'))
 import utils
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-# --- Import from existing scripts ---
 from altas_dataset import AltasDataset
 from python.utils.utils_image import load_rgb_image
-from litevloc_altas import load_megaloc_model
+from litevloc_altas import load_megaloc_model, rerank, local_loc, MIN_MATCHED_KPTS
+from python.utils.utils_image_matching_method import initialize_img_matcher
+from python.utils.utils_map_merging import initialize_pose_estimator
 
-# --- Global variables for the app ---
 VPR_MODEL = None
 DATABASE_DS = None
 DATABASE_DESCRIPTORS = None
@@ -51,10 +51,8 @@ def setup(args):
     ARGS = args
     logger.info("Setting up the localization pipeline...")
 
-    # 1. Load VPR Model
     VPR_MODEL = load_megaloc_model(ARGS.device)
 
-    # 2. Load Database
     DATABASE_DS = AltasDataset(
         database_folder=ARGS.database_folder,
         image_size=ARGS.image_size,
@@ -62,19 +60,16 @@ def setup(args):
     )
     logger.info(f"Database loaded: {DATABASE_DS}")
 
-    # 3. Load or compute database descriptors
     if ARGS.database_descriptors_path and os.path.exists(ARGS.database_descriptors_path):
         logger.info(f"Loading precomputed database descriptors from {ARGS.database_descriptors_path}")
         DATABASE_DESCRIPTORS = np.load(ARGS.database_descriptors_path)
     else:
         raise FileNotFoundError("Database descriptors not found. Please generate them first using litevloc_altas.py")
 
-    # 4. Build FAISS index
     logger.info("Building FAISS index for database descriptors...")
     FAISS_INDEX = faiss.IndexFlatL2(DATABASE_DESCRIPTORS.shape[1])
     FAISS_INDEX.add(DATABASE_DESCRIPTORS)
     
-    # 5. Define image transformation
     base_transformations = [
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -85,39 +80,83 @@ def setup(args):
 
     logger.info("Setup complete. Application is ready.")
 
-def localize_image(query_img_pil):
+def localize_image(query_img_path):
     """
     Takes a user-uploaded image, performs global localization, and returns the results.
     """
     if VPR_MODEL is None or FAISS_INDEX is None:
         raise RuntimeError("Application is not initialized. Please run setup first.")
 
-    # 1. Preprocess query image
-    query_tensor = TRANSFORM(query_img_pil.convert("RGB")).unsqueeze(0).unsqueeze(0).to(ARGS.device)
+    query_img_pil = Image.open(query_img_path).convert("RGB")
+    query_tensor = TRANSFORM(query_img_pil).unsqueeze(0).unsqueeze(0).to(ARGS.device)
 
-    # 2. Extract query descriptor
     with torch.no_grad():
         descriptor = VPR_MODEL(query_tensor)
         query_descriptor = descriptor.cpu().numpy()
 
-    # 3. Perform FAISS search to find the best match
-    _, predictions = FAISS_INDEX.search(query_descriptor, 1)
-    best_pred_idx = predictions[0][0]
+    _, predictions = FAISS_INDEX.search(query_descriptor, ARGS.recall_k)
+    predictions = predictions[0]
 
-    # 4. Get results for the best match
-    # Get the best matching image from the database
+    T_query_est = DATABASE_DS.get_image_pose(predictions[0])
+    best_pred_idx = predictions[0]
+    query_valid = True
+    reranked_predictions = []
+
+    if ARGS.matcher:
+        logger.info(f"Reranking and verifying with {ARGS.matcher}...")
+        img_matcher = initialize_img_matcher(ARGS.matcher, ARGS.device, ARGS.n_kpts)
+        reranked_predictions, num_matched_kpts = rerank(img_matcher, query_img_path, DATABASE_DS, predictions, ARGS)
+        del img_matcher
+        if not reranked_predictions or num_matched_kpts[0] < MIN_MATCHED_KPTS:
+            query_valid = False
+        else:
+            best_pred_idx = reranked_predictions[0]
+            T_query_est = DATABASE_DS.get_image_pose(best_pred_idx)
+    
+    if ARGS.pose_estimator and query_valid:
+        if reranked_predictions:
+            pose_estimator = initialize_pose_estimator(ARGS.pose_estimator, ARGS.device)
+            est_pose_matrix = local_loc(pose_estimator, query_img_path, DATABASE_DS, reranked_predictions, ARGS)
+            if est_pose_matrix is not None:
+                T_query_est = est_pose_matrix
+            del pose_estimator
+        else:
+            logger.warning("Reranking must be enabled to use pose estimation. Skipping local localization.")
+
+    if not query_valid:
+        coords_str = "The query is out of the premapped regions."
+        map_html = "<div>Map could not be generated.</div>"
+        best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
+        best_match_img = Image.open(best_match_path).convert("RGB")
+        return best_match_img, coords_str, map_html
+
+    query_data = utils.parse_image_name(os.path.basename(query_img_path))
+    T_query_gt = np.eye(4)
+    gt_available = False
+    try:
+        T_query_gt[:3, 3] = utils.get_ecef_coords(
+            query_data['easting'], query_data['northing'], int(query_data['zone_number']),
+            query_data['latitude'], query_data['longitude']
+        )
+        r = Rotation.from_euler('zyx', [query_data['heading'], query_data['pitch'], query_data['roll']], degrees=True)
+        T_query_gt[:3, :3] = r.as_matrix()
+        error = np.linalg.norm(T_query_est[:3, 3] - T_query_gt[:3, 3])
+        gt_available = True
+    except (KeyError, ValueError) as e:
+        logger.warning(f"Could not parse ground truth from filename '{os.path.basename(query_img_path)}': {e}")
+
     best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
     best_match_img = Image.open(best_match_path).convert("RGB")
     
-    # Get the pose and convert to latitude and longitude
-    pose_matrix = DATABASE_DS.get_image_pose(best_pred_idx)
-    x, y, z = pose_matrix[:3, 3]
+    x, y, z = T_query_est[:3, 3]
     latitude, longitude = ecef_to_latlon(x, y, z)
 
     if latitude is not None and longitude is not None:
-        coords_str = f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}"
+        if gt_available:
+            coords_str = f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\nPose Error: {error:.2f}m"
+        else:
+            coords_str = f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\nPose Error: Not available (could not parse GT from filename)"
         
-        # Create an interactive map with Folium and get its HTML representation
         m = folium.Map(location=[latitude, longitude], zoom_start=18)
         folium.Marker([latitude, longitude], popup="Estimated Location").add_to(m)
         map_html = m._repr_html_()
@@ -135,23 +174,25 @@ def main():
     parser.add_argument('--image_size', type=int, nargs=2, default=[224, 224], help='Image size (height, width)')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use (cuda/cpu)')
     parser.add_argument('--share', action='store_true', help='Enable Gradio sharing')
+    parser.add_argument('--recall_k', type=int, default=10, help='Number of top matches to return for reranking and localization')
+    parser.add_argument('--matcher', type=str, default=None, help='Image matcher for reranking (e.g., superglue, loftr, master)')
+    parser.add_argument('--n_kpts', type=int, default=2048, help='Max number of keypoints for image matcher')
+    parser.add_argument('--pose_estimator', type=str, default=None, help='Pose estimator for local localization (e.g., mast3r, posecnn)')
     args = parser.parse_args()
 
-    # Initialize the models and data
     setup(args)
     
-    # Create and launch the Gradio interface
     with gr.Blocks() as demo:
         gr.Markdown("# LiteVLoc Atlas: Visual Localization")
         gr.Markdown("Upload an image to find its location on the map.")
         
         with gr.Row():
             with gr.Column():
-                query_image_input = gr.Image(type="pil", label="Upload Query Image")
+                query_image_input = gr.Image(type="filepath", label="Upload Query Image")
                 submit_button = gr.Button("Localize Image")
             with gr.Column():
                 best_match_output = gr.Image(type="pil", label="Best Match from Database")
-                coordinates_output = gr.Textbox(label="Estimated Coordinates")
+                coordinates_output = gr.Textbox(label="Estimated Coordinates", lines=2)
         
         with gr.Row():
             map_output_html = gr.HTML(label="Estimated Location on Map")
