@@ -30,9 +30,9 @@ from altas_dataset import AltasDataset
 
 VISUALIZE = False
 # Geometric Verification
-MIN_MATCHED_KPTS = 100
+MIN_MATCHED_KPTS = 50
 # Local Localization
-TRANS_THRESH_M, ROT_THRESH_DEG = 10.0, 90.0
+TRANS_THRESH_M, ROT_THRESH_DEG = 15.0, 90.0
 N_IMG_LOCAL_LOC = 2
 RELIABLE_CONF_THRESHOLD = 0.5
 
@@ -142,7 +142,7 @@ def local_loc(pose_estimator, query_img_path, database_ds, db_idx, query_descrip
     # Retrieve DB images within translation and rotation thresholds
     faiss_index_pos = faiss.IndexFlatL2(3)
     faiss_index_pos.add(all_db_positions)
-    _, _, indices = faiss_index_pos.range_search(db_position, TRANS_THRESH_M)
+    _, _, indices = faiss_index_pos.range_search(db_position, TRANS_THRESH_M ** 2)
     candidate_indices = indices
 
     ##### Option 1: use rotation threshold to sort the candidates
@@ -159,7 +159,7 @@ def local_loc(pose_estimator, query_img_path, database_ds, db_idx, query_descrip
     dists = np.linalg.norm(db_descriptors - query_descriptor, axis=1)
     db_indices = candidate_indices[np.argsort(dists)][:N_IMG_LOCAL_LOC]
     if len(db_indices) <= 1:
-        logger.warning(f"No images found within {TRANS_THRESH_M}m")
+        logger.warning(f"No sufficient images found")
         return None, 0.0
     #################
 
@@ -330,8 +330,8 @@ if __name__ == "__main__":
                 process_and_display_results(
                     "VPR wo Reranking", predictions, database_ds, T_query_gt, args.recall_k, f, num_matched_kpts
                 )
-            f.write(f"Coarse-to-Fine Pose Error: {trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg, {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg\n")
-            f.write(f"Confidence: {conf:.3f}\n")
+            f.write(f"Coarse-to-Fine Pose Error, Confidence: " + \
+                    f"{trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg, {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg, {conf:.3f}\n")
         logger.info(f"Results saved to {output_path}")
     else:
         if args.matcher:    
@@ -342,5 +342,5 @@ if __name__ == "__main__":
             process_and_display_results(
                 "VPR wo Reranking", predictions, database_ds, T_query_gt, args.recall_k, num_matched_kpts
             )
-    logger.info(f"Coarse-to-Fine Pose Error: {trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg, {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg")
-    logger.info(f"Local localization with confidence: {conf:.3f}")
+    logger.info(f"Coarse-to-Fine Pose Error, Confidence: " + \
+                f"{trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg, {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg, {conf:.3f}")

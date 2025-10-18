@@ -317,43 +317,6 @@ def _add_scene_cam(scene, scene_name, pose_w2c, color, image, focal, imsize, cam
     cam.visual.face_colors[:, :3] = color
     scene.add_geometry(cam)
 
-    ##### Add text - scene_name
-    # TODO(gogojjh): cannnot visualize text
-    # Create text mesh with scaling based on camera size
-    camera_position = pose_c2w[:3, 3]
-    
-    text_size = cam_size * 0.5  # Adjust text size relative to camera
-    text_depth = text_size * 0.05  # Text extrusion depth
-        
-    # Create 3D text mesh (oriented to face default view)
-    img_text = Image.new('RGB', (256, 64), (255, 255, 255, 255))
-    try:
-        font = ImageFont.truetype("DejaVuSans.ttf", 40)
-    except:
-        font = ImageFont.load_default()
-    d = ImageDraw.Draw(img_text)
-    d.text((60, 10), scene_name, 
-           fill=(0, 0, 0, 255), 
-           font=font, 
-           stroke_fill=(0, 0, 0, 255))
-
-    text_mesh = trimesh.creation.box((text_size, text_size*0.5, 0.001))
-    text_mesh.visual = trimesh.visual.TextureVisuals(
-        uv=[[0,0], [1,0], [1,1], [0,1]],
-        image=img_text
-    )
-
-    text_offset = np.array([0, text_size*1.5, text_size*0.5])
-    text_transform = np.eye(4)
-    text_transform[:3, 3] = camera_position + text_offset
-
-    # Align text to face the camera's viewing direction
-    text_transform[:3, :3] = pose_c2w[:3, :3] @ Rotation.from_euler('x', -45).as_matrix()
-    text_mesh.apply_transform(text_transform)
-
-    # Add text to scene
-    scene.add_geometry(text_mesh)    
-
 def visualize_scenes(scene_data, is_multi_frame, cam_size=0.03, show_image=True, step=1):
     """Visualizes multiple scenes with cameras and images.
     

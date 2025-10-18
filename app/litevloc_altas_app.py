@@ -11,6 +11,8 @@ from loguru import logger
 from PIL import Image
 import pandas as pd
 import pyproj
+from tqdm import tqdm
+from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import folium
 from scipy.spatial.transform import Rotation
@@ -54,11 +56,19 @@ def setup(args):
     ARGS = args
     logger.info("Setting up the localization pipeline...")
 
-    VPR_MODEL = load_megaloc_model(ARGS.device)
+    resize = [224, 224]
+    transformations = [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Resize(size=resize, antialias=True),
+    ]
+    TRANSFORM = transforms.Compose(transformations)
 
+    # Load the VPR model
+    VPR_MODEL = load_megaloc_model(ARGS.device)
     DATABASE_DS = AltasDataset(
         database_folder=ARGS.database_folder,
-        image_size=ARGS.image_size,
+        image_size=resize,
         seq_len=1,
     )
     logger.info(f"Database loaded: {DATABASE_DS}")
@@ -67,24 +77,34 @@ def setup(args):
         logger.info(f"Loading precomputed database descriptors from {ARGS.database_descriptors_path}")
         DATABASE_DESCRIPTORS = np.load(ARGS.database_descriptors_path)
     else:
-        raise FileNotFoundError("Database descriptors not found. Please generate them first using litevloc_altas.py")
+        logger.info(f"Extracting descriptors from {len(DATABASE_DS)} database images...")
+        with torch.inference_mode():
+            DATABASE_DESCRIPTORS = np.empty((len(DATABASE_DS), 8448), dtype="float32")
+            full_dataloader = DataLoader(
+                dataset=DATABASE_DS, 
+                num_workers=ARGS.num_workers, 
+                batch_size=ARGS.batch_size
+            )
+            for images, indices in tqdm(full_dataloader, desc="Extracting database descriptors"):
+                B, S, C, H, W = images.shape            
+                descriptors = VPR_MODEL(images.to(ARGS.device))            
+                if ARGS.device == "cuda":
+                    torch.cuda.synchronize()
+                DATABASE_DESCRIPTORS[indices.numpy()[:, -1], :] = descriptors.cpu().numpy()
+        logger.info(f"Database descriptors extracted: {DATABASE_DESCRIPTORS.shape}")
+        if ARGS.database_descriptors_path:
+            np.save(ARGS.database_descriptors_path, DATABASE_DESCRIPTORS)
 
     logger.info("Building FAISS index for database descriptors...")
     FAISS_INDEX = faiss.IndexFlatL2(DATABASE_DESCRIPTORS.shape[1])
     FAISS_INDEX.add(DATABASE_DESCRIPTORS)
     
-    base_transformations = [
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ]
-    if ARGS.image_size:
-        base_transformations.append(transforms.Resize(size=ARGS.image_size, antialias=True))
-    TRANSFORM = transforms.Compose(base_transformations)
-
+    # Load the image matcher
     if ARGS.matcher:
         logger.info(f"Loading image matcher: {ARGS.matcher}")
         IMG_MATCHER = initialize_img_matcher(ARGS.matcher, ARGS.device, ARGS.n_kpts)
 
+    # Load the pose estimator
     if ARGS.pose_estimator:
         logger.info(f"Loading pose estimator: {ARGS.pose_estimator}")
         POSE_ESTIMATOR = initialize_pose_estimator(ARGS.pose_estimator, ARGS.device)
@@ -99,18 +119,19 @@ def localize_image(query_img_path):
         raise RuntimeError("Application is not initialized. Please run setup first.")
 
     query_img_pil = Image.open(query_img_path).convert("RGB")
-    query_tensor = TRANSFORM(query_img_pil).unsqueeze(0).unsqueeze(0).to(ARGS.device)
+    query_tensor = TRANSFORM(query_img_pil).unsqueeze(0).unsqueeze(0)
 
     ##### Global Localization #####
-    with torch.no_grad():
-        descriptor = VPR_MODEL(query_tensor)
-        query_descriptor = descriptor.cpu().numpy()
+    with torch.inference_mode():
+        query_descriptor = VPR_MODEL(query_tensor.to(ARGS.device))
+        if ARGS.device == "cuda":
+            torch.cuda.synchronize()
+        query_descriptor = query_descriptor.cpu().numpy()
 
     _, predictions = FAISS_INDEX.search(query_descriptor, ARGS.recall_k)
     predictions = predictions[0]
-
-    T_query_est_coarse = DATABASE_DS.get_image_pose(predictions[0])
     best_pred_idx = predictions[0]
+    T_query_est_coarse = DATABASE_DS.get_image_pose(best_pred_idx)
 
     ##### Reranking #####
     if ARGS.matcher and IMG_MATCHER:
@@ -235,10 +256,10 @@ def localize_image(query_img_path):
 
 def main():
     parser = argparse.ArgumentParser(description='Gradio App for LiteVLoc Atlas')
+    parser.add_argument('--assets_folder', type=str, required=True, help='Path to assets folder')
     parser.add_argument('--dataset_name', type=str, required=True, help='Name of the dataset')
     parser.add_argument('--database_folder', type=str, required=True, help='Path to database folder')
     parser.add_argument('--database_descriptors_path', type=str, required=True, help='Path to precomputed database descriptors .npy file')
-    parser.add_argument('--image_size', type=int, nargs=2, default=[224, 224], help='Image size (height, width)')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use (cuda/cpu)')
     parser.add_argument('--share', action='store_true', help='Enable Gradio sharing')
     parser.add_argument('--recall_k', type=int, default=10, help='Number of top matches to return for reranking and localization')
@@ -248,6 +269,13 @@ def main():
     args = parser.parse_args()
 
     setup(args)
+
+    example_images = []
+    if os.path.isdir(args.assets_folder):
+        image_files = sorted([
+            f for f in os.listdir(args.assets_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+        ])
+        example_images = [os.path.join(args.assets_folder, f) for f in image_files[:5]]
     
     with gr.Blocks() as demo:
         gr.Markdown("# LiteVLoc Altas: Visual Localization with the Database: " + args.dataset_name)
@@ -259,7 +287,13 @@ def main():
                 submit_button = gr.Button("Localize Image")
             with gr.Column():
                 best_match_output = gr.Image(type="pil", label="Best Match from Database")
-                coordinates_output = gr.Textbox(label="Estimated Coordinates", lines=4)
+                coordinates_output = gr.Textbox(label="Estimated Coordinates", lines=5)
+        
+        gr.Examples(
+            examples=example_images,
+            inputs=query_image_input,
+            label="Example Images",
+        )
         
         with gr.Row():
             map_output_html = gr.HTML(label="Estimated Location on Map")
