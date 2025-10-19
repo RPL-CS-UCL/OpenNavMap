@@ -1,0 +1,52 @@
+# map.yaml
+# This file defines the topological-metric graph for the robot's environment.
+
+# 'nodes' represent significant locations or states.
+# - id: A unique string identifier for the node.
+# - label: The semantic property of the location (e.g., 'table', 'chair').
+#          These labels correspond to the atomic propositions in the LTL formulas.
+# - pose: The physical coordinates {x, y, z} of the node in the 'map' frame.
+#         Special non-navigational nodes (like 'wait_3s') may have an empty pose.
+nodes:
+  - id: 'n1'
+    label: 'start_area'
+    pose: {x: 0.0, y: 0.0, z: 0.0}
+  - id: 'n2'
+    label: 'table'
+    pose: {x: 5.0, y: 2.0, z: 0.0}
+  - id: 'n3'
+    label: 'chair'
+    pose: {x: 5.5, y: -2.5, z: 0.0}
+  - id: 'n4'
+    label: 'charging_dock'
+    pose: {x: -2.0, y: 4.0, z: 0.0}
+  - id: 'n5'
+    label: 'hallway'
+    pose: {x: 2.5, y: 0.0, z: 0.0}
+
+# 'edges' represent traversable paths between nodes.
+# - from: The starting node 'id'.
+# - to: The ending node 'id'.
+# - cost: The numerical cost (e.g., distance, time, energy) to traverse the edge.
+edges:
+  # Fully connected (traversable between every pair of nodes)
+  - {from: 'n1', to: 'n2', cost: 1.0}
+  - {from: 'n1', to: 'n3', cost: 1.0}
+  - {from: 'n1', to: 'n4', cost: 1.0}
+  - {from: 'n1', to: 'n5', cost: 1.0}
+  - {from: 'n2', to: 'n1', cost: 1.0}
+  - {from: 'n2', to: 'n3', cost: 1.0}
+  - {from: 'n2', to: 'n4', cost: 1.0}
+  - {from: 'n2', to: 'n5', cost: 1.0}
+  - {from: 'n3', to: 'n1', cost: 1.0}
+  - {from: 'n3', to: 'n2', cost: 1.0}
+  - {from: 'n3', to: 'n4', cost: 1.0}
+  - {from: 'n3', to: 'n5', cost: 1.0}
+  - {from: 'n4', to: 'n1', cost: 1.0}
+  - {from: 'n4', to: 'n2', cost: 1.0}
+  - {from: 'n4', to: 'n3', cost: 1.0}
+  - {from: 'n4', to: 'n5', cost: 1.0}
+  - {from: 'n5', to: 'n1', cost: 1.0}
+  - {from: 'n5', to: 'n2', cost: 1.0}
+  - {from: 'n5', to: 'n3', cost: 1.0}
+  - {from: 'n5', to: 'n4', cost: 1.0}
