@@ -1,14 +1,17 @@
 #! /usr/bin/env python
 
 import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils"))
+
 import numpy as np
 import shutil
-
 from pathlib import Path
-from utils.utils_geom import read_timestamps, read_intrinsics, read_poses, read_descriptors, read_gps
-from utils.utils_geom import convert_pose_inv, correct_intrinsic_scale
-from utils.utils_image import load_rgb_image, load_depth_image
-from utils.base_graph import BaseGraph
+
+from utils_geom import read_timestamps, read_intrinsics, read_poses, read_descriptors, read_gps
+from utils_geom import convert_pose_inv, correct_intrinsic_scale
+from utils_image import load_rgb_image, load_depth_image
+from base_graph import BaseGraph
 from image_node import ImageNode
 
 class ImageGraphLoader:
@@ -275,7 +278,10 @@ class TestImageGraph():
 		print(f"Image Descriptor of Node 2: {node.global_descriptor}")
 
 		# Find the shortest path from node 1 to node 4
-		from utils.utils_shortest_path import dijk_shortest_path
+		try:
+			from utils.utils_shortest_path import dijk_shortest_path
+		except ImportError:
+			from utils_shortest_path import dijk_shortest_path
 		distance, path = dijk_shortest_path(graph, graph.get_node(1), graph.get_node(4))
 		print(f"Shortest Path from Node 1 to Node 4 with distance {distance}")
 		print(' -> '.join([str(node.id) for node in path]))

@@ -15,12 +15,21 @@ import argparse
 import faiss
 from matplotlib import pyplot as plt
 
-from utils.vpr_topological_filter import PlaceRecognitionTopologicalFilter
-from utils.vpr_single_matching import PlaceRecognitionSingleMatching
-from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
-from utils.vpr_sequence_matching_adaptive import PlaceRecognitionSeqMatchingAdaptive
-from utils.vpr_graph_search import PlaceRecognitionGraphSearch
-from utils.utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font
+# Use relative imports when part of a package, absolute imports when run directly
+if __package__:
+    from .vpr_topological_filter import PlaceRecognitionTopologicalFilter
+    from .vpr_single_matching import PlaceRecognitionSingleMatching
+    from .vpr_sequence_matching import PlaceRecognitionSeqMatching
+    from .vpr_sequence_matching_adaptive import PlaceRecognitionSeqMatchingAdaptive
+    from .vpr_graph_search import PlaceRecognitionGraphSearch
+    from .utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font
+else:
+    from vpr_topological_filter import PlaceRecognitionTopologicalFilter
+    from vpr_single_matching import PlaceRecognitionSingleMatching
+    from vpr_sequence_matching import PlaceRecognitionSeqMatching
+    from vpr_sequence_matching_adaptive import PlaceRecognitionSeqMatchingAdaptive
+    from vpr_graph_search import PlaceRecognitionGraphSearch
+    from utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font
 
 def setup_logging(log_dir, stdout_level='info'):
 	os.makedirs(log_dir, exist_ok=True)

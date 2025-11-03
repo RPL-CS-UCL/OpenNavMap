@@ -1,13 +1,12 @@
 #! /usr/bin/env python
 
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
-
-import argparse
 import numpy as np
 from matplotlib import pyplot as plt
-from utils.vpr_single_matching import PlaceRecognitionSingleMatching
+
+if __package__:
+    from .vpr_single_matching import PlaceRecognitionSingleMatching
+else:
+    from vpr_single_matching import PlaceRecognitionSingleMatching
 
 class PlaceRecognitionSeqMatching(PlaceRecognitionSingleMatching):
 	def __init__(self, seqLen):

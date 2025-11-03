@@ -6,7 +6,7 @@ NUM_PARALLEL=1  # Set desired parallelism level here
 # Check if DATASET_NAME is provided
 if [ -z "$1" ] || [ -z "$2" ]; then
 	echo "Error: DATASET_NAME is not specified."
-	echo "Usage: ./run_benchmark_rpe_submission.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus_aria, mapfree) 
+	echo "Usage: ./run_benchmark_rpe_submission.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus_aria, mapfree, 360loc_aria, 360loc_phone, 360loc_vehicle) 
 	<SPLIT> (train, val, test)"
 	exit 1
 fi
@@ -24,13 +24,13 @@ export N_QUERY=10
 
 # Model and LoRA configuration
 MODELS=(
-	# "hloc_superpoint_splg"
-	# "hloc_disk_dilg"
-	# "vpr_cosplace_resnet18_256"
-	# "vpr_netvlad_resnet18_4096"
+	"hloc_superpoint_splg"
+	"hloc_disk_dilg"
+	"vpr_cosplace_resnet18_256"
+	"vpr_netvlad_resnet18_4096"
 	# "reloc3r"
 	# "duster_nocalib_pretrain"
-	"duster_calib_pretrain"
+	# "duster_calib_pretrain"
 	# "master_nocalib_pretrain"
 	# "master_calib_pretrain"
 )
@@ -49,6 +49,7 @@ process_model() {
 	local top_k="$2"	
 	IFS=":" read -r MODEL LORA_PATH <<< "$pair"
 	echo "Processing model: $MODEL with LoRA weight: $LORA_PATH"
+	echo "Loading dataset from $DATASET_PATH"
 	python "$PROJECT_PATH/python/benchmark_rpe/submission.py" \
 		--config "$CONFIG_FILE" \
 		--models "$MODEL" \
@@ -66,12 +67,9 @@ export -f process_model
 export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
-# for TOP_K in $(seq 2 3 17); do
-# for TOP_K in $(seq 20 10 50); do
-# for TOP_K in $(seq 17 3 17); do
-for TOP_K in $(seq 2 3 8); do
-	echo "Processing with TOP_K: $TOP_K"
+for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
 	export TOP_K
+	echo "Processing with TOP_K: $TOP_K"
 	printf "%s\n" "${MODEL_LORA_PAIRS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}
 
 	# Unzip files

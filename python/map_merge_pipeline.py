@@ -12,7 +12,6 @@ from tqdm import tqdm
 import pathlib
 from typing import List, Tuple, Dict
 from codetiming import Timer
-import copy
 
 from utils.utils_vpr_method import initialize_match_model
 from utils.utils_map_merging import *
@@ -251,12 +250,19 @@ def perform_global_loc(
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 		# VPR matching for all query nodes
 		connected_row_indices = []
-		for row in range(query_descriptors.shape[0]):
-			start_row = max(0, row - merger.vpr_match_model.seqLen + 1)
-			query_descs = query_descriptors[start_row : row + 1]
-			_, pred, score = merger.vpr_match_model.match(query_descs)
-			connected_row_indices.append((pred, row, score))
-			logging.warning(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
+		if 'PlaceRecognitionGraphSearch' in type(merger.vpr_match_model).__name__:
+			db_query_indices, score = merger.vpr_match_model.match(query_descriptors)
+			for pred, row in db_query_indices:
+				connected_row_indices.append((pred, row, score))
+				logging.warning(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
+		elif 'PlaceRecognitionSeqMatching' in type(merger.vpr_match_model).__name__:
+			for row in range(len(query_descriptors)):
+				query_descs = query_descriptors[max(0, row-merger.vpr_match_model.seqLen+1) : row + 1]
+				_, pred, score = merger.vpr_match_model.match(query_descs)
+				connected_row_indices.append((pred, row, score))
+				logging.warning(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
+		else:
+			raise ValueError(f"Unsupported VPR match model: {type(merger.vpr_match_model).__name__}")
 
 		if hasattr(merger.vpr_match_model, 'compute_diff_matrix'):
 			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
@@ -272,20 +278,12 @@ def perform_global_loc(
 			vpr_edges.append((db_node, query_node, np.eye(4), 0))
 		save_vis_pose_graph(
 			save_dir, final_graph, cur_graph, cur_graph_id, vpr_edges,
-			suffix=f"{merger.args.vpr_match_model}_coarse_vpr_{merger.vpr_match_model.seqLen}")
+			suffix=f"{merger.args.vpr_match_model}_coarse_vpr"
+		)
 		#######
 
 		####### TODO(gogojjh): Remove the ransac mechanism 
-		# RANSAC-based outlier rejection on the difference matrix if enabled
 		best_row_indices = connected_row_indices
-		lines_coeff = cluster_data = cluster_labels = None
-		# if getattr(merger.vpr_match_model, 'ENABLE_RANSAC', False):
-		# 	filtered_row_indices, lines_coeff, cluster_data, cluster_labels = \
-		# 		merger.vpr_match_model.ransac_check_match(
-		# 			D_all, 
-		# 			connected_row_indices[merger.vpr_match_model.seqLen:]
-		# 		 )
-		# 	best_row_indices = connected_row_indices[:merger.vpr_match_model.seqLen] + filtered_row_indices
 		#######
 
 		# Geometric Verification
@@ -305,19 +303,17 @@ def perform_global_loc(
 	##### Visualize Pose Graph after Geomtric Verification
 	if D_all is not None:
 		best_indices = [
-			(db_node_ids[db_row_id], query_node_ids[query_row_id], score) \
-				for db_row_id, query_row_id, score in best_row_indices
+			(db_node_ids[db_row_id], query_node_ids[query_row_id]) \
+			for db_row_id, query_row_id, _ in best_row_indices
 		]
-		connected_indices = best_indices
-		merger.vpr_match_model.save_diff_matrix_fitting(
-			save_dir, 
-			connected_row_indices, best_row_indices, 
-			connected_indices, best_indices,
-			D_all, final_graph,
-			cur_graph, lines_coeff, cluster_data, cluster_labels)
+		merger.vpr_match_model.viz_diff_matrix(
+			os.path.join(save_dir, 'D_matrix_gv.jpg'), D_all, best_indices
+		)
+
 	save_vis_pose_graph(
 		save_dir, final_graph, cur_graph, cur_graph_id, coarse_edges,
-		suffix=f"{merger.args.vpr_match_model}_coarse_{merger.vpr_match_model.seqLen}")
+		suffix=f"{merger.args.vpr_match_model}_coarse_gv"
+	)
 	
 	return coarse_edges
 

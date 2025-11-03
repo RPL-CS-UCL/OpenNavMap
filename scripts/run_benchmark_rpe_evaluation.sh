@@ -3,7 +3,7 @@
 # Check if DATASET_NAME is provided
 if [ -z "$1" ] || [ -z "$2" ]; then
   echo "Error: DATASET_NAME is not specified."
-  echo "Usage: ./run_benchmark_evaluation.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus, mapfree, hkust_aria)
+  echo "Usage: ./run_benchmark_evaluation.sh <DATASET_NAME> (matterport3d, hkustgz_campus, ucl_campus, mapfree, hkust_aria, 360loc_aria, 360loc_phone, 360loc_vehicle)
   <SPLIT> (train, val, test)"
   exit 1
 fi
@@ -31,8 +31,7 @@ export MODELS=(
   "master_calib_pretrain"
 )
 
-for TOP_K in $(seq 2 3 17); do # 2 5 8 11 14 17
-# for TOP_K in $(seq 20 10 50); do # 20 30 40 50
+for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
   echo "Processing with TOP_K: $TOP_K"
 
   for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"

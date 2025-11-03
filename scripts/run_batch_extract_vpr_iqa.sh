@@ -1,17 +1,15 @@
 #!/bin/bash
 
 # Define path and number of submaps
-PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus/s00000"
-NUM_SUBMAP=55
+PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/360loc/s00001_concourse_aria_data"
+NUM_SUBMAP=5
 
 # Loop over each submap index
 for ((i=0; i<$NUM_SUBMAP; i++ ))
 do
     echo "Processing submap index: $i"
-
-    # Run descriptor extraction
     rosrun litevloc extract_vpr_descriptors.py \
-      --dataset_path "$PATH_SUBMAP/out_map$i" \
+      --map_path "$PATH_SUBMAP/$i" \
       --method cosplace \
       --backbone ResNet18 \
       --descriptors_dimension 256 \
@@ -19,9 +17,13 @@ do
       --image_size 512 288 \
       --device cuda \
       --save_descriptors
+done
 
-    # Copy the resulting file
-    cp \
-      "$PATH_SUBMAP/out_map$i/output_extract_vpr_descriptors/outputs_cosplace/latest/preds/database_descriptors.txt" \
-      "$PATH_SUBMAP/out_map$i"
+for ((i=0; i<$NUM_SUBMAP; i++ ))
+do
+    echo "Processing submap index: $i"
+    rosrun litevloc extract_iqa.py \
+      --map_path "$PATH_SUBMAP/$i" \
+      --metric musiq \
+      --device cuda
 done

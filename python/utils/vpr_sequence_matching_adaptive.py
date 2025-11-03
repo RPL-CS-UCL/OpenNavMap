@@ -1,11 +1,11 @@
 #! /usr/bin/env python
 
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../'))
-
 import numpy as np
-from utils.vpr_sequence_matching import PlaceRecognitionSeqMatching
+
+if __package__:
+    from .vpr_sequence_matching import PlaceRecognitionSeqMatching
+else:
+    from vpr_sequence_matching import PlaceRecognitionSeqMatching
 
 class PlaceRecognitionSeqMatchingAdaptive(PlaceRecognitionSeqMatching):
 	def __init__(self, seqLen):

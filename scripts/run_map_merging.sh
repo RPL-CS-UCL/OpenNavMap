@@ -20,13 +20,17 @@ set -euo pipefail  # Fail on errors and undefined variables
 #   smartphone: 10-12 (<300m length)
 # vineyard/s00000_aria_data
 #   aria: 0-4 (300m length)
+# 360loc/s00000_atrium_data
+#   aria: 0-2
+#   phone: 3
+#   vehicle: 4
 
 # TODO(gogojjh): Users should change these parameters
-readonly START_SUBMAP_ID=40
-readonly END_SUBMAP_ID=54
-readonly DATASET_NAME="ucl_campus_aria"
+readonly START_SUBMAP_ID=0
+readonly END_SUBMAP_ID=1
+readonly DATASET_NAME="360loc"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
-readonly SCENE="s00000"
+readonly SCENE="s00001_concourse"
 
 readonly METHOD="$2" # default: kf_spgo_cc_seqmatch
 readonly POSE_ESTIMATION_METHOD="$3" # master_nocalib_pretrain, master_calib_pretrain
@@ -35,7 +39,7 @@ readonly DATA_TYPES=("in" "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8")
 ########################
 readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
 readonly IMAGE_SIZE="512 288"
-readonly VPR_MATCH_MODEL="sequence_match_adaptive" # single_match, sequence_match, sequence_match_adaptive
+readonly VPR_MATCH_MODEL="graph_search" # single_match, sequence_match, sequence_match_adaptive, graph_search
 readonly VPR_SEQ_LEN=10
 readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
 readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
@@ -110,8 +114,8 @@ merge_submaps() {
             --vpr_match_model "$VPR_MATCH_MODEL" \
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-            --viz
-            --prune_keyframe_forward --prune_keyframe_backward
+            --prune_keyframe_forward --prune_keyframe_backward \
+            --viz 
 
         base_name="${new_merged_name}"
     done
