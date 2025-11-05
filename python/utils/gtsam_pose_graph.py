@@ -182,14 +182,17 @@ class PoseGraph:
 					tsl = result.atPose3(keys[0]).translation()
 					ax.text(tsl[0], tsl[1], tsl[2], f'{graph_id}', fontsize=12, color='r', ha='center')
 
+			# Set axis labels
 			ax.set_xlabel('X [m]')
 			ax.set_ylabel('Y [m]')
 			ax.set_zlabel('Z [m]')
+			# Set title
 			ax.set_title(title)
+			# Set view angle
 			if mode == '2d':
 				ax.view_init(elev=90, azim=90)
 			elif mode == '3d':
-				ax.view_init(elev=55, azim=60)
+				ax.view_init(elev=45, azim=60)
 			ax.axis('equal')
 
 		plt.tight_layout()

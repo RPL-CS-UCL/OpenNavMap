@@ -24,10 +24,11 @@ def parser_arugments():
     parser = argparse.ArgumentParser(
         description="A 3D Pose SLAM example that reads input from g2o, and "
         "initializes Pose3")
-    parser.add_argument('-i', '--input', help='input file g2o format')
-    parser.add_argument('-o', '--output', help="the path to the output file with optimized graph")
-    parser.add_argument("-p", "--plot", action="store_true", help="Flag to plot results")
+    parser.add_argument('--input', help='input file g2o format')
+    parser.add_argument('--output', help="the path to the output file with optimized graph")
+    parser.add_argument("--plot", action="store_true", help="Flag to plot results")
     parser.add_argument("--viz", action="store_true", help="Only visualize graph")
+    parser.add_argument("--save_dir", type=str, default=None, help="Path to save the plot")
     args = parser.parse_args()
     return args
 
@@ -60,7 +61,7 @@ def main():
         result = initial
         print("initial error = ", graph.error(initial))
         if args.plot:
-            PoseGraph.plot_pose_graph(None, graph, [initial, initial], ['Before PGO', 'Before PGO'], mode='3d')
+            PoseGraph.plot_pose_graph(args.save_dir, graph, [initial, initial], ['Before PGO', 'Before PGO'], mode='3d')
     else:
         start_time = time.time()
         result = PoseGraph.optimize_pose_graph_with_LM(
@@ -84,7 +85,7 @@ def main():
             print("Done!")
 
         if args.plot:
-            PoseGraph.plot_pose_graph(None, graph, [initial, result], ['Before PGO', 'After PGO'], mode='3d')
+            PoseGraph.plot_pose_graph(args.save_dir, graph, [initial, result], ['Before PGO', 'After PGO'], mode='3d')
 
 if __name__ == "__main__":
     main()
