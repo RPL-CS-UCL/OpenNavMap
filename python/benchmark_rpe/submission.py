@@ -73,6 +73,8 @@ def predict(loader, estimator, str_estimator, cfg):
 				'known_extrinsics': True,
 				'known_intrinsics': False, # False for Joint optimization of intrinsics is better
 				'resize': 512,
+				'niter': 300,
+				'two_stage_opt_niter': 50
 			}
 
 			start_time = time.time()
@@ -137,7 +139,7 @@ def predict(loader, estimator, str_estimator, cfg):
 			scene = data['scene_id'][0]
 			query_image = data['image1_path'][0]
 			tqdm.write(Fore.RED + f"Error with {str_estimator}: {e}" + Style.RESET_ALL)
-			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image}." + Style.RESET_ALL)\
+			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image}." + Style.RESET_ALL)
 			
 	average_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
 	return results_dict, results_debug_dict, average_runtime

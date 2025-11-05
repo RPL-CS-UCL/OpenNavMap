@@ -33,7 +33,6 @@ export MODELS=(
 
 for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
   echo "Processing with TOP_K: $TOP_K"
-
   for EVAL_CONFIG in "${EVAL_CONFIGS[@]}"
   do
     for model in "${MODELS[@]}"
@@ -50,5 +49,4 @@ for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
       echo ""
     done
   done
-
 done

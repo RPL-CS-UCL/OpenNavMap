@@ -57,7 +57,8 @@ process_model() {
 		--n_query "$N_QUERY" \
 		--top_k "$top_k" \
 		--lora_path "$LORA_PATH" \
-		--split "$SPLIT" # --debug # --viz
+		--split "$SPLIT" \
+		--debug # --viz 
 	echo ""
 	sleep 3
 }
@@ -68,10 +69,10 @@ export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
 for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
+# for TOP_K in $(seq 17 3 17); do # for test
 	export TOP_K
 	echo "Processing with TOP_K: $TOP_K"
 	printf "%s\n" "${MODEL_LORA_PAIRS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}
-
 	# Unzip files
 	for MODEL in "${MODELS[@]}"; do
 		mkdir -p "$OUT_DIR/$MODEL/submission_$TOP_K"
