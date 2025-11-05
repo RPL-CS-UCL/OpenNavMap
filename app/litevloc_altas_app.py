@@ -36,6 +36,30 @@ ARGS = None
 TRANSFORM = None
 IMG_MATCHER = None
 POSE_ESTIMATOR = None
+INITIAL_MAP_HTML = None
+
+DB_MARKER_INTERVAL = 5
+
+def create_database_map():
+    """Creates a folium map showing all database positions."""
+    global DATABASE_DS
+    
+    m = None
+    for idx in range(0, len(DATABASE_DS.database_poses), DB_MARKER_INTERVAL):
+        db_pose_matrix = DATABASE_DS.database_poses[idx]
+        db_x, db_y, db_z = db_pose_matrix[:3, 3]
+        db_latitude, db_longitude = ecef_to_latlon(db_x, db_y, db_z)
+        if db_latitude is not None and db_longitude is not None:
+            if m is None:
+                m = folium.Map(location=[db_latitude, db_longitude], zoom_start=18)
+            folium.Marker(
+                [db_latitude, db_longitude],
+                popup=f"DB Location {idx}",
+                icon=folium.Icon(color="green"),
+                z_index_offset=0,
+            ).add_to(m)
+    
+    return m._repr_html_() if m is not None else "<div>Map could not be generated.</div>"
 
 def ecef_to_latlon(x, y, z):
     """Converts ECEF coordinates to latitude and longitude."""
@@ -51,7 +75,7 @@ def ecef_to_latlon(x, y, z):
 
 def setup(args):
     """Initializes models and loads the database descriptors."""
-    global VPR_MODEL, DATABASE_DS, DATABASE_DESCRIPTORS, FAISS_INDEX, ARGS, TRANSFORM, IMG_MATCHER, POSE_ESTIMATOR
+    global VPR_MODEL, DATABASE_DS, DATABASE_DESCRIPTORS, FAISS_INDEX, ARGS, TRANSFORM, IMG_MATCHER, POSE_ESTIMATOR, INITIAL_MAP_HTML
     
     ARGS = args
     logger.info("Setting up the localization pipeline...")
@@ -109,6 +133,10 @@ def setup(args):
         logger.info(f"Loading pose estimator: {ARGS.pose_estimator}")
         POSE_ESTIMATOR = initialize_pose_estimator(ARGS.pose_estimator, ARGS.device)
 
+    # Create initial map showing database positions
+    logger.info("Creating initial database map...")
+    INITIAL_MAP_HTML = create_database_map()
+    
     logger.info("Setup complete. Application is ready.")
 
 def localize_image(query_img_path):
@@ -147,26 +175,16 @@ def localize_image(query_img_path):
         logger.info("Skipping reranking.")
 
     if T_query_est_coarse is None:
-        m = None
-        for idx in range(0, len(DATABASE_DS.database_poses), 10):
-            db_pose_matrix = DATABASE_DS.database_poses[idx]
-            db_x, db_y, db_z = db_pose_matrix[:3, 3]
-            db_latitude, db_longitude = ecef_to_latlon(db_x, db_y, db_z)
-            if db_latitude is not None and db_longitude is not None:
-                if m is None:
-                    m = folium.Map(location=[db_latitude, db_longitude], zoom_start=18)
-                folium.Marker(
-                    [db_latitude, db_longitude],
-                    popup=f"DB Location {idx}",
-                    icon=folium.Icon(color="green"),
-                    z_index_offset=0,
-                ).add_to(m)
-        map_html = m._repr_html_() if m is not None else "<div>Map could not be generated.</div>"
-        
-        coords_str = f"The query is out of the premapped regions. Maximum matched KPts: {num_matched_kpts[0]}"
+        map_html = create_database_map()
+        coords_str = (
+            f"❌ Localization Failed\n"
+            f"The query image could not be localized within the premapped regions.\n"
+            f"Details: Maximum matched keypoints: {num_matched_kpts[0]}. "
+            f"This image is likely outside the database coverage area."
+        )
         best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
         best_match_img = Image.open(best_match_path).convert("RGB")
-        logger.warning(f"Not pass geometric verification")
+        logger.warning(f"Localization failed - not passing geometric verification")
         return best_match_img, coords_str, map_html
 
     ##### Local Localization #####
@@ -203,11 +221,14 @@ def localize_image(query_img_path):
     best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
     best_match_img = Image.open(best_match_path).convert("RGB")
     
+    # Localization successful - show database positions + estimated location
     x, y, z = T_query_est_fine[:3, 3]
     latitude, longitude = ecef_to_latlon(x, y, z)
+    
     if latitude is not None and longitude is not None:
         m = folium.Map(location=[latitude, longitude], zoom_start=18)
-        for idx in range(0, len(DATABASE_DS.database_poses), 10):
+        
+        for idx in range(0, len(DATABASE_DS.database_poses), DB_MARKER_INTERVAL):
             db_pose_matrix = DATABASE_DS.database_poses[idx]
             db_x, db_y, db_z = db_pose_matrix[:3, 3]
             db_latitude, db_longitude = ecef_to_latlon(db_x, db_y, db_z)
@@ -219,6 +240,7 @@ def localize_image(query_img_path):
                     z_index_offset=0,
                 ).add_to(m)
 
+        # Add estimated query location (red marker)
         folium.Marker(
             [latitude, longitude],
             popup="Estimated Query Location",
@@ -228,29 +250,17 @@ def localize_image(query_img_path):
         map_html = m._repr_html_()
 
         coords_str = (
-            f"Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\n"
-            f"Coarse Pose Error: {trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg\n"
-            f"Fine Pose Error: {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg\n"
-            f"Maximum matched KPts: {num_matched_kpts[0]}\n"
-            f"Confidence: {conf:.3f}"
+            f"✅ Localization Successful\n"
+            f"📍 Estimated Position:\n• Latitude: {latitude:.6f}, Longitude: {longitude:.6f}\n"
+            f"Accuracy Metrics:\n• Coarse Pose Error: {trans_err_coarse:.2f}m / {rot_err_coarse:.2f}°\n• Fine Pose Error: {trans_err_fine:.2f}m / {rot_err_fine:.2f}°\n"
+            f"Technical Details:\n • Matched Keypoints: {num_matched_kpts[0]}\n • Confidence Score: {conf:.3f}"
         )
     else:
-        coords_str = "Could not determine coordinates."
-        m = None
-        for idx in range(0, len(DATABASE_DS.database_poses), 10):
-            db_pose_matrix = DATABASE_DS.database_poses[idx]
-            db_x, db_y, db_z = db_pose_matrix[:3, 3]
-            db_latitude, db_longitude = ecef_to_latlon(db_x, db_y, db_z)
-            if db_latitude is not None and db_longitude is not None:
-                if m is None:
-                    m = folium.Map(location=[db_latitude, db_longitude], zoom_start=18)
-                folium.Marker(
-                    [db_latitude, db_longitude],
-                    popup=f"DB Location {idx}",
-                    icon=folium.Icon(color="green"),
-                    z_index_offset=0,
-                ).add_to(m)
-        map_html = m._repr_html_() if m is not None else "<div>Map could not be generated.</div>"
+        coords_str = (
+            f"⚠️ Coordinate Conversion Failed\n"
+            f"The pose was estimated but coordinates could not be determined."
+        )
+        map_html = create_database_map()
 
     return best_match_img, coords_str, map_html
 
@@ -260,6 +270,8 @@ def main():
     parser.add_argument('--dataset_name', type=str, required=True, help='Name of the dataset')
     parser.add_argument('--database_folder', type=str, required=True, help='Path to database folder')
     parser.add_argument('--database_descriptors_path', type=str, required=True, help='Path to precomputed database descriptors .npy file')
+    parser.add_argument('--num_workers', type=int, default=4, help='Number of workers for data loading')
+    parser.add_argument('--batch_size', type=int, default=32, help='Batch size for database descriptor extraction')
     parser.add_argument('--device', type=str, default='cuda', help='Device to use (cuda/cpu)')
     parser.add_argument('--share', action='store_true', help='Enable Gradio sharing')
     parser.add_argument('--recall_k', type=int, default=10, help='Number of top matches to return for reranking and localization')
@@ -278,8 +290,8 @@ def main():
         example_images = [os.path.join(args.assets_folder, f) for f in image_files[:5]]
     
     with gr.Blocks() as demo:
-        gr.Markdown("# LiteVLoc Altas: Visual Localization with the Database: " + args.dataset_name)
-        gr.Markdown("Upload an image to find its location on the map.")
+        gr.Markdown("# LiteVLoc Atlas: Visual Localization with Database: " + args.dataset_name)
+        gr.Markdown("# Database Coverage: The map below shows all database positions (green markers). Upload an image to find its location!")
         
         with gr.Row():
             with gr.Column():
@@ -287,7 +299,15 @@ def main():
                 submit_button = gr.Button("Localize Image")
             with gr.Column():
                 best_match_output = gr.Image(type="pil", label="Best Match from Database")
-                coordinates_output = gr.Textbox(label="Estimated Coordinates", lines=5)
+                coordinates_output = gr.Textbox(
+                    label="Localization Results", 
+                    lines=5, 
+                    value=(
+                        f"📊 Database Information:\n"
+                        f"• Total database images: {len(DATABASE_DS)}\n"
+                        f"• Dataset: {args.dataset_name}\n"
+                    )
+                )
         
         gr.Examples(
             examples=example_images,
@@ -296,7 +316,7 @@ def main():
         )
         
         with gr.Row():
-            map_output_html = gr.HTML(label="Estimated Location on Map")
+            map_output_html = gr.HTML(label="Location Map", value=INITIAL_MAP_HTML)
             
         submit_button.click(
             fn=localize_image,

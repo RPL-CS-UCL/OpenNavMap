@@ -2,7 +2,7 @@
 
 if [ -z "$1" ]; then
     echo "Error: DATASET_NAME is not specified."
-    echo "Usage: ./run_altas_app.sh <DATASET_NAME> (opennavmap_hkust, opennavmap_ucl_campus)"
+    echo "Usage: ./run_altas_app.sh <DATASET_NAME> (opennavmap_hkust, opennavmap_ucl_campus, wildscenes)"
     exit 1
 fi
 
@@ -15,7 +15,20 @@ python ../litevloc_altas_app.py \
     --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
     --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
     --device cuda \
+    --batch_size 64 \
+    --num_workers 8 \
     --recall_k 20 \
-    --matcher loftr \
-    --pose_estimator mast3r_calib_pretrain \
     --share
+
+# python ../litevloc_altas_app.py \
+#     --assets_folder ../assets/${DATASET_NAME}/ \
+#     --dataset_name ${DATASET_NAME} \
+#     --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
+#     --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
+#     --device cuda \
+#     --batch_size 64 \
+#     --num_workers 8 \
+#     --recall_k 20 \
+#     --matcher loftr \
+#     --pose_estimator mast3r_calib_pretrian \
+#     --share
