@@ -361,7 +361,8 @@ def visualize_scenes(scene_data, is_multi_frame, cam_size=0.03, show_image=True,
                     image = None
                     imsize = (int(width), int(height))
 
-                if 'seq0/frame_000000' in img_path or 'seq/000000' in img_path:
+                # NOTE(gogojjh): seq0 with 5 0, while seq with 6 0
+                if 'seq0/frame_00000' in img_path or 'seq/000000' in img_path:
                     show_cam_size = cam_size * 5
                     _add_scene_cam(
                         scene=scene,
