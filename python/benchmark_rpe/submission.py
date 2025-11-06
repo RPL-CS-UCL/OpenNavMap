@@ -72,9 +72,9 @@ def predict(loader, estimator, str_estimator, cfg):
 			estimation_options = {
 				'known_extrinsics': True,
 				'known_intrinsics': False, # False for Joint optimization of intrinsics is better
-				'resize': 512,
 				'niter': 300,
-				'two_stage_opt_niter': 50
+				'two_stage_opt_niter': 50,
+				'resize': 512
 			}
 
 			start_time = time.time()
