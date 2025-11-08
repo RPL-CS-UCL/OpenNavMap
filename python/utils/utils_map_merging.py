@@ -16,14 +16,20 @@ from sklearn.metrics import precision_score, recall_score
 
 from .utils_geom import convert_vec_to_matrix, compute_pose_error
 
-RMSE_THRESHOLD = 3.0
-VPR_MATCH_THRESHOLD = 0.90
+# (global localization) Geometric Verification Threshold
 REFINE_GV_SCORE_THRESHOLD = 100.0
 MAX_LOSS = 10.0 
-
+# (local localization) Confidence Map Threshold
 RELIABLE_CONF_THRESHOLD = 0.1
 REFINE_CONF_THRESHOLD = 0.5 # threshold to select good refinement: out-of-range image, wrong coarse localization
 assert RELIABLE_CONF_THRESHOLD < REFINE_CONF_THRESHOLD
+# Same Place Threshold
+TRANS_THRESHOLD = 7.5
+ORI_THRESHOLD = 75.0
+
+def is_same_place(nodeA, nodeB):
+	dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
+	return dis_tsl < TRANS_THRESHOLD and dis_angle < ORI_THRESHOLD
 
 def setup_logging(log_dir, stdout_level='info'):
 	os.makedirs(log_dir, exist_ok=True)
@@ -54,10 +60,12 @@ def setup_log_environment(out_dir: pathlib.Path, args):
 	# os.system(f"ln -s {log_dir} {os.path.join(out_dir, f'outputs_{args.pose_estimation_method}', 'latest')}")
 	return out_dir
 
-# def initialize_vpr_model(method, backbone, descriptors_dimension, device):
-# 	"""Initialize and return the model."""
-# 	model = vpr_models.get_model(method, backbone, descriptors_dimension)
-# 	return model.eval().to(device)
+##### NOTE(gogojjh): This is not used in the map merging pipeline
+def initialize_vpr_model(method, backbone, descriptors_dimension, device):
+	# """Initialize and return the model."""
+	# model = vpr_models.get_model(method, backbone, descriptors_dimension)
+	# return model.eval().to(device)
+	pass
 
 def initialize_pose_estimator(model, device):
 	"""Initialize and return the model."""
@@ -81,71 +89,7 @@ def save_vis_vpr(log_dir, db_submap, query_submap, query_submap_id, preds, suffi
 	else:
 		plt.savefig(os.path.join(log_dir, f"results_{suffix}_{query_submap_id}_vpr.png"))
 
-def save_vis_pose_graph(log_dir, db_submap, query_submap, query_submap_id, edges_nodeA_to_nodeB, suffix=''):
-	"""
-	Save visualization of graph-based map with nodes and edges.
-	Plot the trajectory onto the X-Z plane.
-	"""
-	fig, ax = plt.subplots(figsize=(10, 10))
-	
-	# Plot submap
-	logging.debug('Plot db_submap')
-	for node_id, node in db_submap.nodes.items():
-		ax.plot(node.trans_gt[0], node.trans_gt[1], 'ko', markersize=5)
-		# ax.text(node.trans_gt[0], node.trans_gt[1], f'DB{node_id}', fontsize=12, color='k')
-		for edge in node.edges.values():
-			next_node = edge[0]
-			ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=1)
-
-	for node_id, node in query_submap.nodes.items():			
-		ax.plot(node.trans_gt[0], node.trans_gt[1], 'bo', markersize=5)
-		ax.text(node.trans_gt[0], node.trans_gt[1], f'Q{node_id}', fontsize=12, color='k')		
-		for edge in node.edges.values():
-			next_node = edge[0]
-			ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=1)
-	
-	# Plot connections
-	num_cor_loop = 0
-	str_title = f"Pose Graph"
-	for edge in edges_nodeA_to_nodeB:
-		nodeA, nodeB, T_rel, score = edge[:4]
-		# Identify correct and wrong connections
-		if 'coarse' in suffix:
-			dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
-			if dis_tsl < 7.5:
-				num_cor_loop += 1
-				ax.plot([nodeA.trans_gt[0], nodeB.trans_gt[0]], [nodeA.trans_gt[1], nodeB.trans_gt[1]], 'g-', linewidth=2)
-				ax.text(nodeB.trans_gt[0], nodeB.trans_gt[1]+0.4, f'P={score:.1f}', fontsize=12, color='k')
-			else:
-				ax.plot([nodeA.trans_gt[0], nodeB.trans_gt[0]], [nodeA.trans_gt[1], nodeB.trans_gt[1]], 'r-', linewidth=2)
-				ax.text(nodeB.trans_gt[0], nodeB.trans_gt[1]+0.4, f'P={score:.1f}', fontsize=12, color='k')
-			str_title = f"Pose Graph: Find {num_cor_loop} Correct Loops/{len(edges_nodeA_to_nodeB)} (7.5m)"
-
-		elif 'refine' in suffix:
-			T_nodeA_gt = convert_vec_to_matrix(nodeA.trans_gt, nodeA.quat_gt, 'xyzw')
-			T_nodeB_gt = convert_vec_to_matrix(nodeB.trans_gt, nodeB.quat_gt, 'xyzw')
-			T_rel_gt = np.linalg.inv(T_nodeA_gt) @ T_nodeB_gt
-			dis_tsl, dis_angle = compute_pose_error(T_rel, T_rel_gt, 'matrix')
-			if dis_tsl < 3.0:
-				num_cor_loop += 1
-				ax.plot([nodeA.trans_gt[0], nodeB.trans_gt[0]], [nodeA.trans_gt[1], nodeB.trans_gt[1]], 'g-', linewidth=2)
-				ax.text(nodeB.trans_gt[0], nodeB.trans_gt[1]+0.4, f'P={score:.1f}', fontsize=12, color='k')
-			else:
-				ax.plot([nodeA.trans_gt[0], nodeB.trans_gt[0]], [nodeA.trans_gt[1], nodeB.trans_gt[1]], 'r-', linewidth=2)
-				ax.text(nodeB.trans_gt[0], nodeB.trans_gt[1]+0.4, f'P={score:.1f}', fontsize=12, color='k')
-			str_title = f"Pose Graph: Find {num_cor_loop} Correct Loops/{len(edges_nodeA_to_nodeB)} (3.0m)"
-	
-	ax.grid(ls='--', color='0.7')
-	plt.xlabel('X-axis')
-	plt.ylabel('Y-axis')
-	plt.axis('equal')
-	plt.title(str_title) 
-	if suffix == '':
-		plt.savefig(os.path.join(log_dir, f"results_{query_submap_id}_posegraph.png"))
-	else:
-		plt.savefig(os.path.join(log_dir, f"results_{suffix}_{query_submap_id}_posegraph.png"))
-
-def save_vis_edge_history(log_dir, db_submap, query_submap, query_submap_id, edge_history):
+def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 	"""
 	Save visualization of graph-based map with nodes and edges.
 	Plot the trajectory onto the X-Z plane.
@@ -175,18 +119,14 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, query_submap_id, edg
 		"Edges: VPR -> GV",
 		"Edges: VPR -> GV -> CCM"
 	]
-
-	# --- Threshold for true positive ---
-	trans_threshold = 7.5
-	ori_threshold = 75.0
+	precision_list, recall_list = [], []
 	
 	# --- Generate binary labels ---
 	y_true = [0] * len(edge_history)
 	for query_idx in range(len(edge_history)):
 		nodeB = query_submap.get_node(query_idx)
 		for nodeA in db_submap.nodes.values():
-			dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
-			if dis_tsl < trans_threshold and dis_angle < ori_threshold:
+			if is_same_place(nodeA, nodeB):
 				y_true[query_idx] = 1
 				break
 
@@ -196,19 +136,18 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, query_submap_id, edg
 		num_edges = 0
 		y_pred = [0] * len(edge_history)
 		for key, value in edge_history.items():
-			if not edge_selector[subplot_idx](value): 
+			if not edge_selector[subplot_idx](value['action']): 
 				continue
 			db_idx, query_idx = key[0], key[1]
 			nodeA = db_submap.get_node(db_idx)
 			nodeB = query_submap.get_node(query_idx)
-			dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
 			ax.plot([nodeA.trans_gt[0], nodeB.trans_gt[0]],
 					[nodeA.trans_gt[1], nodeB.trans_gt[1]],
 					'g-', linewidth=2)
 			num_edges += 1
 
 			if y_true[query_idx]:
-				if dis_tsl < trans_threshold and dis_angle < ori_threshold:
+				if is_same_place(nodeA, nodeB):
 					y_pred[query_idx] = 1 # true positive
 				else:
 					y_pred[query_idx] = 0 # false negative
@@ -217,6 +156,9 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, query_submap_id, edg
 
 		precision = precision_score(y_true, y_pred, zero_division=0)
 		recall = recall_score(y_true, y_pred, zero_division=0)
+		precision_list.append(precision)
+		recall_list.append(recall)
+
 		ax.grid(ls='--', color='0.7')
 		ax.set_xlabel('X [m]')
 		ax.set_ylabel('Y [m]')
@@ -226,6 +168,8 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, query_submap_id, edg
 	
 	plt.tight_layout()
 	plt.savefig(os.path.join(log_dir, f"edge_history.png"))
+	
+	return precision_list, recall_list
 
 def save_vis_kf_removal(log_dir, img_id, rgb_img, prob):
 	(log_dir/"preds/kf_vis").mkdir(parents=True, exist_ok=True)
@@ -247,25 +191,6 @@ def save_vis_kf_replacement(log_dir, img0_id, img1_id, rgb_img0, rgb_img1, prob)
 	ax[1].axis('off')
 	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_replacement_{img0_id}_{img1_id}_{prob:.3f}.jpg"))
 	plt.close()
-
-def save_query_result(log_dir, query_result_info, query_submap_id):
-	fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-	for i in range(query_result_info.shape[0]):
-		query_id, prob, score, succ = i, query_result_info[i, 0], query_result_info[i, 1], query_result_info[i, 2]
-		if prob < VPR_MATCH_THRESHOLD:
-			ax[0].bar(query_id, prob, width=0.6, alpha=0.7, label='VPR Score', color='g')
-		else:
-			ax[0].bar(query_id, prob, width=0.6, alpha=0.7, label='VPR Score', color='r')
-		if score > REFINE_CONF_THRESHOLD:
-			ax[1].bar(query_id, score, width=0.6, alpha=0.7, label='Edge Score/Loss', color='g')
-		else:
-			ax[1].bar(query_id, score, width=0.6, alpha=0.7, label='Edge Score/Loss', color='r')
-	ax[0].grid(ls='--', color='0.7')
-	ax[0].set_title('VPR Score/Loss')
-	ax[1].grid(ls='--', color='0.7')
-	ax[1].set_title('Edge Score (Green: High Score. Red: Low Score)')
-	fig.tight_layout()
-	plt.savefig(os.path.join(log_dir, f"preds/results_{query_submap_id}_query_result.png"))
 
 def parse_arguments():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
