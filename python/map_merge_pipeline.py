@@ -31,6 +31,19 @@ init(autoreset=True)
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
+def add_edge_history(edge_history, key, value):
+	if key[0] > key[1]:
+		new_key = (key[1], key[0])
+	else:
+		new_key = key
+	
+	if new_key not in edge_history:
+		edge_history[new_key] = value
+		logging.warning(f"Add Edge history: DB {new_key[0]} -> Query {new_key[1]}: {value}")
+	else:
+		edge_history[new_key] = value
+		logging.warning(f"Update Edge history: DB {new_key[0]} -> Query {new_key[1]}: {value}")
+
 class MergePipeline:
 	def __init__(self, args, log_dir: pathlib.Path):
 		self.args = args
@@ -215,7 +228,8 @@ def perform_global_loc(
 	merger: MergePipeline,
 	final_graph: ImageGraph,
 	cur_graph: ImageGraph,
-	cur_graph_id: int
+	cur_graph_id: int,
+	edge_history: Dict[Tuple[int, int], str] = None
 ) -> List[Tuple[ImageNode, ImageNode, np.ndarray, float]]:
 	"""Performs coarse localization between a reference map and a query submap.
 	
@@ -228,13 +242,12 @@ def perform_global_loc(
 		final_graph: The reference map containing database nodes.
 		cur_graph: The query submap to localize within the reference map.
 		cur_graph_id: Identifier for the current submap for logging purposes.
+		edge_change_log: List of edges that recorded history of change.
 		
 	Returns:
 		A list of edges representing potential matches between database and query
 		nodes. Each edge is a tuple (db_node, query_node, T_A2B, score).
 	"""
-	save_dir = str(merger.log_dir/"preds")
-
 	# Load descriptors from database and query nodes
 	db_descriptors = np.array(
 		[node.get_descriptor() for node in final_graph.nodes.values()], dtype=np.float32
@@ -246,76 +259,48 @@ def perform_global_loc(
 	)
 	query_node_ids = [node.id for node in cur_graph.nodes.values()]
 
-	merger.vpr_match_model.initialize_model(db_descriptors)
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
-		# VPR matching for all query nodes
-		connected_row_indices = []
+		merger.vpr_match_model.initialize_model(db_descriptors)
+		D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
+		
+		# VPR sequence matching for all query nodes
+		connected_db_query_indices = []
 		if 'PlaceRecognitionGraphSearch' in type(merger.vpr_match_model).__name__:
 			db_query_indices, score = merger.vpr_match_model.match(query_descriptors)
 			for pred, row in db_query_indices:
-				connected_row_indices.append((pred, row, score))
-				logging.warning(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
+				db_idx, query_idx = db_node_ids[pred], query_node_ids[row]
+				connected_db_query_indices.append((db_idx, query_idx, score))
+				add_edge_history(edge_history, (db_idx, query_idx), 'added_by_vpr')
 		elif 'PlaceRecognitionSeqMatching' in type(merger.vpr_match_model).__name__:
 			for row in range(len(query_descriptors)):
 				query_descs = query_descriptors[max(0, row-merger.vpr_match_model.seqLen+1) : row + 1]
 				_, pred, score = merger.vpr_match_model.match(query_descs)
-				connected_row_indices.append((pred, row, score))
-				logging.warning(f"Matching Query {query_node_ids[row]} -> DB {db_node_ids[pred]}")
+				db_idx, query_idx = db_node_ids[pred], query_node_ids[row]
+				connected_db_query_indices.append((db_idx, query_idx, score))
+				add_edge_history(edge_history, (db_idx, query_idx), 'added_by_vpr')
 		else:
 			raise ValueError(f"Unsupported VPR match model: {type(merger.vpr_match_model).__name__}")
 
-		if hasattr(merger.vpr_match_model, 'compute_diff_matrix'):
-			D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
-		else:
-			D_all = None
-
-		####### Visualize Pose Graph after VPR
-		vpr_edges = []
-		for db_row_id, query_row_id, _ in connected_row_indices:
-			db_idx, query_idx = db_node_ids[db_row_id], query_node_ids[query_row_id]
-			db_node = final_graph.get_node(db_idx)	
-			query_node = cur_graph.get_node(query_idx)			
-			vpr_edges.append((db_node, query_node, np.eye(4), 0))
-		save_vis_pose_graph(
-			save_dir, final_graph, cur_graph, cur_graph_id, vpr_edges,
-			suffix=f"{merger.args.vpr_match_model}_coarse_vpr"
-		)
-		#######
-
-		####### TODO(gogojjh): Remove the ransac mechanism 
-		best_row_indices = connected_row_indices
-		#######
-
 		# Geometric Verification
 		coarse_edges = []
-		for db_row_id, query_row_id, _ in best_row_indices:
-			db_idx, query_idx = db_node_ids[db_row_id], query_node_ids[query_row_id]
+		for db_idx, query_idx, _ in connected_db_query_indices:
 			db_node = final_graph.get_node(db_idx)	
 			query_node = cur_graph.get_node(query_idx)
 			result = merger.pose_estimator.get_matched_kpts(
-				final_graph.map_root, db_node.rgb_image, query_node.rgb_image
+				final_graph.map_root, 
+				db_node.rgb_image, 
+				query_node.rgb_image
 			)
 			num_inlier = result['num_inliers']
-			logging.warning(Fore.GREEN + f"Query {query_node.rgb_img_name} - DB {db_node.rgb_img_name} - Number of matched kpts: {num_inlier}")
+			warning_str = Fore.GREEN + f"Query {query_node.rgb_img_name} - DB {db_node.rgb_img_name} - Number of matched kpts: {num_inlier}"
+			logging.warning(warning_str)
+
 			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
+			else:
+				add_edge_history(edge_history, (db_idx, query_idx), 'removed_by_gv')
 	
-	##### Visualize Pose Graph after Geomtric Verification
-	if D_all is not None:
-		best_indices = [
-			(db_node_ids[db_row_id], query_node_ids[query_row_id]) \
-			for db_row_id, query_row_id, _ in best_row_indices
-		]
-		merger.vpr_match_model.viz_diff_matrix(
-			os.path.join(save_dir, 'D_matrix_gv.jpg'), D_all, best_indices
-		)
-
-	save_vis_pose_graph(
-		save_dir, final_graph, cur_graph, cur_graph_id, coarse_edges,
-		suffix=f"{merger.args.vpr_match_model}_coarse_gv"
-	)
-	
-	return coarse_edges
+	return coarse_edges, D_all
 
 def perform_local_loc(
 	edges_nodeA_to_nodeB_coarse: List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
@@ -323,6 +308,7 @@ def perform_local_loc(
 	final_graph: ImageGraph,
 	cur_graph: ImageGraph,
 	cur_graph_id: int,
+	edge_history: Dict[Tuple[int, int], str] = None
 ) -> Tuple[
 	List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
 	Dict[ImageNode, Dict[ImageNode, float]],
@@ -417,9 +403,8 @@ def perform_local_loc(
 							conf = (weight_i[edge_str].mean() * weight_j[edge_str].mean()).detach().cpu().item()
 
 					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
-					##### Only high-confidence pairs are considered for correct db-query pairs
+					##### Only reliable db-query pairs are considered for keyframe selection
 					if conf > RELIABLE_CONF_THRESHOLD:
-						##### Store immedinate results for subsequent keyframe selection
 						lm_gain_pw = compute_lm_pairwise(
 							db_node_pair,
 							query_node, 
@@ -438,6 +423,8 @@ def perform_local_loc(
 
 						if conf > REFINE_CONF_THRESHOLD:
 							refined_edges.append((db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node]))
+						else:
+							add_edge_history(edge_history, (db_node.id, query_node.id), 'removed_by_ccm')
 				# Applicable to other estimators
 				else:
 					conf = MAX_LOSS - result["loss"]
@@ -446,12 +433,6 @@ def perform_local_loc(
 		except Exception as e:
 			logging.warning(f"{Fore.RED} Pose estimation failed: {str(e)}")
 			continue
-
-	##### Save visualization and debug data
-	save_dir = str(merger.log_dir/"preds")
-	save_vis_pose_graph(
-		save_dir, final_graph, cur_graph, cur_graph_id, refined_edges,
-		suffix=f'{merger.args.vpr_match_model}_refine')
 
 	return refined_edges, lm_gain_db, lm_gain_query
 
@@ -470,12 +451,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 		merger.id_offset = final_map.get_max_node_id() + 1
 
 		if not final_map.is_empty:
+			edge_history = dict()
 			# Identify coarse covisibility relationship 
-			edges_nodeAB_coarse_covis = perform_global_loc(
+			edges_nodeAB_coarse_covis, D_matrix = perform_global_loc(
 				merger,
 				final_map.covis, 
 				cur_submap.covis, 
-				cur_submap.map_id
+				cur_submap.map_id,
+				edge_history
 			)
 			# Identify strong covisibility relationship 
 			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query = perform_local_loc(
@@ -483,7 +466,8 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merger, 
 				final_map.covis,
 				cur_submap.covis, 
-				cur_submap.map_id
+				cur_submap.map_id,
+				edge_history
 			)
 
 			##### Perform Pose Graph Optimization #####
@@ -512,14 +496,55 @@ def perform_submap_merging(merger: MergePipeline, args):
 				f"PGO: final error = " + 
 				f"{pose_graph.get_factor_graph().error(result_pgo):.3f}"
 			)
+
+			##### Visualization #####
 			if args.viz:
-				save_dir = str(merger.log_dir/"preds")
+				save_dir = str(merger.log_dir / "preds")
+                # Visualize the difference matrix (with/without GV)
+				db_query_indices = []
+				for key, value in edge_history.items():
+					db_idx, query_idx = key[0], key[1]
+					db_query_indices.append((db_idx, query_idx))
+				merger.vpr_match_model.viz_diff_matrix(os.path.join(save_dir, 'D_matrix_init.jpg'), D_matrix, db_query_indices)
+				db_query_indices = []
+				for key, value in edge_history.items():
+					if 'removed_by_gv' in value:
+						continue
+					db_idx, query_idx = key[0], key[1]
+					db_query_indices.append((db_idx, query_idx))
+				merger.vpr_match_model.viz_diff_matrix(os.path.join(save_dir, 'D_matrix_gv.jpg'), D_matrix, db_query_indices)
+				# Visualize the edge connections (with/without GV/CCM)
+				save_vis_edge_history(
+					save_dir, final_map.covis, cur_submap.covis, cur_submap.map_id, edge_history
+				)
+				# Visualize the optimized pose graph
 				pose_graph.plot_pose_graph(
 					save_dir, pose_graph.get_factor_graph(), 
 					[pose_graph.get_initial_estimate(), result_pgo],
 					['Before PGO', 'After PGO'], mode='2d', 
 					subgraph_keys=subgraph_keys
 				)
+
+			edge_history_path = str(merger.log_dir / "preds" / "edge_history.txt")
+			total_num_edges = len(edge_history)
+			num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
+			for key, value in edge_history.items():
+				db_idx, query_idx = int(key[0]), int(key[1])
+				if 'added_by_vpr' in value:
+					num_edge_added_by_vpr += 1
+				elif 'removed_by_gv' in value:
+					num_edge_removed_by_gv += 1
+				elif 'removed_by_ccm' in value:
+					num_edge_removed_by_ccm += 1
+			with open(edge_history_path, 'w') as f:
+				f.write(f"Number of edges added by VPR: {total_num_edges}\n")
+				f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
+				f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
+				f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
+				for key, value in edge_history.items():
+					db_idx, query_idx = key[0], key[1]
+					f.write(f"{db_idx},{query_idx},{value}\n")
+			########################
 
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
@@ -536,18 +561,19 @@ def perform_submap_merging(merger: MergePipeline, args):
 				# Compute the acceptance probability:
 				# 	Accept the new keyframe with high information gain, even it has low image quality
 				for nodeA, data in lm_gain_query.items():
-					acc_prob_dict = 1.0
+					acc_prob = 1.0
 					for _, gain in data.items():
-						acc_prob_dict = min(
+						acc_prob = min(
 							merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
-							acc_prob_dict
+							acc_prob
 						)
-					if acc_prob_dict < merger.lm_selector.P_acc_th:
-						logging.warning(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob_dict:.3f}")
+					if acc_prob < merger.lm_selector.P_acc_th:
+						logging.warning(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob:.3f}")
 						if args.viz:
 							save_vis_kf_removal(
 								merger.log_dir, nodeA.id,
-								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
+								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
+								acc_prob
 							)
 						nodes_query_to_remove.append(nodeA)
 				logging.warning('Removing nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_remove]))
@@ -556,19 +582,19 @@ def perform_submap_merging(merger: MergePipeline, args):
 				# Compute the keeping probability:
 				# 	Remove the old keyframe with the low information gain and low image quality
 				for nodeA, data in lm_gain_db.items():
-					min_prob, node_rep = 1.0, None
+					acc_prob, node_rep = 1.0, None
 					for nodeB, gain in data.items():
 						if nodeB in nodes_query_to_remove:
 							continue
 						prob = merger.lm_selector.compute_keep_prob(
 							nodeA.iqa_data-nodeB.iqa_data, gain, nodeB.time-nodeA.time
 						)
-						if prob < min_prob:
-							min_prob, node_rep = prob, nodeB
+						if prob < acc_prob:
+							acc_prob, node_rep = prob, nodeB
 
-					if min_prob < merger.lm_selector.P_keep_th and node_rep:
+					if acc_prob < merger.lm_selector.P_keep_th and node_rep:
 						nodes_db_to_remove.append(nodeA)
-						logging.warning(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{min_prob:.3f}")
+						logging.warning(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
 						if args.viz:
 							merger.lm_selector.print_each_prob(
 								nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
@@ -577,9 +603,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 								merger.log_dir, 
 								nodeA.id, node_rep.id,
 								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
-								node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy()
+								node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
+								acc_prob
 							)
-							
 				logging.warning('Removing nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_remove]))
 
 			##### Perform map update and merging
@@ -612,10 +638,15 @@ def perform_submap_merging(merger: MergePipeline, args):
 				cur_submap.odom, 
 				[]
 			)
-			g2o_path = str(merger.log_dir/"preds/initial_pose_graph.g2o")
+			g2o_path = str(merger.log_dir / "preds" / "initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			if args.viz:
-				save_dir = str(merger.log_dir/"preds")
+				save_dir = str(merger.log_dir / "preds")
+				# Visualize the edge connections (without GV/CCM)
+				save_vis_edge_history(
+					save_dir, final_map.covis, cur_submap.covis, cur_submap.map_id, dict()
+				)
+				# Visualize the pose graph
 				pose_graph.plot_pose_graph(
 					save_dir, pose_graph.get_factor_graph(), 
 					[pose_graph.get_initial_estimate(), pose_graph.get_initial_estimate()],

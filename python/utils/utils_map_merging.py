@@ -12,16 +12,17 @@ import pathlib
 from estimator import get_estimator, available_models
 from estimator.utils import to_numpy
 import matplotlib.pyplot as plt
+from sklearn.metrics import precision_score, recall_score
 
 from .utils_geom import convert_vec_to_matrix, compute_pose_error
 
 RMSE_THRESHOLD = 3.0
 VPR_MATCH_THRESHOLD = 0.90
 REFINE_GV_SCORE_THRESHOLD = 100.0
-RELIABLE_CONF_THRESHOLD = 0.1
-REFINE_CONF_THRESHOLD = 0.5 # threshold to select good refinement: out-of-range image, wrong coarse localization
 MAX_LOSS = 10.0 
 
+RELIABLE_CONF_THRESHOLD = 0.1
+REFINE_CONF_THRESHOLD = 0.5 # threshold to select good refinement: out-of-range image, wrong coarse localization
 assert RELIABLE_CONF_THRESHOLD < REFINE_CONF_THRESHOLD
 
 def setup_logging(log_dir, stdout_level='info'):
@@ -144,25 +145,107 @@ def save_vis_pose_graph(log_dir, db_submap, query_submap, query_submap_id, edges
 	else:
 		plt.savefig(os.path.join(log_dir, f"results_{suffix}_{query_submap_id}_posegraph.png"))
 
-def save_vis_kf_removal(log_dir, img_id, rgb_img):
+def save_vis_edge_history(log_dir, db_submap, query_submap, query_submap_id, edge_history):
+	"""
+	Save visualization of graph-based map with nodes and edges.
+	Plot the trajectory onto the X-Z plane.
+	"""
+	fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+	# --- Helper to plot base map ---
+	def plot_base(ax):
+		for _, node in db_submap.nodes.items():
+			ax.plot(node.trans_gt[0], node.trans_gt[1], 'bo', markersize=5)
+			for edge in node.edges.values():
+				next_node = edge[0]
+				ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=0.5)
+		for _, node in query_submap.nodes.items():
+			ax.plot(node.trans_gt[0], node.trans_gt[1], 'bo', markersize=5)
+			for edge in node.edges.values():
+				next_node = edge[0]
+				ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=0.5)
+
+	# --- Edge filters for each subplot ---
+	edge_selector = [
+		lambda value: 'added_by_vpr' in value or 'removed_by_gv' in value or 'removed_by_ccm' in value,
+		lambda value: 'added_by_vpr' in value or 'removed_by_ccm' in value,  # ignore removed_by_gv
+		lambda value: 'added_by_vpr' in value,  # ignore both removed_by_gv and removed_by_ccm
+	]
+	sub_titles = [
+		"Edges: VPR",
+		"Edges: VPR -> GV",
+		"Edges: VPR -> GV -> CCM"
+	]
+
+	# --- Threshold for true positive ---
+	trans_threshold = 7.5
+	ori_threshold = 75.0
+	
+	# --- Generate binary labels ---
+	y_true = [0] * len(edge_history)
+	for query_idx in range(len(edge_history)):
+		nodeB = query_submap.get_node(query_idx)
+		for nodeA in db_submap.nodes.values():
+			dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
+			if dis_tsl < trans_threshold and dis_angle < ori_threshold:
+				y_true[query_idx] = 1
+				break
+
+	for subplot_idx, ax in enumerate(axes):
+		plot_base(ax)
+		
+		num_edges = 0
+		y_pred = [0] * len(edge_history)
+		for key, value in edge_history.items():
+			if not edge_selector[subplot_idx](value): 
+				continue
+			db_idx, query_idx = key[0], key[1]
+			nodeA = db_submap.get_node(db_idx)
+			nodeB = query_submap.get_node(query_idx)
+			dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
+			ax.plot([nodeA.trans_gt[0], nodeB.trans_gt[0]],
+					[nodeA.trans_gt[1], nodeB.trans_gt[1]],
+					'g-', linewidth=2)
+			num_edges += 1
+
+			if y_true[query_idx]:
+				if dis_tsl < trans_threshold and dis_angle < ori_threshold:
+					y_pred[query_idx] = 1 # true positive
+				else:
+					y_pred[query_idx] = 0 # false negative
+			else:
+				y_pred[query_idx] = 1 # false positive
+
+		precision = precision_score(y_true, y_pred, zero_division=0)
+		recall = recall_score(y_true, y_pred, zero_division=0)
+		ax.grid(ls='--', color='0.7')
+		ax.set_xlabel('X [m]')
+		ax.set_ylabel('Y [m]')
+		ax.axis('equal')
+		title = f"{sub_titles[subplot_idx]}\nEdge Number: {num_edges}, Precision: {precision:.2f}, Recall: {recall:.2f}"
+		ax.set_title(title)
+	
+	plt.tight_layout()
+	plt.savefig(os.path.join(log_dir, f"edge_history.png"))
+
+def save_vis_kf_removal(log_dir, img_id, rgb_img, prob):
 	(log_dir/"preds/kf_vis").mkdir(parents=True, exist_ok=True)
 	fig, ax = plt.subplots(1, 1, figsize=(4, 4))
 	ax.imshow(rgb_img)
 	ax.set_title(f'Remove New Keyframe {img_id}')
 	ax.axis('off')
-	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_rejection_query_{img_id}.jpg"))
+	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_rejection_query_{img_id}_{prob:.3f}.jpg"))
 	plt.close()
 
-def save_vis_kf_replacement(log_dir, img0_id, img1_id, rgb_img0, rgb_img1):
+def save_vis_kf_replacement(log_dir, img0_id, img1_id, rgb_img0, rgb_img1, prob):
 	(log_dir/"preds/kf_vis").mkdir(parents=True, exist_ok=True)
 	fig, ax = plt.subplots(1, 2, figsize=(10, 4))
 	ax[0].imshow(rgb_img0)
-	ax[0].set_title('Old Keyframe')
+	ax[0].set_title(f'Old Keyframe {img0_id}')
 	ax[0].axis('off')
 	ax[1].imshow(rgb_img1)
-	ax[1].set_title('New Keyframe')
+	ax[1].set_title(f'New Keyframe {img1_id}')
 	ax[1].axis('off')
-	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_replacement_{img0_id}_{img1_id}.jpg"))
+	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_replacement_{img0_id}_{img1_id}_{prob:.3f}.jpg"))
 	plt.close()
 
 def save_query_result(log_dir, query_result_info, query_submap_id):
@@ -196,142 +279,16 @@ def parse_arguments():
 	parser.add_argument("--vpr_match_model", type=str, default="sequence_match", 
 						help="single_match, topo_filter, sequence_match, sequence_match_ransac, sequence_match_adaptive")
 	parser.add_argument("--vpr_match_seq_len", type=int, default=10, help="Sequence length for VPR")
-
 	parser.add_argument("--pose_estimation_method", type=str, default="master", help=f"{available_models}")
-
 	parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="cuda (gpu) or cpu")
-
 	parser.add_argument("--color_correct", action="store_true", help="Flag to correct collor temperature")
-
 	parser.add_argument("--prune_keyframe_forward", action="store_true", 
-					 help="Flag to prune keyframes by checking quality and information gain of newly inserted keyframes")
-
+					 	help="Flag to prune keyframes by checking quality and information gain of newly inserted keyframes")
 	parser.add_argument("--prune_keyframe_backward", action="store_true", 
-					 help="Flag to prune keyframes by checking quality and information gain of old keyframes")
-
+					 	help="Flag to prune keyframes by checking quality and information gain of old keyframes")
 	parser.add_argument("--warning", action="store_true", help="Logging level")
-
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")
-
-	# parser.add_argument("--positive_dist_threshold", type=int, default=25,
-	# 										help="distance (in meters) for a prediction to be considered a positive")
-	# parser.add_argument("--vpr_method", type=str, default="cosplace",
-	# 											choices=["netvlad", "apgem", "sfrs", "cosplace", "convap", "mixvpr", "eigenplaces", 
-	# 													"eigenplaces-indoor", "anyloc", "salad", "salad-indoor", "cricavpr"],
-	# 											help="_")
-	# parser.add_argument("--backbone", type=str, default=None,
-	# 										choices=[None, "VGG16", "ResNet18", "ResNet50", "ResNet101", "ResNet152"],
-	# 										help="_")
-	# parser.add_argument("--descriptors_dimension", type=int, default=None, help="_")
-
-	# parser.add_argument("--num_workers", type=int, default=4,
-	# 										help="_")
-	# parser.add_argument("--batch_size", type=int, default=4,
-	# 										help="set to 1 if database images may have different resolution")
-	# parser.add_argument("--log_dir", type=str, default="default", 
-	# 				 help="experiment name, output logs will be saved under logs/log_dir")
-	# parser.add_argument("--recall_values", type=int, nargs="+", default=[1, 5, 10, 20],
-	# 										help="values for recall (e.g. recall@1, recall@5)")
-	# parser.add_argument("--no_labels", action="store_true",
-	# 										help="set to true if you have no labels and just want to "
-	# 										"do standard image retrieval given two folders of queries and DB")
-	# parser.add_argument("--num_preds_to_save", type=int, default=0,
-	# 										help="set != 0 if you want to save predictions for each query")
-	# parser.add_argument("--save_only_wrong_preds", action="store_true",
-	# 										help="set to true if you want to save predictions only for "
-	# 										"wrongly predicted queries")
-	# parser.add_argument("--save_descriptors", action="store_true",
-	# 										help="set to True if you want to save the descriptors extracted by the model")
 	args = parser.parse_args()
-	
-	# args.use_labels = not args.no_labels
-	
-	# if args.method == "netvlad":
-	# 	if args.backbone not in [None, "VGG16"]:
-	# 		raise ValueError("When using NetVLAD the backbone must be None or VGG16")
-	# 	if args.descriptors_dimension not in [None, 4096, 32768]:
-	# 		raise ValueError("When using NetVLAD the descriptors_dimension must be one of [None, 4096, 32768]")
-	# 	if args.descriptors_dimension is None:
-	# 		args.descriptors_dimension = 4096
-			
-	# elif args.method == "sfrs":
-	# 	if args.backbone not in [None, "VGG16"]:
-	# 		raise ValueError("When using SFRS the backbone must be None or VGG16")
-	# 	if args.descriptors_dimension not in [None, 4096]:
-	# 		raise ValueError("When using SFRS the descriptors_dimension must be one of [None, 4096]")
-	# 	if args.descriptors_dimension is None:
-	# 		args.descriptors_dimension = 4096
-	
-	# elif args.method == "cosplace":
-	# 	if args.backbone is None:
-	# 		args.backbone = "ResNet50"
-	# 	if args.descriptors_dimension is None:
-	# 		args.descriptors_dimension = 512
-	# 	if args.backbone == "VGG16" and args.descriptors_dimension not in [64, 128, 256, 512]:
-	# 		raise ValueError("When using CosPlace with VGG16 the descriptors_dimension must be in [64, 128, 256, 512]")
-	# 	if args.backbone == "ResNet18" and args.descriptors_dimension not in [32, 64, 128, 256, 512]:
-	# 		raise ValueError("When using CosPlace with ResNet18 the descriptors_dimension must be in [32, 64, 128, 256, 512]")
-	# 	if args.backbone in ["ResNet50", "ResNet101", "ResNet152"] and args.descriptors_dimension not in [32, 64, 128, 256, 512, 1024, 2048]:
-	# 		raise ValueError(f"When using CosPlace with {args.backbone} the descriptors_dimension must be in [32, 64, 128, 256, 512, 1024, 2048]")
-	
-	# elif args.method == "convap":
-	# 	if args.backbone is None:
-	# 		args.backbone = "ResNet50"
-	# 	if args.descriptors_dimension is None:
-	# 		args.descriptors_dimension = 512
-	# 	if args.backbone not in [None, "ResNet50"]:
-	# 		raise ValueError("When using Conv-AP the backbone must be None or ResNet50")
-	# 	if args.descriptors_dimension not in [None, 512, 2048, 4096, 8192]:
-	# 		raise ValueError("When using Conv-AP the descriptors_dimension must be one of [None, 512, 2048, 4096, 8192]")
-	
-	# elif args.method == "mixvpr":
-	# 	if args.backbone is None:
-	# 		args.backbone = "ResNet50"
-	# 	if args.descriptors_dimension is None:
-	# 		args.descriptors_dimension = 512
-	# 	if args.backbone not in [None, "ResNet50"]:
-	# 		raise ValueError("When using Conv-AP the backbone must be None or ResNet50")
-	# 	if args.descriptors_dimension not in [None, 128, 512, 4096]:
-	# 		raise ValueError("When using Conv-AP the descriptors_dimension must be one of [None, 128, 512, 4096]")
-	
-	# elif args.method == "eigenplaces":
-	# 	if args.backbone is None:
-	# 		args.backbone = "ResNet50"
-	# 	if args.descriptors_dimension is None:
-	# 		args.descriptors_dimension = 512
-	# 	if args.backbone == "VGG16" and args.descriptors_dimension not in [512]:
-	# 		raise ValueError("When using EigenPlaces with VGG16 the descriptors_dimension must be in [512]")
-	# 	if args.backbone == "ResNet18" and args.descriptors_dimension not in [256, 512]:
-	# 		raise ValueError("When using EigenPlaces with ResNet18 the descriptors_dimension must be in [256, 512]")
-	# 	if args.backbone in ["ResNet50", "ResNet101", "ResNet152"] and args.descriptors_dimension not in [128, 256, 512, 2048]:
-	# 		raise ValueError(f"When using EigenPlaces with {args.backbone} the descriptors_dimension must be in [128, 256, 512, 2048]")
-				
-	# elif args.method == "eigenplaces-indoor":
-	# 	args.backbone = "ResNet50"
-	# 	args.descriptors_dimension = 2048
-	
-	# elif args.method == "apgem":
-	# 	args.backbone = "Resnet101"
-	# 	args.descriptors_dimension = 2048
-	
-	# elif args.method == "anyloc":
-	# 	args.backbone = "DINOv2"
-	# 	args.descriptors_dimension = 49152
-	
-	# elif args.method == "salad":
-	# 	args.backbone = "DINOv2"
-	# 	args.descriptors_dimension = 8448
-			
-	# elif args.method == "salad-indoor":
-	# 	args.backbone = "Dinov2"
-	# 	args.descriptors_dimension = 8448
-	
-	# elif args.method == "cricavpr":
-	# 	args.backbone = "Dinov2"
-	# 	args.descriptors_dimension = 10752
-	
-	# if args.image_size and len(args.image_size) > 2:
-	# 	raise ValueError(f"The --image_size parameter can only take up to 2 values, but has received {len(args.image_size)}.")
-	
+
 	return args
 

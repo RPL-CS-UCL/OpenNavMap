@@ -15,8 +15,8 @@ python ../litevloc_altas_app.py \
     --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
     --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
     --device cuda \
-    --batch_size 64 \
-    --num_workers 8 \
+    --batch_size 16 \
+    --num_workers 4 \
     --recall_k 20 \
     --share
 

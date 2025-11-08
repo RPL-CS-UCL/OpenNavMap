@@ -55,6 +55,7 @@ class PlaceRecognitionSingleMatching:
 		fig = plt.figure(figsize=(18, 9))
 		ax = fig.add_subplot(111)
 		im = ax.imshow(D_all, cmap='Greys', aspect='auto')
+
 		if db_query_indices is not None:
 			for db_idx, query_idx in db_query_indices:
 				ax.plot(query_idx, db_idx, 'g.', markersize=6, markeredgewidth=1)
