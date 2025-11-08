@@ -620,7 +620,11 @@ def perform_submap_merging(merger: MergePipeline, args):
 				with open(cull_info_path, 'w') as f:
 					f.write("node_id,type,prob,method,replaced_by\n")
 					for record in nodes_to_cull_info:
-						node_id, type_, prob, method, replaced_by = record['node_id'], record['type'], record['prob'], record['method'], record.get('replaced_by', "")
+						node_id = record['node_id']
+						type_ = record['type']
+						prob = record['prob']
+						method = record['method']
+						replaced_by = record.get('replaced_by', "")
 						f.write(f"{node_id},{type_},{prob},{method},{replaced_by}\n")
 
 			##### Perform map update and merging
