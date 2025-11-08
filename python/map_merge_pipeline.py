@@ -32,17 +32,12 @@ init(autoreset=True)
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
 def add_edge_history(edge_history, key, value):
-	if key[0] > key[1]:
-		new_key = (key[1], key[0])
+	if key not in edge_history:
+		edge_history[key] = value
+		logging.warning(f"Add Edge history: DB {key[0]} -> Query {key[1]}: {value}")
 	else:
-		new_key = key
-	
-	if new_key not in edge_history:
-		edge_history[new_key] = value
-		logging.warning(f"Add Edge history: DB {new_key[0]} -> Query {new_key[1]}: {value}")
-	else:
-		edge_history[new_key] = value
-		logging.warning(f"Update Edge history: DB {new_key[0]} -> Query {new_key[1]}: {value}")
+		edge_history[key] = value
+		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
 
 class MergePipeline:
 	def __init__(self, args, log_dir: pathlib.Path):
@@ -262,13 +257,14 @@ def perform_global_loc(
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 		merger.vpr_match_model.initialize_model(db_descriptors)
 		D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
+		logging.info(f"D_all shape: {D_all.shape}")
 		
 		# VPR sequence matching for all query nodes
 		connected_db_query_indices = []
 		if 'PlaceRecognitionGraphSearch' in type(merger.vpr_match_model).__name__:
-			db_query_indices, score = merger.vpr_match_model.match(query_descriptors)
-			for pred, row in db_query_indices:
-				db_idx, query_idx = db_node_ids[pred], query_node_ids[row]
+			pred_db_query_rows, score = merger.vpr_match_model.match(query_descriptors)
+			for db_row, query_row in pred_db_query_rows:
+				db_idx, query_idx = db_node_ids[db_row], query_node_ids[query_row]
 				connected_db_query_indices.append((db_idx, query_idx, score))
 				add_edge_history(edge_history, (db_idx, query_idx), 'added_by_vpr')
 		elif 'PlaceRecognitionSeqMatching' in type(merger.vpr_match_model).__name__:
@@ -309,11 +305,9 @@ def perform_local_loc(
 	cur_graph: ImageGraph,
 	cur_graph_id: int,
 	edge_history: Dict[Tuple[int, int], str] = None
-) -> Tuple[
-	List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
-	Dict[ImageNode, Dict[ImageNode, float]],
-	Dict[ImageNode, Dict[ImageNode, float]]
-]:
+) -> Tuple[List[Tuple[ImageNode, ImageNode, np.ndarray, float]],
+		   Dict[ImageNode, Dict[ImageNode, float]],
+		   Dict[ImageNode, Dict[ImageNode, float]]]:
 	"""Performs fine-grained localization using pose estimation on coarse matches.
 	
 	Args:
@@ -501,18 +495,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 			if args.viz:
 				save_dir = str(merger.log_dir / "preds")
                 # Visualize the difference matrix (with/without GV)
-				db_query_indices = []
-				for key, value in edge_history.items():
-					db_idx, query_idx = key[0], key[1]
-					db_query_indices.append((db_idx, query_idx))
-				merger.vpr_match_model.viz_diff_matrix(os.path.join(save_dir, 'D_matrix_init.jpg'), D_matrix, db_query_indices)
-				db_query_indices = []
-				for key, value in edge_history.items():
-					if 'removed_by_gv' in value:
-						continue
-					db_idx, query_idx = key[0], key[1]
-					db_query_indices.append((db_idx, query_idx))
-				merger.vpr_match_model.viz_diff_matrix(os.path.join(save_dir, 'D_matrix_gv.jpg'), D_matrix, db_query_indices)
+				db_query_indices = [key for key in edge_history]
+				merger.vpr_match_model.viz_diff_matrix(
+					os.path.join(save_dir, 'D_matrix_init.jpg'), D_matrix, db_query_indices
+				)
+				db_query_indices = [key for key, value in edge_history.items() if 'removed_by_gv' not in value]
+				merger.vpr_match_model.viz_diff_matrix(
+					os.path.join(save_dir, 'D_matrix_gv.jpg'), D_matrix, db_query_indices
+				)
 				# Visualize the edge connections (with/without GV/CCM)
 				save_vis_edge_history(
 					save_dir, final_map.covis, cur_submap.covis, cur_submap.map_id, edge_history
@@ -549,73 +539,98 @@ def perform_submap_merging(merger: MergePipeline, args):
 			for key in result_pgo.keys():
 				update_estimate = result_pgo.atPose3(key)
 				pose_graph.add_init_estimate(key, update_estimate)
-			g2o_path = str(merger.log_dir/"preds/refine_pose_graph.g2o")
+			g2o_path = str(merger.log_dir / "preds" / "refine_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
 			
-			##### Perform keyframe pruning #####
-			# Steps: check pruning probability -> remove old nodes for covis graph
-			# But nodes in odom and trav graph are kepts
-			# The id of removed nodes will not replaced by new nodes to avoid conflict with odom and trav graph
-			nodes_query_to_remove, nodes_db_to_remove = [], []
-			if args.prune_keyframe_forward:
-				# Compute the acceptance probability:
-				# 	Accept the new keyframe with high information gain, even it has low image quality
-				for nodeA, data in lm_gain_query.items():
-					acc_prob = 1.0
-					for _, gain in data.items():
-						acc_prob = min(
-							merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
-							acc_prob
-						)
-					if acc_prob < merger.lm_selector.P_acc_th:
-						logging.warning(f"Remove Submap1 {nodeA.id} lower than Accept Prob:{acc_prob:.3f}")
-						if args.viz:
-							save_vis_kf_removal(
-								merger.log_dir, nodeA.id,
-								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
+			##### Perform keyframe culling #####
+			# Steps: check culling probability -> cull old nodes for covis graph
+			# But nodes in odom and trav graph are kept
+			# The id of culled nodes will not be replaced by new nodes to avoid conflict with odom and trav graph
+			nodes_query_to_cull, nodes_db_to_cull = [], []
+
+			if args.prune_keyframe_forward or args.prune_keyframe_backward:
+				nodes_to_cull_info = []
+				if args.prune_keyframe_forward:
+					# Compute the acceptance probability:
+					# 	Accept the new keyframe with high information gain, even if it has low image quality
+					for nodeA, data in lm_gain_query.items():
+						acc_prob = 1.0
+						for _, gain in data.items():
+							acc_prob = min(
+								merger.lm_selector.compute_accept_prob(nodeA.iqa_data, gain),
 								acc_prob
 							)
-						nodes_query_to_remove.append(nodeA)
-				logging.warning('Removing nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_remove]))
+						if acc_prob < merger.lm_selector.P_acc_th:
+							logging.warning(f"Cull Submap1 {nodeA.id} lower than Accept Prob:{acc_prob:.3f}")
+							nodes_query_to_cull.append(nodeA)
+							nodes_to_cull_info.append({
+								'node_id': nodeA.id,
+								'type': 'query',
+								'prob': acc_prob,
+								'method': 'culled_by_forward'
+							})
+							if args.viz:
+								save_vis_kf_removal(
+									merger.log_dir, nodeA.id,
+									nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
+									acc_prob
+								)
+					logging.warning('Culling nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_cull]))
 
-			if args.prune_keyframe_backward:
-				# Compute the keeping probability:
-				# 	Remove the old keyframe with the low information gain and low image quality
-				for nodeA, data in lm_gain_db.items():
-					acc_prob, node_rep = 1.0, None
-					for nodeB, gain in data.items():
-						if nodeB in nodes_query_to_remove:
-							continue
-						prob = merger.lm_selector.compute_keep_prob(
-							nodeA.iqa_data-nodeB.iqa_data, gain, nodeB.time-nodeA.time
-						)
-						if prob < acc_prob:
-							acc_prob, node_rep = prob, nodeB
+				if args.prune_keyframe_backward:
+					# Compute the keeping probability:
+					# 	Cull the old keyframe with low information gain and low image quality
+					for nodeA, data in lm_gain_db.items():
+						acc_prob, node_rep = 1.0, None
+						for nodeB, gain in data.items():
+							if nodeB in nodes_query_to_cull:
+								continue
+							prob = merger.lm_selector.compute_keep_prob(
+								nodeA.iqa_data-nodeB.iqa_data, gain, nodeB.time-nodeA.time
+							)
+							if prob < acc_prob:
+								acc_prob, node_rep = prob, nodeB
 
-					if acc_prob < merger.lm_selector.P_keep_th and node_rep:
-						nodes_db_to_remove.append(nodeA)
-						logging.warning(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
-						if args.viz:
-							merger.lm_selector.print_each_prob(
-								nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
-							)
-							save_vis_kf_replacement(
-								merger.log_dir, 
-								nodeA.id, node_rep.id,
-								nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
-								node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
-								acc_prob
-							)
-				logging.warning('Removing nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_remove]))
+						if acc_prob < merger.lm_selector.P_keep_th and node_rep:
+							logging.warning(f"Replace Submap0 {nodeA.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
+							nodes_db_to_cull.append(nodeA)
+							nodes_to_cull_info.append({
+								'node_id': nodeA.id,
+								'type': 'db',
+								'prob': acc_prob,
+								'method': 'culled_by_backward',
+								'replaced_by': node_rep.id
+							})
+							if args.viz:
+								merger.lm_selector.print_each_prob(
+									nodeA.iqa_data-node_rep.iqa_data, lm_gain_db[nodeA][node_rep], node_rep.time-nodeA.time
+								)
+								save_vis_kf_replacement(
+									merger.log_dir, 
+									nodeA.id, node_rep.id,
+									nodeA.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(), 
+									node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0).cpu().numpy(),
+									acc_prob
+								)
+					logging.warning('Culling nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_cull]))
+
+				# Write cull node information to log file
+				cull_info_path = merger.log_dir / "preds" / "cull_node_info.txt"
+				cull_info_path.parent.mkdir(parents=True, exist_ok=True)
+				with open(cull_info_path, 'w') as f:
+					f.write("node_id,type,prob,method,replaced_by\n")
+					for record in nodes_to_cull_info:
+						node_id, type_, prob, method, replaced_by = record['node_id'], record['type'], record['prob'], record['method'], record.get('replaced_by', "")
+						f.write(f"{node_id},{type_},{prob},{method},{replaced_by}\n")
 
 			##### Perform map update and merging
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 			# Enforce all node id in edges_nodeAB_refine_covis to be adjusted
-			nodes_to_remove = nodes_query_to_remove + nodes_db_to_remove
-			final_map.covis.remove_node_list(nodes_to_remove)
-			final_map.covis.remove_invalid_edges(nodes_to_remove)
-			final_map.covis.rm_sensor_data(nodes_to_remove)
+			nodes_to_cull = nodes_query_to_cull + nodes_db_to_cull
+			final_map.covis.remove_node_list(nodes_to_cull)
+			final_map.covis.remove_invalid_edges(nodes_to_cull)
+			final_map.covis.rm_sensor_data(nodes_to_cull)
 
 			# Update edges from the src_edges for different types of graphs
 			# Nodes are merged and reflected on the updated graph

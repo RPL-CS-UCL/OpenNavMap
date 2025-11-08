@@ -52,20 +52,16 @@ class PlaceRecognitionSingleMatching:
 		return D
 	
 	def viz_diff_matrix(self, save_img_path, D_all, db_query_indices=None):
-		fig = plt.figure(figsize=(18, 9))
-		ax = fig.add_subplot(111)
-		im = ax.imshow(D_all, cmap='Greys', aspect='auto')
-
+		plt.figure(figsize=(18, 9))
+		plt.imshow(D_all, cmap='Greys', aspect='auto', clim=(0.0, 1.0))
 		if db_query_indices is not None:
-			for db_idx, query_idx in db_query_indices:
-				ax.plot(query_idx, db_idx, 'g.', markersize=6, markeredgewidth=1)
-
-		fig.colorbar(im, ax=ax)
-		im.set_clim(0.0, 1.0)
-		ax.set_xlabel('Query Index')
-		ax.set_ylabel('Database Index')
-		ax.set_title("Difference Matrix")
-		ax.set_aspect('equal')
+			db_idx, query_idx = zip(*db_query_indices)
+			plt.plot(query_idx, db_idx, 'g.', markersize=6, markeredgewidth=1)
+		plt.colorbar()
+		plt.xlabel('Query Index')
+		plt.ylabel('Database Index')
+		plt.title("Difference Matrix")
+		plt.gca().set_aspect('equal')
 		plt.tight_layout()
 		plt.savefig(save_img_path, dpi=300, bbox_inches='tight')
 		plt.close()

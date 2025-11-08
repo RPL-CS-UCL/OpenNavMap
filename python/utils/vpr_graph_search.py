@@ -65,9 +65,9 @@ class PlaceRecognitionGraphSearch(PlaceRecognitionSingleMatching):
 			curr = prev_i  # for next iteration
 		path.reverse()
 
-		pred_query_db_idx = [(i, j) for i, j in path]
+		pred_db_query_rows = [(i, j) for i, j in path]
 
-		return pred_query_db_idx, best_score
+		return pred_db_query_rows, best_score
 	
 	def _perform_graph_search(self, cost_matrix):
 		"""
