@@ -132,7 +132,6 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 
 	for subplot_idx, ax in enumerate(axes):
 		plot_base(ax)
-		
 		num_edges = 0
 		y_pred = [0] * len(edge_history)
 		for key, value in edge_history.items():

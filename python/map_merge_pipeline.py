@@ -31,7 +31,7 @@ init(autoreset=True)
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
-def add_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
+def update_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
 	if key not in edge_history:
 		assert db_row is not None or query_row is not None, "db_row and query_row must be provided"
 		value = {'action': action, 'db_row': db_row, 'query_row': query_row}
@@ -269,7 +269,7 @@ def perform_global_loc(
 			for db_row, query_row in pred_db_query_rows:
 				db_idx, query_idx = db_node_ids[db_row], query_node_ids[query_row]
 				connected_db_query_indices.append((db_idx, query_idx, score))
-				add_edge_history(
+				update_edge_history(
 					edge_history, 
 					(db_idx, query_idx), 
 					action='added_by_vpr', db_row=db_row, query_row=query_row
@@ -280,7 +280,7 @@ def perform_global_loc(
 				_, db_row, score = merger.vpr_match_model.match(query_descs)
 				db_idx, query_idx = db_node_ids[db_row], query_node_ids[query_row]
 				connected_db_query_indices.append((db_idx, query_idx, score))
-				add_edge_history(
+				update_edge_history(
 					edge_history, 
 					(db_idx, query_idx), 
 					action='added_by_vpr', db_row=db_row, query_row=query_row
@@ -305,7 +305,7 @@ def perform_global_loc(
 			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
 			else:
-				add_edge_history(edge_history, (db_idx, query_idx), action='removed_by_gv')
+				update_edge_history(edge_history, (db_idx, query_idx), action='removed_by_gv')
 	
 	return coarse_edges, D_all
 
@@ -335,6 +335,7 @@ def perform_local_loc(
 	lm_gain_db, lm_gain_query = dict(), dict()
 	# Each element of edges_nodeAB_refine_covis: [nodeA, nodeB, T_rel, conf, overlapping_score]
 	refined_edges = []
+	lloc_history = dict()
 	for edge in tqdm(edges_nodeA_to_nodeB_coarse):
 		db_node, query_node = edge[:2]
 		# Check whether the node has more than one edge
@@ -396,10 +397,9 @@ def perform_local_loc(
 				logging.warning(f"Error in translation: {dis_tsl:.3f} [m] and rotation {dis_angle:.3f} [deg]")
 				##############################
 
-				# Add to refined matches if score exceeds threshold
-				top_k_matches = len(db_names) # default: 2
 				# Applicable to master and duster
 				if hasattr(merger.pose_estimator, 'get_minimum_spanning_tree'):
+					top_k_matches = len(db_names) # default: 2
 					msp_edges = merger.pose_estimator.get_minimum_spanning_tree()
 					weight_i, weight_j = merger.pose_estimator.scene.weight_i, merger.pose_estimator.scene.weight_j
 					for edge in msp_edges:
@@ -409,6 +409,10 @@ def perform_local_loc(
 
 					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					##### Only reliable db-query pairs are considered for keyframe selection
+					lloc_history[(db_node.id, query_node.id)] = f'Conf: {conf:.3f} - Error: {dis_tsl:.3f} [m] and {dis_angle:.3f} [deg]'
+					if conf < REFINE_CONF_THRESHOLD:
+						update_edge_history(edge_history, (db_node.id, query_node.id), action='removed_by_ccm')
+					
 					if conf > RELIABLE_CONF_THRESHOLD:
 						lm_gain_pw = compute_lm_pairwise(
 							db_node_pair,
@@ -427,19 +431,20 @@ def perform_local_loc(
 								lm_gain_query[node_i][node_j] = gain
 
 						if conf > REFINE_CONF_THRESHOLD:
-							refined_edges.append((db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node]))
-						else:
-							add_edge_history(edge_history, (db_node.id, query_node.id), action='removed_by_ccm')
+							refined_edges.append(
+								(db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node])
+							)							
 				# Applicable to other estimators
 				else:
 					conf = MAX_LOSS - result["loss"]
 					refined_edges.append((db_node, query_node, T_rel_est, conf, conf / MAX_LOSS))
 			
 		except Exception as e:
+			update_edge_history(edge_history, (db_node.id, query_node.id), action='removed_by_ccm')
 			logging.warning(f"{Fore.RED} Pose estimation failed: {str(e)}")
 			continue
 
-	return refined_edges, lm_gain_db, lm_gain_query
+	return refined_edges, lm_gain_db, lm_gain_query, lloc_history
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
@@ -466,7 +471,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				edge_history
 			)
 			# Identify strong covisibility relationship 
-			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query = perform_local_loc(
+			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query, lloc_history = perform_local_loc(
 				edges_nodeAB_coarse_covis,
 				merger, 
 				final_map.covis,
@@ -549,6 +554,12 @@ def perform_submap_merging(merger: MergePipeline, args):
 						db_idx, query_idx = key[0], key[1]
 						action = value['action']
 						f.write(f"{db_idx},{query_idx},{action}\n")
+
+				lloc_history_path = str(merger.log_dir / "preds" / "lloc_history.txt")
+				with open(lloc_history_path, 'w') as f:
+					for key, value in lloc_history.items():
+						db_idx, query_idx = key[0], key[1]
+						f.write(f"{db_idx},{query_idx},{value}\n")
 			########################
 
 			for key in result_pgo.keys():
