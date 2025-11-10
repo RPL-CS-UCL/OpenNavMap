@@ -33,7 +33,6 @@ class ImageGraphLoader:
 		load_rgb: bool = False, 
 		load_depth: bool = False, 
 		normalized: bool = False,
-		color_correct: bool = False,
 		edge_type: str = 'covis'
 	):
 		"""
@@ -75,7 +74,7 @@ class ImageGraphLoader:
 				if not load_rgb:
 					rgb_image = None
 				elif load_rgb and os.path.exists(rgb_img_path):
-					rgb_image = load_rgb_image(rgb_img_path, resize, normalized=normalized, color_correct=color_correct)
+					rgb_image = load_rgb_image(rgb_img_path, resize, normalized=normalized)
 				else:
 					continue
 

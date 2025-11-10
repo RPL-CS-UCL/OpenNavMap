@@ -51,10 +51,10 @@ class PlaceRecognitionSingleMatching:
 		# D = np.linalg.norm(query_descs[None, :, :] - self.db_descs[:, None, :], axis=2)
 		return D
 	
-	def viz_diff_matrix(self, save_img_path, D_all, db_query_rows=None):
+	def viz_diff_matrix(self, save_img_path, D_all, db_query_rows=list()):
 		plt.figure(figsize=(18, 9))
 		plt.imshow(D_all, cmap='Greys', aspect='auto', clim=(0.0, 1.0))
-		if db_query_rows is not None:
+		if len(db_query_rows) > 0:
 			db_idx, query_idx = zip(*db_query_rows)
 			plt.plot(query_idx, db_idx, 'g.', markersize=6, markeredgewidth=1)
 		plt.colorbar()

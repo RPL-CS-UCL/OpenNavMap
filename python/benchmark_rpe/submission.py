@@ -17,6 +17,8 @@ from tqdm import tqdm
 from colorama import Fore, Back, Style
 from transforms3d.quaternions import mat2quat
 from estimator import available_models, get_estimator
+from estimator.models.base_estimator import BaseEstimator
+from estimator.utils import to_numpy
 
 from rpe_default import cfg
 from datamodules import DataModule
@@ -42,12 +44,13 @@ class PoseResult:
 		ref_img_names = " ".join(ref_name for ref_name in self.reference_image_names)
 		return f"{self.top_k} {ref_img_names} {self.query_image} {q_str} {t_str} {self.conf:.3f}"
 
-def predict(loader, estimator, str_estimator, cfg):
+def predict(loader, estimator, str_estimator, cfg, args):
 	results_dict = defaultdict(list)
 	results_debug_dict = defaultdict(list)
 	running_time = []
 	save_indice = 0
 	estimator.verbose = True
+
 	for data_cnt, data in enumerate(tqdm(loader)):
 		try:
 			scene_root = Path(data['scene_root'][0])
@@ -57,15 +60,17 @@ def predict(loader, estimator, str_estimator, cfg):
 
 			reference_image_names = [name[0] for name in data['list_image0_path']]
 			reference_image_poses = [pose.squeeze(0) for pose in data['list_image0_pose']]
-			reference_image_intrinsics = [{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} \
-										for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])]
+			reference_image_intrinsics = [
+				{'K': K.squeeze(0), 'im_size': im_size.squeeze(0)} 
+				for K, im_size in zip(data['list_K_color0'], data['list_im_size0'])
+			]
 			
-			query_image = data['image1_path'][0]
+			query_image_name = data['image1_path'][0]
 			query_image_intrinsic = {'K': data['K_color1'].squeeze(0), 'im_size': data['im_size1'].squeeze(0)} # K, WxH
 
 			print(Fore.GREEN + f'Scene Root: {scene_root}' + Style.RESET_ALL)
 			print(Fore.GREEN + f'Loading Reference Images:', ', '.join(reference_image_names) + Style.RESET_ALL)
-			print(Fore.GREEN + f'Loading Query Image: {query_image}' + Style.RESET_ALL)
+			print(Fore.GREEN + f'Loading Query Image: {query_image_name}' + Style.RESET_ALL)
 
 			"""Absolute Pose Estimation"""
 			# Images and intrinsics are resized inside the estimator
@@ -74,13 +79,14 @@ def predict(loader, estimator, str_estimator, cfg):
 				'known_intrinsics': False, # False for Joint optimization of intrinsics is better
 				'niter': 300,
 				'two_stage_opt_niter': 50,
-				'resize': 512
+				'resize': (512, 288),
+				'cross_device': args.cross_device
 			}
 
 			start_time = time.time()
 			result = estimator(
 				scene_root,
-				reference_image_names, query_image, 
+				reference_image_names, query_image_name,
 				reference_image_poses, 
 				reference_image_intrinsics, query_image_intrinsic,
 				estimation_options
@@ -184,9 +190,8 @@ def eval(args):
 			model, 
 			device=args.device, 
 			out_dir=os.path.join(args.out_dir, f'{model}/preds'),
-			lora_path=args.lora_path
 		)
-		results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg)
+		results_dict, results_debug_dict, avg_runtime = predict(dataloader, estimator, model, cfg, args)
 
 		if args.debug:
 			for scene, values in results_debug_dict.items():
@@ -245,11 +250,6 @@ if __name__ == "__main__":
 		help="Dataset split to use for evaluation. Choose from test or val. Default: test",
 	)
 	parser.add_argument(
-		"--lora_path",
-		default="lora.pt",
-		help="Path to the finetuned LoRA weight",
-	)	
-	parser.add_argument(
 		'--top_k', 
 		type=int, 
 		default=2, 
@@ -260,6 +260,12 @@ if __name__ == "__main__":
 		type=int, 
 		default=1, 
 		help='Number of query images for localization'
+	)
+	parser.add_argument(
+		'--cross_device',
+		type=bool,
+		default=False,
+		help="True to handle cross-device images, False for default",
 	)
 	args = parser.parse_args()
 	if args.models == "all":

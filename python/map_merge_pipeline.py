@@ -62,7 +62,6 @@ class MergePipeline:
 				'load_rgb': True,
 				'load_depth': False,
 				'normalized': False,
-				'color_correct': args.color_correct,
 			},
 		}
 
@@ -409,7 +408,7 @@ def perform_local_loc(
 
 					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					##### Only reliable db-query pairs are considered for keyframe selection
-					lloc_history[(db_node.id, query_node.id)] = f'Conf: {conf:.3f} - Error: {dis_tsl:.3f} [m] and {dis_angle:.3f} [deg]'
+					lloc_history[(db_node.id, query_node.id)] = {'conf': conf, 'trans_err': dis_tsl, 'rot_err': dis_angle}
 					if conf < REFINE_CONF_THRESHOLD:
 						update_edge_history(edge_history, (db_node.id, query_node.id), action='removed_by_ccm')
 					
@@ -557,9 +556,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 				lloc_history_path = str(merger.log_dir / "preds" / "lloc_history.txt")
 				with open(lloc_history_path, 'w') as f:
-					for key, value in lloc_history.items():
+					sorted_lloc_history = sorted(
+						lloc_history.items(), 
+						key=lambda item: item[1]['conf'],
+						reverse=True
+					)
+					for key, value in sorted_lloc_history:
 						db_idx, query_idx = key[0], key[1]
-						f.write(f"{db_idx},{query_idx},{value}\n")
+						f.write(f"{db_idx},{query_idx},Conf: {value['conf']:.3f} - Error: {value['trans_err']:.3f} [m] and {value['rot_err']:.3f} [deg]\n")
 			########################
 
 			for key in result_pgo.keys():

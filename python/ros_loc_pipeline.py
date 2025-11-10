@@ -159,7 +159,6 @@ if __name__ == '__main__':
 	config = dict(
 		resize=args.image_size, depth_scale=args.depth_scale, 
 		load_rgb=True, load_depth=False, normalized=False,
-		color_correct=False # Set False always
 	)
 
 	# Initialize the localization pipeline

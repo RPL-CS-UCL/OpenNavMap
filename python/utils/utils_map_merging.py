@@ -103,7 +103,7 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 				next_node = edge[0]
 				ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=0.5)
 		for _, node in query_submap.nodes.items():
-			ax.plot(node.trans_gt[0], node.trans_gt[1], 'bo', markersize=5)
+			ax.plot(node.trans_gt[0], node.trans_gt[1], 'ro', markersize=5)
 			for edge in node.edges.values():
 				next_node = edge[0]
 				ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=0.5)
@@ -205,7 +205,6 @@ def parse_arguments():
 	parser.add_argument("--vpr_match_seq_len", type=int, default=10, help="Sequence length for VPR")
 	parser.add_argument("--pose_estimation_method", type=str, default="master", help=f"{available_models}")
 	parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="cuda (gpu) or cpu")
-	parser.add_argument("--color_correct", action="store_true", help="Flag to correct collor temperature")
 	parser.add_argument("--prune_keyframe_forward", action="store_true", 
 					 	help="Flag to prune keyframes by checking quality and information gain of newly inserted keyframes")
 	parser.add_argument("--prune_keyframe_backward", action="store_true", 

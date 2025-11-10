@@ -113,7 +113,6 @@ class MapManager:
 			load_rgb=config['load_rgb'],
 			load_depth=config['load_depth'],
 			normalized=config['normalized'],
-			color_correct=config['color_correct'],
 			edge_type=graph_type
 		)
 
