@@ -27,7 +27,7 @@ from datamodules import DataModule
 class PoseResult:
 	top_k: int
 	reference_image_names: list
-	query_image: str
+	query_image_name: str
 	q: np.ndarray
 	t: np.ndarray
 	conf: float
@@ -42,7 +42,7 @@ class PoseResult:
 			self.t, formatter=formatter, max_line_width=max_line_width
 		)[1:-1]
 		ref_img_names = " ".join(ref_name for ref_name in self.reference_image_names)
-		return f"{self.top_k} {ref_img_names} {self.query_image} {q_str} {t_str} {self.conf:.3f}"
+		return f"{self.top_k} {ref_img_names} {self.query_image_name} {q_str} {t_str} {self.conf:.3f}"
 
 def predict(loader, estimator, str_estimator, cfg, args):
 	results_dict = defaultdict(list)
@@ -123,7 +123,7 @@ def predict(loader, estimator, str_estimator, cfg, args):
 			estimated_pose = PoseResult(
 				top_k=top_k_matches,
 				reference_image_names=reference_image_names, 
-				query_image=query_image,
+				query_image_name=query_image_name,
 				q=mat2quat(rot_c2w).reshape(-1),
 				t=trans_c2w.reshape(-1),
 				conf=conf
@@ -143,9 +143,9 @@ def predict(loader, estimator, str_estimator, cfg, args):
 		
 		except Exception as e:
 			scene = data['scene_id'][0]
-			query_image = data['image1_path'][0]
+			query_image_name = data['image1_path'][0]
 			tqdm.write(Fore.RED + f"Error with {str_estimator}: {e}" + Style.RESET_ALL)
-			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image}." + Style.RESET_ALL)
+			tqdm.write(Fore.RED + f"May occur due to no overlapping regions or insufficient matching at {scene}/{query_image_name}." + Style.RESET_ALL)
 			
 	average_runtime = running_time[0] if len(running_time) == 1 else np.mean(running_time)
 	return results_dict, results_debug_dict, average_runtime
