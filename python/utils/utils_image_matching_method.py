@@ -168,10 +168,8 @@ def save_visualization(image0, image1, mkpts0, mkpts1, out_dir, index, n_step=1,
     else:
         viz2d.add_text(0, f"{len(mkpts1)} matches", fs=30)
     
-    viz_path = os.path.join(
-        out_dir, "preds", 
-        f"match_{index}.jpg" if isinstance(index, str) else f"match_{index:06d}.jpg"
-    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    viz_path = out_dir / f"match_{index}.jpg" if isinstance(index, str) else out_dir / f"match_{index:06d}.jpg"
     viz2d.save_plot(viz_path)
     plt.close()
 

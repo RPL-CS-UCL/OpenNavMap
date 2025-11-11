@@ -18,10 +18,11 @@ from utils.utils_map_merging import *
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error
 from utils.utils_geom import convert_vec_gtsam_pose3, convert_matrix_gtsam_pose3
 from utils.gtsam_pose_graph import PoseGraph
+from utils.utils_image import to_numpy
+from utils.utils_image_matching_method import save_visualization
 from benchmark_kf_selection.metric.landmark_selector import LandmarkSelector
 
 from map_manager import MapManager
-from image_graph import ImageGraphLoader as GraphLoader
 from image_graph import ImageGraph
 from image_node import ImageNode
 
@@ -66,9 +67,11 @@ class MergePipeline:
 		}
 
 		self.est_opts = {
-			'known_extrinsics': True, 
-			'known_intrinsics': False, 
-			'niter': 300
+			'known_extrinsics': True,
+			'known_intrinsics': False,
+			'niter': 300,
+			'two_stage_opt_niter': 50,
+			'crop_image_to_database': False
 		}
 
 	def init_vpr_match_model(self):
@@ -80,6 +83,7 @@ class MergePipeline:
 			self.args.pose_estimation_method, 
 			self.args.device
 		)
+		self.pose_estimator.verbose = False
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
 	def read_map_from_file(self):
@@ -298,9 +302,16 @@ def perform_global_loc(
 				query_node.rgb_image
 			)
 			num_inlier = result['num_inliers']
-			warning_str = Fore.GREEN + f"Query {query_node.rgb_img_name} - DB {db_node.rgb_img_name} - Number of matched kpts: {num_inlier}"
+			warning_str = Fore.GREEN + f"Query {query_node.rgb_img_name}-DB {db_node.rgb_img_name}-Matched Kpts: {num_inlier}"
 			logging.warning(warning_str)
 
+			################# DEBUG(gogojjh): Visualize the matched keypoints
+			# save_visualization(
+			# 	to_numpy(db_node.rgb_image.permute(1, 2, 0)), to_numpy(query_node.rgb_image.permute(1, 2, 0)), 
+			# 	result['inlier_kpts0'], result['inlier_kpts1'], merger.log_dir / 'preds/match_vis', 
+			# 	query_idx
+			# )
+			#################
 			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
 			else:

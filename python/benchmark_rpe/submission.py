@@ -74,13 +74,13 @@ def predict(loader, estimator, str_estimator, cfg, args):
 
 			"""Absolute Pose Estimation"""
 			# Images and intrinsics are resized inside the estimator
-			estimation_options = {
+			est_opts = {
 				'known_extrinsics': True,
 				'known_intrinsics': False, # False for Joint optimization of intrinsics is better
 				'niter': 300,
 				'two_stage_opt_niter': 50,
-				'resize': (512, 288),
-				'cross_device': args.cross_device
+				'crop_image_to_database': args.crop_image_to_database,
+				'resize': (512, 288)
 			}
 
 			start_time = time.time()
@@ -89,7 +89,7 @@ def predict(loader, estimator, str_estimator, cfg, args):
 				reference_image_names, query_image_name,
 				reference_image_poses, 
 				reference_image_intrinsics, query_image_intrinsic,
-				estimation_options
+				est_opts
 			)
 			estimation_time = time.time() - start_time
 			running_time.append(estimation_time)
@@ -262,10 +262,9 @@ if __name__ == "__main__":
 		help='Number of query images for localization'
 	)
 	parser.add_argument(
-		'--cross_device',
-		type=bool,
-		default=False,
-		help="True to handle cross-device images, False for default",
+		'--crop_image_to_database',
+		action='store_true',
+		help="crop query image to the same size as the database images (especially for cross-device images)",
 	)
 	args = parser.parse_args()
 	if args.models == "all":

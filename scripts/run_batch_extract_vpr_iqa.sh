@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define path and number of submaps
-PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/360loc/s00001_concourse_aria_data"
+PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/360loc/s00000_atrium_aria_data"
 NUM_SUBMAP=5
 
 # Loop over each submap index

@@ -48,7 +48,6 @@ def main(args):
 		load_rgb=True, 
 		load_depth=False, 
 		normalized=True,
-		color_correct=False
 	)
 
 	# Extract VPR descriptors for all nodes in the map

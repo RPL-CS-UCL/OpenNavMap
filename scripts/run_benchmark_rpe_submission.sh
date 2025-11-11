@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-NUM_PARALLEL=1  # Set desired parallelism level here
+NUM_PARALLEL=5  # Set desired parallelism level here
 
 # Check if DATASET_NAME is provided
 if [ -z "$1" ] || [ -z "$2" ]; then
@@ -22,33 +22,24 @@ export CONFIG_FILE="$PROJECT_PATH/python/config/dataset/$DATASET_NAME.yaml"
 export OUT_DIR="$DATASET_PATH/$DATASET_NAME/map_free_eval/results_rpe"
 export N_QUERY=10
 
-# Model and LoRA configuration
+# Model configuration
 MODELS=(
 	"hloc_superpoint_splg"
 	"hloc_disk_dilg"
 	"vpr_cosplace_resnet18_256"
 	"vpr_netvlad_resnet18_4096"
-	# "reloc3r"
+	"reloc3r"
 	# "duster_nocalib_pretrain"
 	# "duster_calib_pretrain"
 	# "master_nocalib_pretrain"
 	# "master_calib_pretrain"
 )
 
-LORA_PATH="none"
-
-# Create combined model-lora pairs
-MODEL_LORA_PAIRS=()
-for i in "${!MODELS[@]}"; do
-	MODEL_LORA_PAIRS+=("${MODELS[$i]}:${LORA_PATH}")
-done
-
-# Processing function
+# Processing function for a model
 process_model() {
-	local pair="$1"
-	local top_k="$2"	
-	IFS=":" read -r MODEL LORA_PATH <<< "$pair"
-	echo "Processing model: $MODEL with LoRA weight: $LORA_PATH"
+	local MODEL="$1"
+	local top_k="$2"
+	echo "Processing model: $MODEL"
 	echo "Loading dataset from $DATASET_PATH"
 	python "$PROJECT_PATH/python/benchmark_rpe/submission.py" \
 		--config "$CONFIG_FILE" \
@@ -56,9 +47,9 @@ process_model() {
 		--out_dir "$OUT_DIR" \
 		--n_query "$N_QUERY" \
 		--top_k "$top_k" \
-		--lora_path "$LORA_PATH" \
 		--split "$SPLIT" \
-		--debug # --viz 
+		--crop_image_to_database \
+		--debug # --viz
 	echo ""
 	sleep 3
 }
@@ -68,11 +59,12 @@ export -f process_model
 export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
-for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
-# for TOP_K in $(seq 17 3 17); do # for test
+# for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
+for TOP_K in $(seq 2 3 17); do
+# for TOP_K in $(seq 30 3 30); do # for test
 	export TOP_K
 	echo "Processing with TOP_K: $TOP_K"
-	printf "%s\n" "${MODEL_LORA_PAIRS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}
+	printf "%s\n" "${MODELS[@]}" | xargs -P $NUM_PARALLEL -I {} bash -c 'process_model "$@" "$TOP_K"' _ {}
 	# Unzip files
 	for MODEL in "${MODELS[@]}"; do
 		mkdir -p "$OUT_DIR/$MODEL/submission_$TOP_K"

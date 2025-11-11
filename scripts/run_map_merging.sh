@@ -1,9 +1,11 @@
 #!/bin/bash
 
 ###### Usage: Default order (0)
-# ./run_map_merging.sh 0 kf_spgo_seqmatch sequence_match_adaptive
+# ./run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain
+###### Usage: Default order (0) with specific scene
+# ./run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain s00001_concourse
 ###### Usage: Specific order (e.g., 1)
-# ./run_map_merging.sh 1 kf_spgo_seqmatch sequence_match_adaptive
+# ./run_map_merging.sh 1 kf_spgo_cc_seqmatch master_calib_pretrain
 
 set -euo pipefail  # Fail on errors and undefined variables
 
@@ -26,11 +28,15 @@ set -euo pipefail  # Fail on errors and undefined variables
 #   vehicle: 4
 
 # TODO(gogojjh): Users should change these parameters
-readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=1
+readonly START_SUBMAP_ID=3
+readonly END_SUBMAP_ID=3
 readonly DATASET_NAME="360loc"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
-readonly SCENE="s00001_concourse"
+if [ -z "${4:-}" ]; then
+    readonly SCENE="s00000_atrium"
+else
+    readonly SCENE="$4"
+fi
 
 readonly METHOD="$2" # default: kf_spgo_cc_seqmatch
 readonly POSE_ESTIMATION_METHOD="$3" # master_nocalib_pretrain, master_calib_pretrain
@@ -42,7 +48,7 @@ readonly IMAGE_SIZE="512 288"
 readonly VPR_MATCH_MODEL="graph_search" # single_match, sequence_match, sequence_match_adaptive, graph_search
 readonly VPR_SEQ_LEN=10
 readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
-readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/map_merge_eval_data"
+readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/test_eval_data"
 
 # --------------------------
 # Initialization and Validation
@@ -83,6 +89,11 @@ merge_submaps() {
     local submap_dir="${PATH_SUBMAP}/${SCENE}_aria_data"
     mkdir -p $input_dir
 
+    local output_pose_path_gt="${TRAJ_EVAL_PATH}/groundtruth/traj"
+    mkdir -p $output_pose_path_gt
+    local output_pose_path_alg="${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj"
+    mkdir -p $output_pose_path_alg
+
     # Validate processing range
     if (( START_SUBMAP_ID >= ${#SCENES[@]} || END_SUBMAP_ID >= ${#SCENES[@]} )); then
         echo "Error: Submap ID out of range (max index: $((${#SCENES[@]} - 1)))"
@@ -101,10 +112,14 @@ merge_submaps() {
 
     # Process specified range
     for ((i=START_SUBMAP_ID; i<=END_SUBMAP_ID; i++)); do
-        local scene="${SCENES[i]}"
-        local new_merged_name="${base_name}_${scene}"
-        
         echo "ID: ${i}"
+        local scene="${SCENES[i]}"
+        if [ ! -d "${submap_dir}/${scene}" ]; then
+            echo "Warning: Submap directory '${submap_dir}/${scene}' does not exist. Skipping."
+            break
+        fi
+        
+        local new_merged_name="${base_name}_${scene}"       
         echo "Merging: ${base_name} + ${scene} => ${new_merged_name}"
         
         python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
@@ -115,12 +130,13 @@ merge_submaps() {
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
             --prune_keyframe_forward --prune_keyframe_backward \
-            --viz 
+            --viz
 
         base_name="${new_merged_name}"
     done
+
     if [[ -L "${input_dir}/merge_finalmap" ]]; then
-      rm "${input_dir}/merge_finalmap"
+        rm "${input_dir}/merge_finalmap"
     fi
     ln -s "${input_dir}/${base_name}" "${input_dir}/merge_finalmap"
 

@@ -14,8 +14,6 @@ from estimator.utils import to_numpy
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_score, recall_score
 
-from .utils_geom import convert_vec_to_matrix, compute_pose_error
-
 # (global localization) Geometric Verification Threshold
 REFINE_GV_SCORE_THRESHOLD = 100.0
 MAX_LOSS = 10.0 
