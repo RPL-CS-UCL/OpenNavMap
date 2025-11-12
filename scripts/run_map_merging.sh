@@ -1,11 +1,30 @@
 #!/bin/bash
 
-###### Usage: Default order (0)
-# ./run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain
-###### Usage: Default order (0) with specific scene
-# ./run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain s00001_concourse
-###### Usage: Specific order (e.g., 1)
-# ./run_map_merging.sh 1 kf_spgo_cc_seqmatch master_calib_pretrain
+# Usage:
+#   bash run_map_merging.sh <ORDER> <METHOD> <POSE_ESTIMATION_METHOD> [SCENE]
+# Example (default order, default scene):
+#   bash run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain
+# Example (default order, specify scene):
+#   bash run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain s00001_concourse
+# Example (specific order):
+#   bash run_map_merging.sh 1 kf_spgo_cc_seqmatch master_calib_pretrain
+#
+# Ablation Study Usage:
+#   Control which factors are used in keyframe culling by setting environment variables.
+#   Set variable to empty string to disable that factor. By default, all factors are enabled.
+# Example (disable IQA in forward pass):
+#   USE_IQA_FORWARD="" bash run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain
+# Example (only use information gain in forward pass):
+#   USE_IQA_FORWARD="" USE_IQA_BACKWARD="" USE_IG_BACKWARD="" USE_TD="" bash run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain
+# Example (no culling factors, only use topology):
+#   USE_IQA_FORWARD="" USE_IQA_BACKWARD="" USE_IG_FORWARD="" USE_IG_BACKWARD="" USE_TD="" bash run_map_merging.sh 0 kf_spgo_cc_seqmatch master_calib_pretrain
+#   
+# Available ablation flags:
+#   USE_IQA_FORWARD  : Image quality assessment in forward pass
+#   USE_IQA_BACKWARD : Image quality assessment in backward pass
+#   USE_IG_FORWARD   : Information gain in forward pass
+#   USE_IG_BACKWARD  : Information gain in backward pass
+#   USE_TD           : Temporal difference
 
 set -euo pipefail  # Fail on errors and undefined variables
 
@@ -23,14 +42,16 @@ set -euo pipefail  # Fail on errors and undefined variables
 # vineyard/s00000_aria_data
 #   aria: 0-4 (300m length)
 # 360loc/s00000_atrium_data
-#   aria: 0-2
-#   phone: 3
-#   vehicle: 4
+#   aria: 0
+#   device1: 1
+#   device2: 2
+#   device3: 3
+#   device4: 4
 
-# TODO(gogojjh): Users should change these parameters
-readonly START_SUBMAP_ID=3
-readonly END_SUBMAP_ID=3
-readonly DATASET_NAME="360loc"
+# Note: Users should change these parameters according to the dataset and scene
+readonly START_SUBMAP_ID=0
+readonly END_SUBMAP_ID=15
+readonly DATASET_NAME="ucl_campus_aria"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 if [ -z "${4:-}" ]; then
     readonly SCENE="s00000_atrium"
@@ -41,6 +62,14 @@ fi
 readonly METHOD="$2" # default: kf_spgo_cc_seqmatch
 readonly POSE_ESTIMATION_METHOD="$3" # master_nocalib_pretrain, master_calib_pretrain
 readonly DATA_TYPES=("in" "r0" "r1" "r2" "r3" "r4" "r5" "r6" "r7" "r8")
+
+# Ablation study flags (default: all enabled)
+# Set to empty string to disable a factor
+readonly USE_IQA_FORWARD="${USE_IQA_FORWARD:---use_iqa_forward}"
+readonly USE_IQA_BACKWARD="${USE_IQA_BACKWARD:---use_iqa_backward}"
+readonly USE_IG_FORWARD="${USE_IG_FORWARD:---use_ig_forward}"
+readonly USE_IG_BACKWARD="${USE_IG_BACKWARD:---use_ig_backward}"
+readonly USE_TD="${USE_TD:---use_td}"
 
 ########################
 readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
@@ -79,9 +108,28 @@ load_scene_order() {
     echo "Loaded order [$order_index] with ${#SCENES[@]} scenes"
 
     DATA_TYPE="${DATA_TYPES[order_index]}"
-    RESULT_NAME="${SCENE}_results_${DATA_TYPE}_${METHOD}"
-    TRAJ_NAME="${METHOD}"
+    
+    # Build ablation study suffix based on enabled factors
+    local ablation_suffix=""
+    [[ -n "$USE_IQA_FORWARD" ]] && ablation_suffix+="iqaf"
+    [[ -n "$USE_IQA_BACKWARD" ]] && ablation_suffix+="iqab"
+    [[ -n "$USE_IG_FORWARD" ]] && ablation_suffix+="gf"
+    [[ -n "$USE_IG_BACKWARD" ]] && ablation_suffix+="gb"
+    [[ -n "$USE_TD" ]] && ablation_suffix+="t"
+    [[ -n "$ablation_suffix" ]] && ablation_suffix="_${ablation_suffix}"
+    
+    RESULT_NAME="${SCENE}_results_${DATA_TYPE}_${METHOD}${ablation_suffix}"
+    TRAJ_NAME="${METHOD}${ablation_suffix}"
     echo "Save results to $RESULT_NAME"
+    
+    # Print ablation study configuration
+    echo "=== Ablation Study Configuration ==="
+    echo "IQA Forward:     $([ -n "$USE_IQA_FORWARD" ] && echo 'ENABLED' || echo 'DISABLED')"
+    echo "IQA Backward:    $([ -n "$USE_IQA_BACKWARD" ] && echo 'ENABLED' || echo 'DISABLED')"
+    echo "IG Forward:      $([ -n "$USE_IG_FORWARD" ] && echo 'ENABLED' || echo 'DISABLED')"
+    echo "IG Backward:     $([ -n "$USE_IG_BACKWARD" ] && echo 'ENABLED' || echo 'DISABLED')"
+    echo "Temporal Diff:   $([ -n "$USE_TD" ] && echo 'ENABLED' || echo 'DISABLED')"
+    echo "===================================="
 }
 
 merge_submaps() {
@@ -129,7 +177,8 @@ merge_submaps() {
             --vpr_match_model "$VPR_MATCH_MODEL" \
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_ESTIMATION_METHOD" \
-            --prune_keyframe_forward --prune_keyframe_backward \
+            --cull_keyframe_forward --cull_keyframe_backward \
+            $USE_IQA_FORWARD $USE_IQA_BACKWARD $USE_IG_FORWARD $USE_IG_BACKWARD $USE_TD \
             --viz
 
         base_name="${new_merged_name}"

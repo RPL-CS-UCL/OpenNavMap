@@ -427,7 +427,7 @@ def select_keyframes(scene_path, scene_data, args):
 		db_keyframes = kf_selector.select_keyframes(ori_path, descriptors, submap_database)
 	elif args.method == 'landmark':      # 3D landmark
 		kf_selector = LandmarkSelector()
-		db_keyframes = kf_selector.select_keyframes(ori_path, timestamps, descriptors, iqa_scores, lm_redu, lm_gain, submap_database)
+		db_keyframes = kf_selector.select_keyframes(ori_path, timestamps, descriptors, iqa_scores, lm_gain, submap_database)
 		
 	return all_db_frames, all_query_frames, db_keyframes
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration
-NUM_PARALLEL=5  # Set desired parallelism level here
+NUM_PARALLEL=2  # Set desired parallelism level here
 
 # Check if DATASET_NAME is provided
 if [ -z "$1" ] || [ -z "$2" ]; then
@@ -24,15 +24,15 @@ export N_QUERY=10
 
 # Model configuration
 MODELS=(
-	"hloc_superpoint_splg"
-	"hloc_disk_dilg"
-	"vpr_cosplace_resnet18_256"
-	"vpr_netvlad_resnet18_4096"
-	"reloc3r"
-	# "duster_nocalib_pretrain"
-	# "duster_calib_pretrain"
-	# "master_nocalib_pretrain"
-	# "master_calib_pretrain"
+	# "hloc_superpoint_splg"
+	# "hloc_disk_dilg"
+	# "vpr_cosplace_resnet18_256"
+	# "vpr_netvlad_resnet18_4096"
+	# "reloc3r"
+	"duster_nocalib_pretrain"
+	"duster_calib_pretrain"
+	"master_nocalib_pretrain"
+	"master_calib_pretrain"
 )
 
 # Processing function for a model
@@ -60,7 +60,7 @@ export PROJECT_PATH DATASET_PATH CONFIG_FILE OUT_DIR N_QUERY SPLIT
 
 # Main processing loop
 # for TOP_K in $(seq 2 3 17) $(seq 20 10 50); do
-for TOP_K in $(seq 2 3 17); do
+for TOP_K in $(seq 2 3 8); do
 # for TOP_K in $(seq 30 3 30); do # for test
 	export TOP_K
 	echo "Processing with TOP_K: $TOP_K"

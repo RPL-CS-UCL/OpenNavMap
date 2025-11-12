@@ -16,9 +16,6 @@ class LandmarkSelector:
         self.Q_th = 19.0     # Midpoint for quality sigmoid (the command threshold for low-light and motion blur)
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
-        self.R_th = 30.0      # Information redundancy threshold
-        self.k_R = 0.1       # Information redundancy sensitivity (higher, more sensitive)
-
         self.G_th = 30.0      # Information gain threshold
         self.k_G = 0.1
         
@@ -37,10 +34,6 @@ class LandmarkSelector:
         """Sigmoid function for image quality (-100-100). Higher is better."""
         return 1 / (1 + math.exp(-self.k_Q * Q))
 
-    def redundancy_probability(self, R):
-        """Sigmoid decay function for redundancy (0-1). Lower is better."""
-        return 1 / (1 + math.exp(-self.k_R * (R * 100.0 - self.R_th)))
-
     def gain_probability(self, G):
         """Sigmoid increase function for information gain (0-1). Higher is better."""
         return 1 / (1 + math.exp(-self.k_G * (G * 100.0 - self.G_th)))
@@ -50,23 +43,19 @@ class LandmarkSelector:
         """use the min() to ensure the probability is always between 0 and 1"""
         return min(1.0, math.exp(-self.lambda_T * T / self.T_th))
 
-    def compute_accept_prob(self, Q, G):
+    def compute_accept_prob(self, Q, G, use_iqa=True, use_ig=True):
         """Calculate input probability to determine whether accepting a new keyframe."""
-        P_Q = self.quality_probability(Q)
-        P_G = self.gain_probability(G)
-        
+        P_Q = self.quality_probability(Q) if use_iqa else 1.0
+        P_G = self.gain_probability(G) if use_ig else 1.0
         acc_prob = P_Q * P_G       
-        # print(f"Q: {Q:.3f}, G: {G:.3f}, PQ: {P_Q:.3f}, PG: {P_G:.3f}, P: {acc_prob:.3f}")
 
         return acc_prob
 
-    def compute_keep_prob(self, dQ, G, T):
+    def compute_keep_prob(self, dQ, G, T, use_iqa=True, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
-        P_Q = self.delta_quality_probability(dQ)
-        # P_R = self.redundancy_probability(R)
-        P_G = self.gain_probability(G)
-        P_T = self.time_probability(T)
-
+        P_Q = self.delta_quality_probability(dQ) if use_iqa else 1.0
+        P_G = self.gain_probability(G) if use_ig else 1.0
+        P_T = self.time_probability(T) if use_td else 1.0
         keep_prob = P_Q * P_G * P_T + 1e-6
         
         return keep_prob
@@ -74,14 +63,13 @@ class LandmarkSelector:
     def print_each_prob(self, dQ, G, T):
         """Calculate posterior probability for a keyframe."""
         P_Q = self.delta_quality_probability(dQ)
-        # P_R = self.redundancy_probability(R)
         P_G = self.gain_probability(G)
         P_T = self.time_probability(T)
-
         P = P_Q * P_G * P_T + 1e-6
-        print(f"P_Q: {P_Q:.3f}, P_G: {P_G:.3f}, P_T: {P_T:.3f}, P: {P:.3f}")
 
-    def update_keyframes(self, map_root, submap, graph, timestamps, descriptors, iqa_scores, info_redu, info_gain):
+        return f"P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P_T: {P_T:.2f}, P: {P:.2f}"
+
+    def update_keyframes(self, map_root, submap, graph, timestamps, descriptors, iqa_scores, info_gain):
         if len(graph) == 0:
             for img_name in submap['frames']:
                 curr_node = ImageNode(img_name, None, None, descriptors[img_name], timestamps[img_name][0], None, None, None, None, None, None, None)
@@ -122,7 +110,6 @@ class LandmarkSelector:
                 # Add new frame to the graph
                 graph[curr_node.id] = curr_node
                 edge_info = {
-                    'R': info_redu[(closest_node.id, curr_node.id)],
                     'G': info_gain[(closest_node.id, curr_node.id)],
                     'dt': curr_node.time - closest_node.time,
                 }
@@ -149,7 +136,6 @@ class LandmarkSelector:
                 # Compute the keeping probability
                 # for edge in db_node.edges.values():
                 #     P_Q = self.quality_probability(db_node.iqa_score)
-                #     P_R = self.redundancy_probability(edge[1]['R'])
                 #     P_G = self.gain_probability(edge[1]['G'])
                 #     P_T = self.time_probability(edge[1]['dt'])
                 #     P = P_Q * P_G * P_T + 1e-3
@@ -166,13 +152,12 @@ class LandmarkSelector:
                          timestamps, 
                          descriptors, 
                          iqa_scores, 
-                         info_redu, 
                          info_gain, 
                          submap_database):
         """
         Main method to select keyframes from provided data.
         timestamps, 
-        descriptors, iqa_scores, info_redu, info_gain: metadata dictionaries
+        descriptors, iqa_scores, info_gain: metadata dictionaries
         submap_database: list of submap dicts containing frame names
         """
 
@@ -188,7 +173,6 @@ class LandmarkSelector:
                 timestamps, 
                 descriptors, 
                 iqa_scores, 
-                info_redu, 
                 info_gain
             )
             
