@@ -49,7 +49,7 @@ def predict(loader, estimator, str_estimator, cfg, args):
 	results_debug_dict = defaultdict(list)
 	running_time = []
 	save_indice = 0
-	estimator.verbose = True
+	estimator.verbose = False
 
 	for data_cnt, data in enumerate(tqdm(loader)):
 		try:
