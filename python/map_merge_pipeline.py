@@ -484,8 +484,8 @@ def perform_keyframe_culling(
 	
 	##### Forward Pass Culling #####
 	if args.cull_keyframe_forward:
-		# Factor: IQA-Forward to each node in the current map (cur_graph)
-		if args.use_iqa_forward:
+		# Factor: IQA to each node in the current map (cur_graph)
+		if args.use_iqa:
 			# Go through all nodes in the current map, check IQA probability
 			for node_query in cur_submap.covis.nodes.values():
 				acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
@@ -505,7 +505,7 @@ def perform_keyframe_culling(
 							acc_prob
 						)
 
-		# Factor: IQA-Forward + IG-Forward to each node in the current map
+		# Factor: IQA + IG to each node in the current map
 		# Accept the new keyframe with high information gain, even if it has low image quality
 		for node_query, data in lm_gain_query.items():
 			acc_prob = 1.0
@@ -513,8 +513,8 @@ def perform_keyframe_culling(
 				acc_prob = min(
 					merger.lm_selector.compute_accept_prob(
 						node_query.iqa_data, gain, 
-						use_iqa=args.use_iqa_forward, 
-						use_ig=args.use_ig_forward
+						use_iqa=args.use_iqa, 
+						use_ig=args.use_ig
 					),
 					acc_prob
 				)
@@ -538,7 +538,7 @@ def perform_keyframe_culling(
 
 	##### Backward Pass Culling #####
 	if args.cull_keyframe_backward:
-		# Factor: IQA-Backward + IG-Backward + TD to each node in the final map
+		# Factor: IQA + IG + TD to each node in the final map
 		# Cull the old keyframe with low information gain and low image quality
 		for node_db, data in lm_gain_db.items():
 			acc_prob, node_rep = 1.0, None
@@ -547,8 +547,8 @@ def perform_keyframe_culling(
 					continue
 				prob = merger.lm_selector.compute_keep_prob(
 					node_db.iqa_data - node_query.iqa_data, gain, node_query.time - node_db.time,
-					use_iqa=args.use_iqa_backward, 
-					use_ig=args.use_ig_backward, 
+					use_iqa=args.use_iqa, 
+					use_ig=args.use_ig, 
 					use_td=args.use_td
 				)
 				if prob < acc_prob:
@@ -725,11 +725,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 				with open(cull_info_path, 'w') as f:
 					# Write ablation study configuration as header comments
 					f.write(f"# Ablation Study Configuration:\n")
-					f.write(f"# IQA_Forward: {args.use_iqa_forward}\n")
-					f.write(f"# IQA_Backward: {args.use_iqa_backward}\n")
-					f.write(f"# IG_Forward: {args.use_ig_forward}\n")
-					f.write(f"# IG_Backward: {args.use_ig_backward}\n")
-					f.write(f"# Temporal_Diff: {args.use_td}\n")
+					f.write(f"# IQA: {args.use_iqa}\n")
+					f.write(f"# IG: {args.use_ig}\n")
+					f.write(f"# TD: {args.use_td}\n")
 					f.write("node_id,type,prob,method,replaced_by,prob_str\n")
 					for record in nodes_to_cull_info:
 						node_id = record['node_id']

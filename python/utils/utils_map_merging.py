@@ -208,14 +208,10 @@ def parse_arguments():
 	parser.add_argument("--cull_keyframe_backward", action="store_true", 
 					 	help="Flag to cull keyframes by checking quality and information gain of old keyframes")
 	# Ablation study flags for keyframe culling factors
-	parser.add_argument("--use_iqa_forward", action="store_true", 
-					 	help="Use image quality assessment in forward pass culling")
-	parser.add_argument("--use_iqa_backward", action="store_true", 
-					 	help="Use image quality assessment in backward pass culling")
-	parser.add_argument("--use_ig_forward", action="store_true", 
-					 	help="Use information gain in forward pass culling")
-	parser.add_argument("--use_ig_backward", action="store_true", 
-					 	help="Use information gain in backward pass culling")
+	parser.add_argument("--use_iqa", action="store_true", 
+					 	help="Use image quality assessment in culling")
+	parser.add_argument("--use_ig", action="store_true", 
+					 	help="Use information gain in culling")
 	parser.add_argument("--use_td", action="store_true", 
 					 	help="Use temporal difference in backward pass culling")
 	parser.add_argument("--warning", action="store_true", help="Logging level")
