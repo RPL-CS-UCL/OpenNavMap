@@ -483,50 +483,19 @@ def perform_keyframe_culling(
 	nodes_to_cull_info = []
 	
 	##### Forward Pass Culling #####
-	if args.cull_keyframe_forward:
-		# Factor: IQA to each node in the current map (cur_graph)
-		if args.use_iqa:
-			# Go through all nodes in the current map, check IQA probability
-			for node_query in cur_submap.covis.nodes.values():
-				acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
-				if acc_prob < merger.lm_selector.P_acc_th:
-					logging.warning(f"Cull Submap1 {node_query.id} (IQA-only) lower than Accept Prob:{acc_prob:.3f}")
-					nodes_query_to_cull.append(node_query)
-					nodes_to_cull_info.append({
-						'node_id': node_query.id,
-						'type': 'query',
-						'prob': acc_prob,
-						'method': 'culled_by_iqa'
-					})
-					if args.viz:
-						save_vis_kf_removal(
-							merger.log_dir, node_query.id,
-							to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
-							acc_prob
-						)
-
-		# Factor: IQA + IG to each node in the current map
-		# Accept the new keyframe with high information gain, even if it has low image quality
-		for node_query, data in lm_gain_query.items():
-			acc_prob = 1.0
-			for node_db, gain in data.items():
-				acc_prob = min(
-					merger.lm_selector.compute_accept_prob(
-						node_query.iqa_data, gain, 
-						use_iqa=args.use_iqa, 
-						use_ig=args.use_ig
-					),
-					acc_prob
-				)
+	# Factor: IQA to each node in the current map (cur_graph)
+	if args.use_iqa:
+		# Go through all nodes in the current map, check IQA probability
+		for node_query in cur_submap.covis.nodes.values():
+			acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
 			if acc_prob < merger.lm_selector.P_acc_th:
-				logging.warning(f"Cull Submap1 {node_query.id} lower than Accept Prob:{acc_prob:.3f}")
-				if node_query not in nodes_query_to_cull:
-					nodes_query_to_cull.append(node_query)
+				logging.warning(f"Cull Submap1 {node_query.id} (IQA-only) lower than Accept Prob:{acc_prob:.3f}")
+				nodes_query_to_cull.append(node_query)
 				nodes_to_cull_info.append({
 					'node_id': node_query.id,
 					'type': 'query',
 					'prob': acc_prob,
-					'method': 'culled_by_forward'
+					'method': 'culled_by_iqa'
 				})
 				if args.viz:
 					save_vis_kf_removal(
@@ -534,53 +503,82 @@ def perform_keyframe_culling(
 						to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
 						acc_prob
 					)
-		logging.warning('Culling nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_cull]))
+
+	# Factor: IQA + IG to each node in the current map
+	# Accept the new keyframe with high information gain, even if it has low image quality
+	for node_query, data in lm_gain_query.items():
+		acc_prob = 1.0
+		for node_db, gain in data.items():
+			acc_prob = min(
+				merger.lm_selector.compute_accept_prob(
+					node_query.iqa_data, gain, 
+					use_iqa=args.use_iqa, 
+					use_ig=args.use_ig
+				),
+				acc_prob
+			)
+		if acc_prob < merger.lm_selector.P_acc_th:
+			logging.warning(f"Cull Submap1 {node_query.id} lower than Accept Prob:{acc_prob:.3f}")
+			if node_query not in nodes_query_to_cull:
+				nodes_query_to_cull.append(node_query)
+			nodes_to_cull_info.append({
+				'node_id': node_query.id,
+				'type': 'query',
+				'prob': acc_prob,
+				'method': 'culled_by_forward'
+			})
+			if args.viz:
+				save_vis_kf_removal(
+					merger.log_dir, node_query.id,
+					to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
+					acc_prob
+				)
+	logging.warning('Culling nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_cull]))
 
 	##### Backward Pass Culling #####
-	if args.cull_keyframe_backward:
-		# Factor: IQA + IG + TD to each node in the final map
-		# Cull the old keyframe with low information gain and low image quality
-		for node_db, data in lm_gain_db.items():
-			acc_prob, node_rep = 1.0, None
-			for node_query, gain in data.items():
-				if node_query in nodes_query_to_cull: 
-					continue
-				prob = merger.lm_selector.compute_keep_prob(
-					node_db.iqa_data - node_query.iqa_data, gain, node_query.time - node_db.time,
-					use_iqa=args.use_iqa, 
-					use_ig=args.use_ig, 
-					use_td=args.use_td
-				)
-				if prob < acc_prob:
-					acc_prob, node_rep = prob, node_query
+	# Factor: IQA + IG + TD to each node in the final map
+	# Cull the old keyframe with low information gain and low image quality
+	for node_db, data in lm_gain_db.items():
+		acc_prob, node_rep = 1.0, None
+		for node_query, gain in data.items():
+			if node_query in nodes_query_to_cull: 
+				continue
+			prob = merger.lm_selector.compute_keep_prob(
+				node_db.iqa_data - node_query.iqa_data, gain, node_query.time - node_db.time,
+				use_iqa=args.use_iqa, 
+				use_ig=args.use_ig, 
+				use_td=args.use_td
+			)
+			if prob < acc_prob:
+				acc_prob, node_rep = prob, node_query
 
-			if acc_prob < merger.lm_selector.P_keep_th and node_rep:
-				logging.warning(f"Replace Submap0 {node_db.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
-				nodes_db_to_cull.append(node_db)
-				prob_str = merger.lm_selector.print_each_prob(
-					node_db.iqa_data - node_rep.iqa_data, 
-					lm_gain_db[node_db][node_rep], 
-					node_rep.time - node_db.time
+		if acc_prob < merger.lm_selector.P_keep_th and node_rep:
+			logging.warning(f"Replace Submap0 {node_db.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
+			nodes_db_to_cull.append(node_db)
+			prob_str = merger.lm_selector.print_each_prob(
+				node_db.iqa_data - node_rep.iqa_data, 
+				lm_gain_db[node_db][node_rep], 
+				node_rep.time - node_db.time
+			)
+			nodes_to_cull_info.append({
+				'node_id': node_db.id,
+				'type': 'db',
+				'prob': acc_prob,
+				'method': 'culled_by_backward',
+				'replaced_by': node_rep.id,
+				'prob_str': prob_str
+			})
+			if args.viz:
+				save_vis_kf_replacement(
+					merger.log_dir, 
+					node_db.id, node_rep.id,
+					to_numpy(node_db.rgb_image.detach().squeeze(0).permute(1, 2, 0)), 
+					to_numpy(node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
+					acc_prob
 				)
-				nodes_to_cull_info.append({
-					'node_id': node_db.id,
-					'type': 'db',
-					'prob': acc_prob,
-					'method': 'culled_by_backward',
-					'replaced_by': node_rep.id,
-					'prob_str': prob_str
-				})
-				if args.viz:
-					save_vis_kf_replacement(
-						merger.log_dir, 
-						node_db.id, node_rep.id,
-						to_numpy(node_db.rgb_image.detach().squeeze(0).permute(1, 2, 0)), 
-						to_numpy(node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
-						acc_prob
-					)
-		logging.warning('Culling nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_cull]))
+	logging.warning('Culling nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_cull]))
 
-	return nodes_query_to_cull, nodes_db_to_cull, nodes_to_cull_info
+	return nodes_query_to_cull + nodes_db_to_cull, nodes_to_cull_info
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
@@ -712,10 +710,11 @@ def perform_submap_merging(merger: MergePipeline, args):
 			##### Perform keyframe culling #####
 			# Culling nodes in covis graph only, nodes in odom and trav graph are kept
 			# The id of culled nodes will not be replaced by new nodes to avoid conflict with odom and trav graph
-			if args.cull_keyframe_forward or args.cull_keyframe_backward:
+			cull_keyframe = args.use_iqa or args.use_ig or args.use_td
+			if cull_keyframe:
 				print(Fore.GREEN + "Performing keyframe culling..." + Fore.RESET)
-
-				nodes_query_to_cull, nodes_db_to_cull, nodes_to_cull_info = perform_keyframe_culling(
+				
+				nodes_to_cull, nodes_to_cull_info = perform_keyframe_culling(
 					merger, args, cur_submap, final_map, lm_gain_query, lm_gain_db
 				)
 
@@ -742,7 +741,6 @@ def perform_submap_merging(merger: MergePipeline, args):
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 			# Enforce all node id in edges_nodeAB_refine_covis to be adjusted
-			nodes_to_cull = nodes_query_to_cull + nodes_db_to_cull
 			final_map.covis.remove_node_list(nodes_to_cull)
 			final_map.covis.remove_invalid_edges(nodes_to_cull)
 			final_map.covis.rm_sensor_data(nodes_to_cull)

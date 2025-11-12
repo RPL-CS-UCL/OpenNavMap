@@ -4,7 +4,7 @@
 #   bash run_map_merging.sh <ORDER> <METHOD> <POSE_EST_METHOD> [SCENE] [IQA] [IG] [TD]
 #   IQA/IG/TD: 1=enabled, 0=disabled, default=1
 # Examples:
-#   bash run_map_merging.sh s00001 0 spgo_cc_seqmatch master_calib_pretrain       # All factors for node culling enabled
+#   bash run_map_merging.sh s00001 0 spgo_cc_seqmatch master_calib_pretrain 1 1 1 # All factors for node culling enabled
 #   bash run_map_merging.sh s00001 0 spgo_cc_seqmatch master_calib_pretrain 0 1 0 # Only IG enabled
 #   bash run_map_merging.sh s00001 0 spgo_cc_seqmatch master_calib_pretrain 0 0 0 # No culling factors
 
@@ -32,7 +32,7 @@ set -euo pipefail  # Fail on errors and undefined variables
 
 # Note: Users should change these parameters according to the dataset and scene
 readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=0
+readonly END_SUBMAP_ID=5
 readonly DATASET_NAME="ucl_campus_aria"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 
@@ -135,16 +135,15 @@ merge_submaps() {
         local new_merged_name="${base_name}_${scene}"       
         echo "Merging: ${base_name} + ${scene} => ${new_merged_name}"
         
-        # python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
-        #     --input_submap_path "${input_dir}/${base_name}" "${submap_dir}/${scene}" \
-        #     --output_map_path "${input_dir}/${new_merged_name}" \
-        #     --image_size $IMAGE_SIZE \
-        #     --vpr_match_model "$VPR_MATCH_MODEL" \
-        #     --vpr_match_seq_len "$VPR_SEQ_LEN" \
-        #     --POSE_EST "$POSE_EST" \
-        #     --cull_keyframe_forward --cull_keyframe_backward \
-        #     --viz \
-        #     $ABLATION_FLAG
+        python "${PROJECT_PATH}/python/map_merge_pipeline.py" \
+            --input_submap_path "${input_dir}/${base_name}" "${submap_dir}/${scene}" \
+            --output_map_path "${input_dir}/${new_merged_name}" \
+            --image_size $IMAGE_SIZE \
+            --vpr_match_model "$VPR_MATCH_MODEL" \
+            --vpr_match_seq_len "$VPR_SEQ_LEN" \
+            --pose_estimation_method "$POSE_EST" \
+            --viz \
+            $ABLATION_FLAG
 
         base_name="${new_merged_name}"
     done
@@ -155,17 +154,17 @@ merge_submaps() {
     ln -s "${input_dir}/${base_name}" "${input_dir}/merge_finalmap"
 
     # GT and EST poses
-    # rosrun litevloc utils_convert_pose_format.py \
-    #     --input_type mapfree --output_type tum \
-    #     --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses_abs_gt.txt" \
-    #     --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
-    #     --output_pose "${TRAJ_EVAL_PATH}/groundtruth/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
+    rosrun litevloc utils_convert_pose_format.py \
+        --input_type mapfree --output_type tum \
+        --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses_abs_gt.txt" \
+        --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
+        --output_pose "${TRAJ_EVAL_PATH}/groundtruth/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
 
-    # rosrun litevloc utils_convert_pose_format.py \
-    #     --input_type mapfree --output_type tum \
-    #     --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses.txt" \
-    #     --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
-    #     --output_pose "${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
+    rosrun litevloc utils_convert_pose_format.py \
+        --input_type mapfree --output_type tum \
+        --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses.txt" \
+        --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
+        --output_pose "${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
     
     echo "Converted pose format to TUM format."
     echo "From: ${input_dir}/merge_finalmap/poses.txt"

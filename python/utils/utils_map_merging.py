@@ -203,17 +203,11 @@ def parse_arguments():
 	parser.add_argument("--vpr_match_seq_len", type=int, default=10, help="Sequence length for VPR")
 	parser.add_argument("--pose_estimation_method", type=str, default="master", help=f"{available_models}")
 	parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"], help="cuda (gpu) or cpu")
-	parser.add_argument("--cull_keyframe_forward", action="store_true", 
-					 	help="Flag to cull keyframes by checking quality and information gain of newly inserted keyframes")
-	parser.add_argument("--cull_keyframe_backward", action="store_true", 
-					 	help="Flag to cull keyframes by checking quality and information gain of old keyframes")
-	# Ablation study flags for keyframe culling factors
-	parser.add_argument("--use_iqa", action="store_true", 
-					 	help="Use image quality assessment in culling")
-	parser.add_argument("--use_ig", action="store_true", 
-					 	help="Use information gain in culling")
-	parser.add_argument("--use_td", action="store_true", 
-					 	help="Use temporal difference in backward pass culling")
+	# Ablation study flags for node culling factors
+	parser.add_argument("--use_iqa", action="store_true", help="Use image quality assessment in node culling")
+	parser.add_argument("--use_ig", action="store_true", help="Use information gain in node culling")
+	parser.add_argument("--use_td", action="store_true", help="Use temporal difference in node culling")
+	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")
 	args = parser.parse_args()

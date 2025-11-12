@@ -17,9 +17,9 @@ echo "=== Ablation Study: $SCENE ==="
 # (1=enabled, 0=disabled)
 declare -a CONFIGS=(
     "0 0 0 WO_Node_Culling"
-    # "1 0 0 IQA"
-    # "1 1 0 IQA + IG"
-    # "1 1 1 IQA + IG + TD"
+    "1 0 0 IQA"
+    "1 1 0 IQA + IG"
+    "1 1 1 IQA + IG + TD"
 )
 
 for cfg in "${CONFIGS[@]}"; do

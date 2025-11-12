@@ -4,7 +4,7 @@ class FullKFSelector:
     def select_keyframes(self, submap_database):
         """
         Main method to select keyframes from provided data.
-        timestamps, descriptors, iqa_scores, info_redu, info_gain: metadata dictionaries
+        timestamps, descriptors, iqa_scores, info_gain: metadata dictionaries
         submap_database: list of submap dicts containing frame names
         """
 
