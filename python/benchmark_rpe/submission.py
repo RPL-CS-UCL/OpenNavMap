@@ -130,7 +130,7 @@ def predict(loader, estimator, str_estimator, cfg, args):
 			)
 			results_dict[scene_id].append(estimated_pose)
 
-			print(Fore.GREEN + f'Estimated Pose in the world: {T_w2c[:3, 3].T}' + Style.RESET_ALL)
+			print(Fore.GREEN + f'({str_estimator}) Estimated Pose in the world: {T_w2c[:3, 3].T}' + Style.RESET_ALL)
 			if args.debug:
 				output_estimator_directory = Path(os.path.join(args.out_dir, f"{str_estimator}"))
 				output_estimator_directory.mkdir(parents=True, exist_ok=True)

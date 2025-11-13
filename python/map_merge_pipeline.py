@@ -480,7 +480,7 @@ def perform_keyframe_culling(
 		Tuple of (nodes_query_to_cull, nodes_db_to_cull, nodes_to_cull_info)
 	"""
 	nodes_query_to_cull, nodes_db_to_cull = [], []
-	nodes_to_cull_info = []
+	nodes_to_cull_info, nodes_to_not_cull_info = [], []
 	
 	##### Forward Pass Culling #####
 	# Factor: IQA to each node in the current map (cur_graph)
@@ -503,20 +503,29 @@ def perform_keyframe_culling(
 						to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
 						acc_prob
 					)
+			else:
+				nodes_to_not_cull_info.append({
+					'node_id': node_query.id,
+					'type': 'query',
+					'prob': acc_prob,
+					'method': 'not_culled_by_iqa'
+				})
 
 	# Factor: IQA + IG to each node in the current map
 	# Accept the new keyframe with high information gain, even if it has low image quality
 	for node_query, data in lm_gain_query.items():
-		acc_prob = 1.0
+		acc_prob, node_rep = 1.0, None
+		prob_str = ''
 		for node_db, gain in data.items():
-			acc_prob = min(
-				merger.lm_selector.compute_accept_prob(
-					node_query.iqa_data, gain, 
-					use_iqa=args.use_iqa, 
-					use_ig=args.use_ig
-				),
-				acc_prob
+			prob = merger.lm_selector.compute_forward_prob(
+				node_query.iqa_data, gain, use_iqa=args.use_iqa, use_ig=args.use_ig
 			)
+			if prob < acc_prob:
+				acc_prob, node_rep = prob, node_db
+				prob_str = merger.lm_selector.print_each_forward_prob(
+					node_query.iqa_data, gain
+				)
+		
 		if acc_prob < merger.lm_selector.P_acc_th:
 			logging.warning(f"Cull Submap1 {node_query.id} lower than Accept Prob:{acc_prob:.3f}")
 			if node_query not in nodes_query_to_cull:
@@ -525,7 +534,9 @@ def perform_keyframe_culling(
 				'node_id': node_query.id,
 				'type': 'query',
 				'prob': acc_prob,
-				'method': 'culled_by_forward'
+				'method': 'culled_by_forward',
+				'replaced_by': node_rep.id,
+				'prob_str': prob_str
 			})
 			if args.viz:
 				save_vis_kf_removal(
@@ -533,33 +544,39 @@ def perform_keyframe_culling(
 					to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
 					acc_prob
 				)
-	logging.warning('Culling nodes from cur_submap covis:\n' + ' '.join([str(node.id) for node in nodes_query_to_cull]))
+		else:
+			nodes_to_not_cull_info.append({
+				'node_id': node_query.id,
+				'type': 'query',
+				'prob': acc_prob,
+				'method': 'not_culled_by_forward',
+				'compared_to': node_rep.id,
+				'prob_str': prob_str
+			})
 
 	##### Backward Pass Culling #####
 	# Factor: IQA + IG + TD to each node in the final map
 	# Cull the old keyframe with low information gain and low image quality
 	for node_db, data in lm_gain_db.items():
 		acc_prob, node_rep = 1.0, None
+		prob_str = ''
 		for node_query, gain in data.items():
 			if node_query in nodes_query_to_cull: 
 				continue
-			prob = merger.lm_selector.compute_keep_prob(
-				node_db.iqa_data - node_query.iqa_data, gain, node_query.time - node_db.time,
-				use_iqa=args.use_iqa, 
-				use_ig=args.use_ig, 
-				use_td=args.use_td
+			prob = merger.lm_selector.compute_backward_prob(
+				gain, node_query.time - node_db.time,
+				use_iqa=args.use_iqa, use_ig=args.use_ig, use_td=args.use_td
 			)
 			if prob < acc_prob:
 				acc_prob, node_rep = prob, node_query
+				prob_str = merger.lm_selector.print_each_backward_prob(
+					lm_gain_db[node_db][node_rep], 
+					node_rep.time - node_db.time
+				)
 
-		if acc_prob < merger.lm_selector.P_keep_th and node_rep:
+		if acc_prob < merger.lm_selector.P_keep_th and node_rep is not None:
 			logging.warning(f"Replace Submap0 {node_db.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
 			nodes_db_to_cull.append(node_db)
-			prob_str = merger.lm_selector.print_each_prob(
-				node_db.iqa_data - node_rep.iqa_data, 
-				lm_gain_db[node_db][node_rep], 
-				node_rep.time - node_db.time
-			)
 			nodes_to_cull_info.append({
 				'node_id': node_db.id,
 				'type': 'db',
@@ -576,9 +593,16 @@ def perform_keyframe_culling(
 					to_numpy(node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
 					acc_prob
 				)
-	logging.warning('Culling nodes from final_map covis:\n' + ' '.join([str(node.id) for node in nodes_db_to_cull]))
+		else:
+			nodes_to_not_cull_info.append({
+				'node_id': node_db.id,
+				'type': 'db',
+				'prob': acc_prob,
+				'method': 'not_culled_by_backward',
+				'prob_str': prob_str
+			})
 
-	return nodes_query_to_cull + nodes_db_to_cull, nodes_to_cull_info
+	return nodes_query_to_cull + nodes_db_to_cull, nodes_to_cull_info, nodes_to_not_cull_info
 
 def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
@@ -713,15 +737,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 			cull_keyframe = args.use_iqa or args.use_ig or args.use_td
 			if cull_keyframe:
 				print(Fore.GREEN + "Performing keyframe culling..." + Fore.RESET)
-				
-				nodes_to_cull, nodes_to_cull_info = perform_keyframe_culling(
-					merger, args, cur_submap, final_map, lm_gain_query, lm_gain_db
+				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = perform_keyframe_culling(
+					merger, args, cur_submap, lm_gain_query, lm_gain_db
 				)
 
 				# Write cull node information to log file
-				cull_info_path = merger.log_dir / "preds" / "cull_node_info.txt"
-				cull_info_path.parent.mkdir(parents=True, exist_ok=True)
-				with open(cull_info_path, 'w') as f:
+				info_path = merger.log_dir / "preds" / "cull_node_info.txt"
+				info_path.parent.mkdir(parents=True, exist_ok=True)
+				with open(info_path, 'w') as f:
 					# Write ablation study configuration as header comments
 					f.write(f"# Ablation Study Configuration:\n")
 					f.write(f"# IQA: {args.use_iqa}\n")
@@ -735,7 +758,27 @@ def perform_submap_merging(merger: MergePipeline, args):
 						method = record['method']
 						replaced_by = record.get('replaced_by', "")
 						prob_str = record.get('prob_str', "")
-						f.write(f"{node_id},{type_},{prob},{method},{replaced_by},{prob_str}\n")
+						f.write(f"{node_id},{type_},{prob:.3f},{method},{replaced_by},{prob_str}\n")
+
+				info_path = merger.log_dir / "preds" / "not_cull_node_info.txt"
+				info_path.parent.mkdir(parents=True, exist_ok=True)
+				with open(info_path, 'w') as f:
+					# Write ablation study configuration as header comments
+					f.write(f"# Ablation Study Configuration:\n")
+					f.write(f"# IQA: {args.use_iqa}\n")
+					f.write(f"# IG: {args.use_ig}\n")
+					f.write(f"# TD: {args.use_td}\n")
+					f.write("node_id,type,prob,method,compared_to,prob_str\n")
+					for record in nodes_to_not_cull_info:
+						node_id = record['node_id']
+						type_ = record['type']
+						prob = record['prob']
+						method = record['method']
+						compared_to = record.get('compared_to', "")
+						prob_str = record.get('prob_str', "")
+						f.write(f"{node_id},{type_},{prob:.3f},{method},{compared_to},{prob_str}\n")						
+			else:
+				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = [], [], []
 
 			##### Perform map update and merging
 			# Merge two submap into one with optimized poses

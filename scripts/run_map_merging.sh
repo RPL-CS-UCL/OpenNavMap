@@ -32,7 +32,7 @@ set -euo pipefail  # Fail on errors and undefined variables
 
 # Note: Users should change these parameters according to the dataset and scene
 readonly START_SUBMAP_ID=0
-readonly END_SUBMAP_ID=5
+readonly END_SUBMAP_ID=15
 readonly DATASET_NAME="ucl_campus_aria"
 readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
 

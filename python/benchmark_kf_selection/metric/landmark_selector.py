@@ -1,14 +1,13 @@
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../"))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../"))
 
 import numpy as np
 import math
 from pathlib import Path
 
-from image_node import ImageNode
-from utils.utils_vpr_method import perform_knn_search
-
+from python.image_node import ImageNode
+from python.utils.utils_vpr_method import perform_knn_search
 
 class LandmarkSelector:
     def __init__(self):
@@ -20,7 +19,7 @@ class LandmarkSelector:
         self.k_G = 0.1
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
-        self.lambda_T = 0.004      # Timestamp sensitivity (very slow decay) -> 3 months with 0.7 prob decay
+        self.lambda_T = 0.006     # Timestamp sensitivity (very slow decay) (higher value: more sensitive) -> 3 months with 0.583 prob decay
 
         self.P_acc_th = 0.5
         self.P_keep_th = 0.3
@@ -43,7 +42,7 @@ class LandmarkSelector:
         """use the min() to ensure the probability is always between 0 and 1"""
         return min(1.0, math.exp(-self.lambda_T * T / self.T_th))
 
-    def compute_accept_prob(self, Q, G, use_iqa=True, use_ig=True):
+    def compute_forward_prob(self, Q, G, use_iqa=True, use_ig=True):
         """Calculate input probability to determine whether accepting a new keyframe."""
         P_Q = self.quality_probability(Q) if use_iqa else 1.0
         P_G = self.gain_probability(G) if use_ig else 1.0
@@ -51,23 +50,29 @@ class LandmarkSelector:
 
         return acc_prob
 
-    def compute_keep_prob(self, dQ, G, T, use_iqa=True, use_ig=True, use_td=True):
+    def compute_backward_prob(self, G, T, use_iqa=True, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
-        P_Q = self.delta_quality_probability(dQ) if use_iqa else 1.0
         P_G = self.gain_probability(G) if use_ig else 1.0
         P_T = self.time_probability(T) if use_td else 1.0
-        keep_prob = P_Q * P_G * P_T + 1e-6
+        keep_prob = P_G * P_T + 1e-6
         
         return keep_prob
 
-    def print_each_prob(self, dQ, G, T):
+    def print_each_forward_prob(self, Q, G):
         """Calculate posterior probability for a keyframe."""
-        P_Q = self.delta_quality_probability(dQ)
+        P_Q = self.quality_probability(Q)
+        P_G = self.gain_probability(G)
+        P = P_Q * P_G + 1e-6
+
+        return f"P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P: {P:.2f}"
+
+    def print_each_backward_prob(self, G, T):
+        """Calculate posterior probability for a keyframe."""
         P_G = self.gain_probability(G)
         P_T = self.time_probability(T)
-        P = P_Q * P_G * P_T + 1e-6
+        P = P_G * P_T + 1e-6
 
-        return f"P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P_T: {P_T:.2f}, P: {P:.2f}"
+        return f"P_G: {P_G:.2f}, P_T: {P_T:.2f}, P: {P:.2f}"
 
     def update_keyframes(self, map_root, submap, graph, timestamps, descriptors, iqa_scores, info_gain):
         if len(graph) == 0:
@@ -100,7 +105,7 @@ class LandmarkSelector:
 
                 ##### Forward
                 # Determine whether to add new frame
-                acc_prob = self.compute_accept_prob(
+                acc_prob = self.compute_forward_prob(
                     curr_node.iqa_score, 
                     info_gain[(curr_node.id, closest_node.id)] # how much information is gained by curr_node
                 )
@@ -124,7 +129,10 @@ class LandmarkSelector:
                 ##### Backward
                 # Compute the keeping probability
                 min_keep = min(
-                    (self.compute_keep_prob(db_node.iqa_score, edge[1]['G'], edge[1]['dt']), edge[0])
+                    (self.compute_backward_prob(
+                        edge[1]['G'], 
+                        edge[1]['dt']
+                    ), edge[0])
                     for edge in db_node.edges.values()
                 )
                 P_keep, node_to_viz = min_keep
@@ -132,16 +140,6 @@ class LandmarkSelector:
                 if P_keep < self.P_keep_th:
                     nodes_to_remove.append(db_node)
                     print(f"Replace {db_node.id} with {node_to_viz.id} with Prob:{P_keep:.3f}")
-                    
-                # Compute the keeping probability
-                # for edge in db_node.edges.values():
-                #     P_Q = self.quality_probability(db_node.iqa_score)
-                #     P_G = self.gain_probability(edge[1]['G'])
-                #     P_T = self.time_probability(edge[1]['dt'])
-                #     P = P_Q * P_G * P_T + 1e-3
-                #     print(f"{P:.3f} keep prob: {db_node.id} -> {edge[0].id}")
-                #     print(f"Q:{db_node.iqa_score}, R:{edge[1]['R']}, G:{edge[1]['G']}, dT:{edge[1]['dt']}")
-                #     print(f"PQ:{P_Q:.3f} - PR:{P_R:.3f} - PG:{P_G:.3f} - PT:{P_T:.3f}")
 
             for node in nodes_to_remove:
                 if node.id in graph:
@@ -190,5 +188,5 @@ if __name__ == '__main__':
     PdQ = lm_selector.delta_quality_probability(12.0)
     print(f"Prob Quality: {PdQ:.3f}")    
 
-    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 12)
+    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 3) # 12 months
     print(f"Prob Time: {PT:.3f}")
