@@ -16,13 +16,13 @@ class LandmarkSelector:
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
         self.G_th = 30.0      # Information gain threshold
-        self.k_G = 0.1
+        self.k_G = 0.06       # Information gain sensitivity (higher, more sensitive)
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
         self.lambda_T = 0.006     # Timestamp sensitivity (very slow decay) (higher value: more sensitive) -> 3 months with 0.583 prob decay
 
         self.P_acc_th = 0.5
-        self.P_keep_th = 0.3
+        self.P_keep_th = 0.5
 
     # The prbability of keeping the frame
     def quality_probability(self, Q):
@@ -50,7 +50,7 @@ class LandmarkSelector:
 
         return acc_prob
 
-    def compute_backward_prob(self, G, T, use_iqa=True, use_ig=True, use_td=True):
+    def compute_backward_prob(self, G, T, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
         P_G = self.gain_probability(G) if use_ig else 1.0
         P_T = self.time_probability(T) if use_td else 1.0
@@ -188,5 +188,8 @@ if __name__ == '__main__':
     PdQ = lm_selector.delta_quality_probability(12.0)
     print(f"Prob Quality: {PdQ:.3f}")    
 
-    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 3) # 12 months
+    PG = lm_selector.gain_probability(0.4)
+    print(f"Prob Gain: {PG:.3f}")
+
+    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 12) # 12 months
     print(f"Prob Time: {PT:.3f}")

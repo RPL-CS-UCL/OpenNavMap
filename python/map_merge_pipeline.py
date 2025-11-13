@@ -489,7 +489,6 @@ def perform_keyframe_culling(
 		for node_query in cur_submap.covis.nodes.values():
 			acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
 			if acc_prob < merger.lm_selector.P_acc_th:
-				logging.warning(f"Cull Submap1 {node_query.id} (IQA-only) lower than Accept Prob:{acc_prob:.3f}")
 				nodes_query_to_cull.append(node_query)
 				nodes_to_cull_info.append({
 					'node_id': node_query.id,
@@ -518,7 +517,8 @@ def perform_keyframe_culling(
 		prob_str = ''
 		for node_db, gain in data.items():
 			prob = merger.lm_selector.compute_forward_prob(
-				node_query.iqa_data, gain, use_iqa=args.use_iqa, use_ig=args.use_ig
+				node_query.iqa_data, gain, 
+				use_iqa=args.use_iqa, use_ig=args.use_ig
 			)
 			if prob < acc_prob:
 				acc_prob, node_rep = prob, node_db
@@ -527,17 +527,16 @@ def perform_keyframe_culling(
 				)
 		
 		if acc_prob < merger.lm_selector.P_acc_th:
-			logging.warning(f"Cull Submap1 {node_query.id} lower than Accept Prob:{acc_prob:.3f}")
 			if node_query not in nodes_query_to_cull:
 				nodes_query_to_cull.append(node_query)
-			nodes_to_cull_info.append({
-				'node_id': node_query.id,
-				'type': 'query',
-				'prob': acc_prob,
-				'method': 'culled_by_forward',
-				'replaced_by': node_rep.id,
-				'prob_str': prob_str
-			})
+				nodes_to_cull_info.append({
+					'node_id': node_query.id,
+					'type': 'query',
+					'replaced_by': node_rep.id,
+					'prob': acc_prob,
+					'method': 'culled_by_forward',
+					'prob_str': prob_str
+				})
 			if args.viz:
 				save_vis_kf_removal(
 					merger.log_dir, node_query.id,
@@ -548,14 +547,14 @@ def perform_keyframe_culling(
 			nodes_to_not_cull_info.append({
 				'node_id': node_query.id,
 				'type': 'query',
+				'compared_to': node_rep.id,
 				'prob': acc_prob,
 				'method': 'not_culled_by_forward',
-				'compared_to': node_rep.id,
 				'prob_str': prob_str
 			})
 
 	##### Backward Pass Culling #####
-	# Factor: IQA + IG + TD to each node in the final map
+	# Factor: IG + TD to each node in the final map
 	# Cull the old keyframe with low information gain and low image quality
 	for node_db, data in lm_gain_db.items():
 		acc_prob, node_rep = 1.0, None
@@ -565,7 +564,7 @@ def perform_keyframe_culling(
 				continue
 			prob = merger.lm_selector.compute_backward_prob(
 				gain, node_query.time - node_db.time,
-				use_iqa=args.use_iqa, use_ig=args.use_ig, use_td=args.use_td
+				use_ig=args.use_ig, use_td=args.use_td
 			)
 			if prob < acc_prob:
 				acc_prob, node_rep = prob, node_query
@@ -575,7 +574,6 @@ def perform_keyframe_culling(
 				)
 
 		if acc_prob < merger.lm_selector.P_keep_th and node_rep is not None:
-			logging.warning(f"Replace Submap0 {node_db.id} with Submap1 {node_rep.id} with Prob:{acc_prob:.3f}")
 			nodes_db_to_cull.append(node_db)
 			nodes_to_cull_info.append({
 				'node_id': node_db.id,
@@ -745,38 +743,36 @@ def perform_submap_merging(merger: MergePipeline, args):
 				info_path = merger.log_dir / "preds" / "cull_node_info.txt"
 				info_path.parent.mkdir(parents=True, exist_ok=True)
 				with open(info_path, 'w') as f:
-					# Write ablation study configuration as header comments
 					f.write(f"# Ablation Study Configuration:\n")
 					f.write(f"# IQA: {args.use_iqa}\n")
 					f.write(f"# IG: {args.use_ig}\n")
 					f.write(f"# TD: {args.use_td}\n")
-					f.write("node_id,type,prob,method,replaced_by,prob_str\n")
+					f.write("node_id,type,replaced_by,prob,method,prob_str\n")
 					for record in nodes_to_cull_info:
 						node_id = record['node_id']
 						type_ = record['type']
+						replaced_by = record.get('replaced_by', "")
 						prob = record['prob']
 						method = record['method']
-						replaced_by = record.get('replaced_by', "")
 						prob_str = record.get('prob_str', "")
-						f.write(f"{node_id},{type_},{prob:.3f},{method},{replaced_by},{prob_str}\n")
+						f.write(f"{node_id},{type_},{replaced_by},{prob:.3f},{method},{prob_str}\n")
 
 				info_path = merger.log_dir / "preds" / "not_cull_node_info.txt"
 				info_path.parent.mkdir(parents=True, exist_ok=True)
 				with open(info_path, 'w') as f:
-					# Write ablation study configuration as header comments
 					f.write(f"# Ablation Study Configuration:\n")
 					f.write(f"# IQA: {args.use_iqa}\n")
 					f.write(f"# IG: {args.use_ig}\n")
 					f.write(f"# TD: {args.use_td}\n")
-					f.write("node_id,type,prob,method,compared_to,prob_str\n")
+					f.write("node_id,type,compared_to,prob,method,prob_str\n")
 					for record in nodes_to_not_cull_info:
 						node_id = record['node_id']
 						type_ = record['type']
+						compared_to = record.get('compared_to', "")
 						prob = record['prob']
 						method = record['method']
-						compared_to = record.get('compared_to', "")
 						prob_str = record.get('prob_str', "")
-						f.write(f"{node_id},{type_},{prob:.3f},{method},{compared_to},{prob_str}\n")						
+						f.write(f"{node_id},{type_},{compared_to},{prob:.3f},{method},{prob_str}\n")						
 			else:
 				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = [], [], []
 
