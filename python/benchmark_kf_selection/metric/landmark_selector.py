@@ -15,14 +15,14 @@ class LandmarkSelector:
         self.Q_th = 19.0     # Midpoint for quality sigmoid (the command threshold for low-light and motion blur)
         self.k_Q = 0.1       # Quality sigmoid steepness (higher, more sensitive)
 
-        self.G_th = 30.0      # Information gain threshold
+        self.G_th = 40.0      # Information gain threshold
         self.k_G = 0.06       # Information gain sensitivity (higher, more sensitive)
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
         self.lambda_T = 0.006     # Timestamp sensitivity (very slow decay) (higher value: more sensitive) -> 3 months with 0.583 prob decay
 
         self.P_acc_th = 0.5
-        self.P_keep_th = 0.5
+        self.P_keep_th = 0.3
 
     # The prbability of keeping the frame
     def quality_probability(self, Q):
@@ -188,7 +188,7 @@ if __name__ == '__main__':
     PdQ = lm_selector.delta_quality_probability(12.0)
     print(f"Prob Quality: {PdQ:.3f}")    
 
-    PG = lm_selector.gain_probability(0.4)
+    PG = lm_selector.gain_probability(0.3)
     print(f"Prob Gain: {PG:.3f}")
 
     PT = lm_selector.time_probability(3600.0 * 24 * 30 * 12) # 12 months
