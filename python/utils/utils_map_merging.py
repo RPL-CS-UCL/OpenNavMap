@@ -168,25 +168,36 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 	
 	return precision_list, recall_list
 
-def save_vis_kf_removal(log_dir, img_id, rgb_img, prob):
+def save_vis_kf_removal(log_dir, query_id, query_img, prob, db_id=None, db_img=None):
 	(log_dir/"preds/kf_vis").mkdir(parents=True, exist_ok=True)
-	fig, ax = plt.subplots(1, 1, figsize=(4, 4))
-	ax.imshow(rgb_img)
-	ax.set_title(f'Remove New Keyframe {img_id}')
-	ax.axis('off')
-	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_rejection_query_{img_id}_{prob:.3f}.jpg"))
-	plt.close()
+	if db_img is None:
+		fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+		ax.imshow(query_img)
+		ax.set_title(f'Remove Query Keyframe {query_id}')
+		ax.axis('off')
+		plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_rejection_query_{query_id}_{prob:.3f}.jpg"))
+		plt.close()
+	else:
+		fig, ax = plt.subplots(1, 2, figsize=(10, 4))
+		ax[0].imshow(query_img)
+		ax[0].set_title(f'Remove Query Keyframe {query_id}')
+		ax[0].axis('off')
+		ax[1].imshow(db_img)
+		ax[1].set_title(f'Database Keyframe {db_id}')
+		ax[1].axis('off')
+		plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_rejection_query_{query_id}_{db_id}_{prob:.3f}.jpg"))
+		plt.close()
 
-def save_vis_kf_replacement(log_dir, img0_id, img1_id, rgb_img0, rgb_img1, prob):
+def save_vis_kf_replacement(log_dir, db_id, query_id, db_img, query_img, prob):
 	(log_dir/"preds/kf_vis").mkdir(parents=True, exist_ok=True)
 	fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-	ax[0].imshow(rgb_img0)
-	ax[0].set_title(f'Old Keyframe {img0_id}')
+	ax[0].imshow(db_img)
+	ax[0].set_title(f'Remove Database Keyframe {db_id}')
 	ax[0].axis('off')
-	ax[1].imshow(rgb_img1)
-	ax[1].set_title(f'New Keyframe {img1_id}')
+	ax[1].imshow(query_img)
+	ax[1].set_title(f'Query Keyframe {query_id}')
 	ax[1].axis('off')
-	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_replacement_{img0_id}_{img1_id}_{prob:.3f}.jpg"))
+	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_replacement_{db_id}_{query_id}_{prob:.3f}.jpg"))
 	plt.close()
 
 def parse_arguments():

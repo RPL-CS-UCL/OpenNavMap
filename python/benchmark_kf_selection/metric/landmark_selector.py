@@ -19,9 +19,10 @@ class LandmarkSelector:
         self.k_G = 0.06       # Information gain sensitivity (higher, more sensitive)
         
         self.T_th = 24 * 3600.0   # Timestamp threshold (second) -> one day
-        self.lambda_T = 0.006     # Timestamp sensitivity (very slow decay) (higher value: more sensitive) -> 3 months with 0.583 prob decay
+        self.lambda_T = 0.02     # Timestamp sensitivity (very slow decay) (higher value: more sensitive) -> 3 months with 0.165 prob decay
 
-        self.P_acc_th = 0.5
+        self.P_iqa_th = 0.5
+        self.P_acc_th = 0.35
         self.P_keep_th = 0.3
 
     # The prbability of keeping the frame
@@ -41,12 +42,18 @@ class LandmarkSelector:
         """Exponential decay based on time elapsed. Smaller (recent) is better."""
         """use the min() to ensure the probability is always between 0 and 1"""
         return min(1.0, math.exp(-self.lambda_T * T / self.T_th))
+    
+    def time_boost_probability(self, T):
+        """Exponential increase for forward pass. Larger time difference encourages acceptance."""
+        """Returns value >= 1.0 to boost acceptance probability for temporally diverse frames"""
+        return math.exp(self.lambda_T * T / self.T_th)
 
-    def compute_forward_prob(self, Q, G, use_iqa=True, use_ig=True):
+    def compute_forward_prob(self, Q, G, T, use_iqa=True, use_ig=True, use_td=True):
         """Calculate input probability to determine whether accepting a new keyframe."""
         P_Q = self.quality_probability(Q) if use_iqa else 1.0
         P_G = self.gain_probability(G) if use_ig else 1.0
-        acc_prob = P_Q * P_G       
+        P_T_boost = self.time_boost_probability(T) if use_td else 1.0
+        acc_prob = P_Q * P_G * P_T_boost       
 
         return acc_prob
 
@@ -58,18 +65,19 @@ class LandmarkSelector:
         
         return keep_prob
 
-    def print_each_forward_prob(self, Q, G):
+    def print_each_forward_prob(self, Q, G, T, use_iqa=True, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
-        P_Q = self.quality_probability(Q)
-        P_G = self.gain_probability(G)
-        P = P_Q * P_G + 1e-6
+        P_Q = self.quality_probability(Q) if use_iqa else 1.0
+        P_G = self.gain_probability(G) if use_ig else 1.0
+        P_T_boost = self.time_boost_probability(T) if use_td else 1.0
+        P = P_Q * P_G * P_T_boost + 1e-6
 
-        return f"P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P: {P:.2f}"
+        return f"P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P_T_boost: {P_T_boost:.2f}, P: {P:.2f}"
 
-    def print_each_backward_prob(self, G, T):
+    def print_each_backward_prob(self, G, T, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
-        P_G = self.gain_probability(G)
-        P_T = self.time_probability(T)
+        P_G = self.gain_probability(G) if use_ig else 1.0
+        P_T = self.time_probability(T) if use_td else 1.0
         P = P_G * P_T + 1e-6
 
         return f"P_G: {P_G:.2f}, P_T: {P_T:.2f}, P: {P:.2f}"
@@ -105,9 +113,11 @@ class LandmarkSelector:
 
                 ##### Forward
                 # Determine whether to add new frame
+                time_diff = abs(curr_node.time - closest_node.time)
                 acc_prob = self.compute_forward_prob(
                     curr_node.iqa_score, 
-                    info_gain[(curr_node.id, closest_node.id)] # how much information is gained by curr_node
+                    info_gain[(curr_node.id, closest_node.id)], # how much information is gained by curr_node
+                    time_diff # time difference to encourage temporal diversity
                 )
                 # print(f"Accept prob {acc_prob:.3f}: {curr_node.id}")
                 if not acc_prob > self.P_acc_th: continue
@@ -182,7 +192,7 @@ class LandmarkSelector:
 
 if __name__ == '__main__':
     lm_selector = LandmarkSelector()
-    PQ = lm_selector.quality_probability(25.0)
+    PQ = lm_selector.quality_probability(19.0)
     print(f"Prob Quality: {PQ:.3f}")
 
     PdQ = lm_selector.delta_quality_probability(12.0)
@@ -191,5 +201,8 @@ if __name__ == '__main__':
     PG = lm_selector.gain_probability(0.3)
     print(f"Prob Gain: {PG:.3f}")
 
-    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 12) # 12 months
-    print(f"Prob Time: {PT:.3f}")
+    PT = lm_selector.time_probability(3600.0 * 24 * 30 * 3) # 3 months (backward)
+    print(f"Prob Time (backward, decay): {PT:.3f}")
+    
+    PT_boost = lm_selector.time_boost_probability(3600.0 * 24 * 30 * 3) # 3 months (forward)
+    print(f"Prob Time (forward, boost): {PT_boost:.3f}")

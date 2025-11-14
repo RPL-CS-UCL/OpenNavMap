@@ -488,7 +488,7 @@ def perform_keyframe_culling(
 		# Go through all nodes in the current map, check IQA probability
 		for node_query in cur_submap.covis.nodes.values():
 			acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
-			if acc_prob < merger.lm_selector.P_acc_th:
+			if acc_prob < merger.lm_selector.P_iqa_th:
 				nodes_query_to_cull.append(node_query)
 				nodes_to_cull_info.append({
 					'node_id': node_query.id,
@@ -510,20 +510,21 @@ def perform_keyframe_culling(
 					'method': 'not_culled_by_iqa'
 				})
 
-	# Factor: IQA + IG to each node in the current map
+	# Factor: IQA + IG + TD to each node in the current map
 	# Accept the new keyframe with high information gain, even if it has low image quality
 	for node_query, data in lm_gain_query.items():
 		acc_prob, node_rep = 1.0, None
 		prob_str = ''
 		for node_db, gain in data.items():
 			prob = merger.lm_selector.compute_forward_prob(
-				node_query.iqa_data, gain, 
-				use_iqa=args.use_iqa, use_ig=args.use_ig
+				node_query.iqa_data, gain, node_query.time - node_db.time,
+				use_iqa=args.use_iqa, use_ig=args.use_ig, use_td=args.use_td
 			)
 			if prob < acc_prob:
 				acc_prob, node_rep = prob, node_db
 				prob_str = merger.lm_selector.print_each_forward_prob(
-					node_query.iqa_data, gain
+					node_query.iqa_data, gain, node_query.time - node_db.time,
+					use_iqa=args.use_iqa, use_ig=args.use_ig, use_td=args.use_td
 				)
 		
 		if acc_prob < merger.lm_selector.P_acc_th:
@@ -537,13 +538,14 @@ def perform_keyframe_culling(
 					'method': 'culled_by_forward',
 					'prob_str': prob_str
 				})
-			if args.viz:
-				save_vis_kf_removal(
-					merger.log_dir, node_query.id,
-					to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
-					acc_prob
-				)
-		else:
+				if args.viz:
+					save_vis_kf_removal(
+						merger.log_dir, 
+						node_query.id, to_numpy(node_query.rgb_image.detach().squeeze(0).permute(1, 2, 0)), 
+						acc_prob,
+						node_rep.id, to_numpy(node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0))
+					)
+		elif node_rep is not None:
 			nodes_to_not_cull_info.append({
 				'node_id': node_query.id,
 				'type': 'query',
@@ -570,10 +572,11 @@ def perform_keyframe_culling(
 				acc_prob, node_rep = prob, node_query
 				prob_str = merger.lm_selector.print_each_backward_prob(
 					lm_gain_db[node_db][node_rep], 
-					node_rep.time - node_db.time
+					node_rep.time - node_db.time,
+					use_ig=args.use_ig, use_td=args.use_td
 				)
 
-		if acc_prob < merger.lm_selector.P_keep_th and node_rep is not None:
+		if acc_prob < merger.lm_selector.P_keep_th:
 			nodes_db_to_cull.append(node_db)
 			nodes_to_cull_info.append({
 				'node_id': node_db.id,
@@ -591,7 +594,7 @@ def perform_keyframe_culling(
 					to_numpy(node_rep.rgb_image.detach().squeeze(0).permute(1, 2, 0)),
 					acc_prob
 				)
-		else:
+		elif node_rep is not None:
 			nodes_to_not_cull_info.append({
 				'node_id': node_db.id,
 				'type': 'db',
