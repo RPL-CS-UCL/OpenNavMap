@@ -39,18 +39,20 @@ def acquire_linestyle():
     LINES = ['-', '--', '-.', ':', '-', '--', '-.', ':']
     return LINES
 
-def setting_font(fontsize=14, titlesize=14, legend_fontsize=14):
+# Optional font_family:
+# rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': fontsize})
+# rc('font', **{'family': 'serif', 'serif': ['Palatino'], 'size': fontsize})
+# rc('font', **{'family': 'sans-serif', 'sans-serif': ['Helvetica'], 'size': fontsize}) # More smooth
+def setting_font(fontsize=14, titlesize=14, legend_fontsize=14, font_family='Palatino'):
     try:
         init(autoreset=True)
-        rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': fontsize})
+        rc('font', **{'family': 'serif', 'serif': [font_family], 'size': fontsize})
         rc('text', usetex=True)
-        rc('font', **{'size': fontsize})
         params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
         pylab.rcParams.update(params)
-    except:
+    except Exception as e:
         init(autoreset=True)
         rc('font', **{'family': 'serif', 'serif': ['DejaVu Serif'], 'size': fontsize})
-        rc('text', usetex=True)
-        rc('font', **{'size': fontsize})
+        rc('text', usetex=False)
         params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
         pylab.rcParams.update(params)
