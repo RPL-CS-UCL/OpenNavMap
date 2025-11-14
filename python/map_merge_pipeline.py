@@ -350,7 +350,7 @@ def perform_local_loc(
 		db_node, query_node = edge[:2]
 		# Check whether the node has more than one edge
 		if len(db_node.edges) == 0: 
-			continue
+			continue	
 		
 		try:
 			# Prepare database references
