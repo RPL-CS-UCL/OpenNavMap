@@ -65,22 +65,27 @@ class LandmarkSelector:
         
         return keep_prob
 
-    def print_each_forward_prob(self, Q, G, T, use_iqa=True, use_ig=True, use_td=True):
+    def print_prefilter_prob(self, Q, use_iqa=True):
+        """Print the probability of the frame being accepted by the prefilter."""
+        P_Q = self.quality_probability(Q) if use_iqa else 1.0
+        return f"IQA: {Q:.2f}. P_Q: {P_Q:.2f}"
+
+    def print_each_forward_prob(self, Q, G, dT, use_iqa=True, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
         P_Q = self.quality_probability(Q) if use_iqa else 1.0
         P_G = self.gain_probability(G) if use_ig else 1.0
-        P_T_boost = self.time_boost_probability(T) if use_td else 1.0
+        P_T_boost = self.time_boost_probability(dT) if use_td else 1.0
         P = P_Q * P_G * P_T_boost + 1e-6
 
-        return f"P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P_T_boost: {P_T_boost:.2f}, P: {P:.2f}"
+        return f"Q: {Q:.2f}, G: {G:.2f}, dT: {dT:.2f}. P_Q: {P_Q:.2f}, P_G: {P_G:.2f}, P_T_boost: {P_T_boost:.2f}, P: {P:.2f}"
 
-    def print_each_backward_prob(self, G, T, use_ig=True, use_td=True):
+    def print_each_backward_prob(self, G, dT, use_ig=True, use_td=True):
         """Calculate posterior probability for a keyframe."""
         P_G = self.gain_probability(G) if use_ig else 1.0
-        P_T = self.time_probability(T) if use_td else 1.0
+        P_T = self.time_probability(dT) if use_td else 1.0
         P = P_G * P_T + 1e-6
 
-        return f"P_G: {P_G:.2f}, P_T: {P_T:.2f}, P: {P:.2f}"
+        return f"G: {G:.2f}, dT: {dT:.2f}. P_G: {P_G:.2f}, P_T: {P_T:.2f}, P: {P:.2f}"
 
     def update_keyframes(self, map_root, submap, graph, timestamps, descriptors, iqa_scores, info_gain):
         if len(graph) == 0:

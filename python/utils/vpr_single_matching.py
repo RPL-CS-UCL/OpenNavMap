@@ -8,7 +8,7 @@ from matplotlib import pyplot as plt
 
 class PlaceRecognitionSingleMatching:
 	def __init__(self):
-		pass
+		self.seqLen = 1
 
 	def initialize_model(self, db_descs):
 		self.db_descs = db_descs

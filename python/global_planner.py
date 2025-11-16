@@ -190,59 +190,63 @@ class GlobalPlanner:
 		import cv2
 		
 		PALLETE = acquire_color_palette()
-		setting_font(legend_fontsize=12)
-		plt.figure(figsize=(8, 10))
-
+		setting_font(fontsize=20, titlesize=20, legend_fontsize=20)
+		
+		fig = plt.figure(figsize=(8, 9.2))
 		# Display goal image if provided
 		ax1 = plt.subplot(2, 1, 1)
 		img = cv2.imread(goal_image_path)
 		img_resize = cv2.resize(img, (int(img.shape[1]/2), int(img.shape[0]/2)))
 		ax1.imshow(cv2.cvtColor(img_resize, cv2.COLOR_BGR2RGB))
 		ax1.axis('off')
-		# ax1.set_title('Goal Image')
 
 		# Plot all nodes in black
 		ax2 = plt.subplot(2, 1, 2)
-		all_nodes = [node.trans for node in self.point_graph.nodes.values()]
-		all_x = [n[0] for n in all_nodes]
-		all_y = [n[1] for n in all_nodes]
-		ax2.scatter(all_x, all_y, c='black', s=10)
+		# all_nodes = [node.trans for node in self.point_graph.nodes.values()]
+		# all_x = [n[0] for n in all_nodes[::2]]
+		# all_y = [n[1] for n in all_nodes[::2]]
+		# ax2.scatter(all_x, all_y, c='black', s=15)
+		plt.subplots_adjust(hspace=0.04)
 
 		# Plot all edges in black
 		for node in self.point_graph.nodes.values():
 			for neighbor, weight in node.edges.values():
 				start = node.trans[:2]
 				end = neighbor.trans[:2]
-				ax2.plot([start[0], end[0]], [start[1], end[1]], color='k', linewidth=0.5)
+				ax2.plot([start[0], end[0]], [start[1], end[1]], color='k', linewidth=3.0)
 		
 		# Highlight shortest path in red
 		if shortest_path:
-			path_x = [node.trans[0] for node in shortest_path]
-			path_y = [node.trans[1] for node in shortest_path]
-			ax2.scatter(path_x, path_y, c=PALLETE[0], s=30, label='Shortest Path')
-			ax2.scatter(path_x[0], path_y[0], c=PALLETE[5], s=80, marker='*', label='Start Point', zorder=100)
-			ax2.scatter(path_x[-1], path_y[-1], c=PALLETE[5], s=80, marker='^', label='End Point', zorder=100)
-			for i in range(len(shortest_path)-1):
-				start = shortest_path[i].trans[:2]
-				end = shortest_path[i+1].trans[:2]
-				ax2.plot([start[0], end[0]], [start[1], end[1]], color=PALLETE[0], linewidth=2)
+			path_x = [node.trans[0] for node in shortest_path[::2]]
+			path_y = [node.trans[1] for node in shortest_path[::2]]
+			ax2.plot(
+				path_x, path_y, color=PALLETE[0], linewidth=8, label='Shortest Path'
+			)
+			ax2.scatter(path_x[0], path_y[0], c=PALLETE[5], s=500, marker='*', label='Start Point', zorder=101)
+			ax2.scatter(path_x[-1], path_y[-1], c=PALLETE[5], s=500, marker='^', label='End Point', zorder=101)
 		
-		ax2.set_xlabel('X [m]')
-		ax2.set_ylabel('Y [m]')
-		ax2.set_title('Shortest Path on the Traversability Graph')
-		ax2.grid(ls='--', color='0.7')
+		# ax2.set_xlabel('X [m]')
+		# ax2.set_ylabel('Y [m]')
+		ax2.tick_params(axis='x', labelsize=18)
+		ax2.tick_params(axis='y', labelsize=18)
+		# ax2.invert_xaxis()
+		# ax2.invert_yaxis()
 		# ax2.set_xlim(min(start[0], end[0])-3, max(start[0], end[0])+3)
 		# ax2.set_ylim(min(start[1], end[1])-3, max(start[1], end[1])+3)
-		ax2.axis('equal')
-		ax2.legend(ncol=3)
+		# ax2.set_title('Shortest Path on the Traversability Graph')
+		ax2.grid(True, alpha=0.7, linestyle='--')
+		# ax2.axis('equal')
+		ax2.legend(fontsize=20, loc='lower left')
 		
 		# Save or show the plot
 		map_name = os.path.splitext(os.path.basename(pathlib.Path(self.args.map_path)))[0]
 		save_dir = pathlib.Path(goal_image_path).parent
 		(save_dir / 'preds_shortestpath').mkdir(parents=True, exist_ok=True)
 		goal_name = os.path.splitext(os.path.basename(goal_image_path))[0]
-		save_path = save_dir / 'preds_shortestpath' / f'sp_{map_name}_{goal_name}.pdf'
-		plt.savefig(str(save_path), dpi=300)
+		save_path = str(save_dir / 'preds_shortestpath' / f'sp_{map_name}_{goal_name}.pdf')
+		plt.savefig(save_path, dpi=300)
+		save_path = save_path.replace('.pdf', '.png')
+		plt.savefig(save_path, dpi=300, bbox_inches='tight')
 		print(f'Saved visualization to {save_path}')
 		plt.close()
 

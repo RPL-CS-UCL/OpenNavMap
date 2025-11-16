@@ -39,6 +39,10 @@ def acquire_linestyle():
     LINES = ['-', '--', '-.', ':', '-', '--', '-.', ':']
     return LINES
 
+def acquire_bar_style():
+    BAR_STYLE = ['', '///', 'xx']
+    return BAR_STYLE
+
 # Optional font_family:
 # rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': fontsize})
 # rc('font', **{'family': 'serif', 'serif': ['Palatino'], 'size': fontsize})

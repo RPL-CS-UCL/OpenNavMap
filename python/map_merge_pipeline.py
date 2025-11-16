@@ -489,12 +489,14 @@ def perform_keyframe_culling(
 		for node_query in cur_submap.covis.nodes.values():
 			acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
 			if acc_prob < merger.lm_selector.P_iqa_th:
+				prob_str = merger.lm_selector.print_prefilter_prob(node_query.iqa_data, use_iqa=args.use_iqa)
 				nodes_query_to_cull.append(node_query)
 				nodes_to_cull_info.append({
 					'node_id': node_query.id,
 					'type': 'query',
 					'prob': acc_prob,
-					'method': 'culled_by_iqa'
+					'method': 'culled_by_iqa',
+					'prob_str': prob_str
 				})
 				if args.viz:
 					save_vis_kf_removal(
@@ -507,7 +509,8 @@ def perform_keyframe_culling(
 					'node_id': node_query.id,
 					'type': 'query',
 					'prob': acc_prob,
-					'method': 'not_culled_by_iqa'
+					'method': 'not_culled_by_iqa',
+					'prob_str': prob_str
 				})
 
 	# Factor: IQA + IG + TD to each node in the current map
