@@ -28,13 +28,21 @@ from python.utils.utils_geom import compute_pose_error
 # Import local dataset
 from altas_dataset import AltasDataset
 
-VISUALIZE = False
 # Geometric Verification
 MIN_MATCHED_KPTS = 50
 # Local Localization
 TRANS_THRESH_M, ROT_THRESH_DEG = 15.0, 90.0
 N_IMG_LOCAL_LOC = 2
 RELIABLE_CONF_THRESHOLD = 0.5
+
+est_opts = {
+    'known_extrinsics': True,
+    'known_intrinsics': False,
+    'niter': 300,
+    'two_stage_opt_niter': 50,
+    'crop_image_to_database': True,
+    'resize': (512, 288),
+}
 
 def load_megaloc_model(device='cuda'):
     """Load pre-trained MegaLoc model."""
@@ -165,25 +173,22 @@ def local_loc(pose_estimator, query_img_path, database_ds, db_idx, query_descrip
 
     # Prepare DB and query data
     db_image_paths = [database_ds.get_image_path(idx) for idx in db_indices]
-    db_images = [load_rgb_image(p, resize=(512, 288)).to(args.device) for p in db_image_paths]
+    db_images = [load_rgb_image(p, resize=est_opts['resize']).to(args.device) for p in db_image_paths]
     T_w_local = database_ds.get_image_pose(db_indices[0])
     db_poses_matrices = [
         torch.from_numpy(np.linalg.inv(T_w_local) @ database_ds.get_image_pose(idx)).float() 
         for idx in db_indices
     ]
-    query_image = load_rgb_image(query_img_path, resize=(512, 288)).to(args.device)
+    query_image = load_rgb_image(query_img_path, resize=est_opts['resize']).to(args.device)
 
     # Perform pose estimation
     logger.info(f"Performing local localization with {args.pose_estimator} using DB images {db_indices}...")
-    est_opts = {'known_extrinsics': True, 'known_intrinsics': False, 'niter': 300}    
     result = pose_estimator(
         Path(args.database_folder),
         db_images, query_image,
         db_poses_matrices, None, None,
         est_opts
     )
-    if VISUALIZE:
-        pose_estimator.show_reconstruction()
 
     # Use confidence to check if the pose estimation is reliable
     top_k_matches = len(db_indices) # default: 2
@@ -239,6 +244,7 @@ if __name__ == "__main__":
     parser.add_argument('--matcher', type=str, default=None, help='Image matcher for reranking (e.g., superglue, loftr, master)')
     parser.add_argument('--n_kpts', type=int, default=2048, help='Max number of keypoints for image matcher')
     parser.add_argument('--pose_estimator', type=str, default=None, help='Pose estimator for local localization (e.g., mast3r, posecnn)')
+    parser.add_argument('--viz', action='store_true', help='Visualize the pose estimation result')
 
     args = parser.parse_args()
     seq_len = len(args.img_files)
@@ -279,9 +285,9 @@ if __name__ == "__main__":
         est_T, conf = local_loc(
             pose_estimator, args.img_files[-1], database_ds, predictions[0], query_descriptor, database_descriptors, args
         )
-        ##### DEBUG(gogojjh): the computation of confidence is sometimes zero
-        # if est_T is not None and conf > RELIABLE_CONF_THRESHOLD: 
-        #####
+
+        if args.viz:
+            pose_estimator.show_reconstruction()
         if est_T is not None:
             T_query_est_fine = est_T
         del pose_estimator
