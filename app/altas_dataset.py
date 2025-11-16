@@ -57,6 +57,7 @@ class AltasDataset(data.Dataset):
             r = Rotation.from_euler('zyx', [data['heading'], data['pitch'], data['roll']], degrees=True)
             T[:3, :3] = r.as_matrix()
             db_poses_list.append(T)
+            
         self.database_poses = np.array(db_poses_list)
         
         transformations = [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])]

@@ -16,8 +16,6 @@ from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import folium
 from scipy.spatial.transform import Rotation
-import matplotlib.pyplot as plt
-import io
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../VPR-methods-evaluation'))
 import utils
@@ -141,20 +139,6 @@ def setup(args):
     
     logger.info("Setup complete. Application is ready.")
 
-def capture_reconstruction_figure():
-    """Capture the current matplotlib figure and return it as a PIL Image."""
-    try:
-        fig = plt.gcf()
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-        buf.seek(0)
-        img = Image.open(buf)
-        plt.close(fig)
-        return img
-    except Exception as e:
-        logger.error(f"Failed to capture reconstruction figure: {e}")
-        return None
-
 def localize_image(query_img_path):
     """
     Takes a user-uploaded image, performs global localization, and returns the results.
@@ -201,12 +185,11 @@ def localize_image(query_img_path):
         best_match_path = DATABASE_DS.get_image_path(best_pred_idx)
         best_match_img = Image.open(best_match_path).convert("RGB")
         logger.warning(f"Localization failed - not passing geometric verification")
-        return best_match_img, coords_str, map_html, None
+        return best_match_img, coords_str, map_html
 
     ##### Local Localization #####
     conf = 0.0
     T_query_est_fine = T_query_est_coarse
-    reconstruction_img = None
 
     if ARGS.pose_estimator and POSE_ESTIMATOR:
         est_T, conf = local_loc(
@@ -217,9 +200,8 @@ def localize_image(query_img_path):
         else:
             logger.warning(f"Local localization failed with confidence: {conf:.2f}")
 
-        logger.info("Generating 3D reconstruction visualization...")
-        POSE_ESTIMATOR.show_reconstruction()
-        reconstruction_img = capture_reconstruction_figure()
+        if ARGS.viz:
+            POSE_ESTIMATOR.show_reconstruction()
     try:
         query_data = utils.parse_image_name(os.path.basename(query_img_path))
         T_query_gt = np.eye(4)
@@ -279,7 +261,7 @@ def localize_image(query_img_path):
         )
         map_html = create_database_map()
 
-    return best_match_img, coords_str, map_html, reconstruction_img
+    return best_match_img, coords_str, map_html
 
 def main():
     parser = argparse.ArgumentParser(description='Gradio App for LiteVLoc Atlas')
@@ -334,15 +316,12 @@ def main():
         )
         
         with gr.Row():
-            with gr.Column():
-                map_output_html = gr.HTML(label="Location Map", value=INITIAL_MAP_HTML)
-            with gr.Column():
-                reconstruction_output = gr.Image(type="pil", label="3D Reconstruction Visualization")
+            map_output_html = gr.HTML(label="Location Map", value=INITIAL_MAP_HTML)
             
         submit_button.click(
             fn=localize_image,
             inputs=query_image_input,
-            outputs=[best_match_output, coordinates_output, map_output_html, reconstruction_output]
+            outputs=[best_match_output, coordinates_output, map_output_html]
         )
         
     demo.launch(share=args.share)

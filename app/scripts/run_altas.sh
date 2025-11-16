@@ -22,7 +22,8 @@ for img_path in ../assets/${DATASET_NAME}/*.jpg; do
         --device cuda \
         --matcher loftr \
         --pose_estimator mast3r \
-        --output_file ../logs/results_full_pipeline.txt
+        --output_file ../logs/results_full_pipeline.txt \
+        --viz
 done
 
 # for img_path in /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/queries/*.jpg; do

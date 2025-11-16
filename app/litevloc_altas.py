@@ -1,3 +1,5 @@
+# NOTE(gogojjh): the pose data of reference images are not corrected, please regenerate or correct
+
 import os
 import sys
 import argparse
@@ -39,8 +41,8 @@ est_opts = {
     'known_extrinsics': True,
     'known_intrinsics': False,
     'niter': 300,
-    'two_stage_opt_niter': 50,
-    'crop_image_to_database': True,
+    'two_stage_opt_niter': 300,
+    'crop_image_to_database': False,
     'resize': (512, 288),
 }
 
@@ -86,7 +88,7 @@ def global_loc(model, database_ds, args):
                     torch.cuda.synchronize()
                 all_descriptors[indices.numpy()[:, -1], :] = descriptors.cpu().numpy()
         database_descriptors = all_descriptors
-        logger.info(f"Database descriptors extracted: {database_descriptors.shape}")
+        # logger.info(f"Database descriptors extracted: {database_descriptors.shape}")
         if args.database_descriptors_path:
             np.save(args.database_descriptors_path, database_descriptors)
 
@@ -336,8 +338,9 @@ if __name__ == "__main__":
                 process_and_display_results(
                     "VPR wo Reranking", predictions, database_ds, T_query_gt, args.recall_k, f, num_matched_kpts
                 )
-            f.write(f"Coarse-to-Fine Pose Error, Confidence: " + \
-                    f"{trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg, {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg, {conf:.3f}\n")
+            f.write(f"Coarse Error: {trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg\n")
+            f.write(f"Fine Error: {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg\n")
+            f.write(f"Confidence: {conf:.3f}\n")
         logger.info(f"Results saved to {output_path}")
     else:
         if args.matcher:    
@@ -348,5 +351,8 @@ if __name__ == "__main__":
             process_and_display_results(
                 "VPR wo Reranking", predictions, database_ds, T_query_gt, args.recall_k, num_matched_kpts
             )
-    logger.info(f"Coarse-to-Fine Pose Error, Confidence: " + \
-                f"{trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg, {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg, {conf:.3f}")
+    logger.info(
+        f"\nCoarse Error: {trans_err_coarse:.2f}m/{rot_err_coarse:.2f}deg,\n"
+        f"Fine Error: {trans_err_fine:.2f}m/{rot_err_fine:.2f}deg,\n"
+        f"Confidence: {conf:.3f}"
+    )

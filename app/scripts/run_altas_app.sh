@@ -9,26 +9,27 @@ fi
 DATASET_NAME=$1
 
 echo "Launching the LiteVLoc Atlas App with Gradio UI"
-python ../litevloc_altas_app.py \
-    --assets_folder ../assets/${DATASET_NAME}/ \
-    --dataset_name ${DATASET_NAME} \
-    --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
-    --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
-    --device cuda \
-    --batch_size 16 \
-    --num_workers 4 \
-    --recall_k 20 \
-    --share
-
 # python ../litevloc_altas_app.py \
 #     --assets_folder ../assets/${DATASET_NAME}/ \
 #     --dataset_name ${DATASET_NAME} \
 #     --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
 #     --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
 #     --device cuda \
-#     --batch_size 64 \
-#     --num_workers 8 \
+#     --batch_size 16 \
+#     --num_workers 4 \
 #     --recall_k 20 \
-#     --matcher loftr \
-#     --pose_estimator mast3r_calib_pretrian \
 #     --share
+
+python ../litevloc_altas_app.py \
+    --assets_folder ../assets/${DATASET_NAME}/ \
+    --dataset_name ${DATASET_NAME} \
+    --database_folder /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/images/test/database \
+    --database_descriptors_path /Rocket_ssd/dataset/data_vpr/${DATASET_NAME}/descriptors/test/megaloc_database_descriptors.npy \
+    --device cuda \
+    --batch_size 64 \
+    --num_workers 8 \
+    --recall_k 20 \
+    --matcher loftr \
+    --pose_estimator mast3r_calib_pretrian \
+    --share \
+    --viz
