@@ -129,11 +129,13 @@ def global_loc(model, database_ds, args):
 
 def rerank(img_matcher, query_img_path, database_ds, predictions, args):
     query_image = load_rgb_image(query_img_path).to(args.device)
+    query_image = transforms.Resize((query_image.shape[1] // 2, query_image.shape[2] // 2), antialias=True)(query_image)
 
     match_results = []
     for pred_idx in predictions:
         db_img_path = database_ds.get_image_path(pred_idx)
         db_image = load_rgb_image(db_img_path).to(args.device)
+        db_image = transforms.Resize((db_image.shape[1] // 2, db_image.shape[2] // 2), antialias=True)(db_image)
         with torch.no_grad():
             result = img_matcher(db_image, query_image)
         num_inliers = result['num_inliers']
