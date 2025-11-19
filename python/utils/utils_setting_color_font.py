@@ -40,7 +40,7 @@ def acquire_linestyle():
     return LINES
 
 def acquire_bar_style():
-    BAR_STYLE = ['', '///', 'xx']
+    BAR_STYLE = ['', '///', 'xx', 'o', 'O', '.', '*', '-', '+', 'x']
     return BAR_STYLE
 
 # Optional font_family:

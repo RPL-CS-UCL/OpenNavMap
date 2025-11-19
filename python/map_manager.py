@@ -1,15 +1,11 @@
 #! /usr/bin/env python
 
-# import os
-# import numpy as np
-
 import numpy as np
 from pathlib import Path
-from typing import Type
 
-from point_graph import PointGraph, PointGraphLoader
-from image_graph import ImageGraph, ImageGraphLoader
-from utils.utils_geom import convert_matrix_to_vec
+from .point_graph import PointGraph, PointGraphLoader
+from .image_graph import ImageGraph, ImageGraphLoader
+from .utils.utils_geom import convert_matrix_to_vec
 
 class MapManager:
 	def __init__(self, map_root: Path, map_id: int = 0):
@@ -167,7 +163,7 @@ class TestMapManager():
 	
 	def run_test(self):
 		# Initialize the point graph
-		map_root = Path('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map0')
+		map_root = Path('/tmp')
 		graph_configs = {
 			'odom': {},
 			'trav': {},

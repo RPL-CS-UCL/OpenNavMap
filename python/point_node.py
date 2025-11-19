@@ -1,5 +1,5 @@
 import numpy as np
-from utils.base_node import BaseNode
+from .utils.base_node import BaseNode
 
 class PointNode(BaseNode):
 	def __init__(

@@ -1,12 +1,12 @@
-import os
-import numpy as np
+#! /usr/bin/env python
 
+import numpy as np
 from pathlib import Path
 
-from point_node import PointNode
-from utils.utils_shortest_path import dijk_shortest_path
-from utils.base_graph import BaseGraph
-from utils.utils_geom import read_timestamps, read_poses, read_gps, convert_pose_inv
+from .point_node import PointNode
+from .utils.utils_shortest_path import dijk_shortest_path
+from .utils.base_graph import BaseGraph
+from .utils.utils_geom import read_timestamps, read_poses, read_gps, convert_pose_inv
 
 class PointGraphLoader:
 	def __init__(self):
@@ -93,27 +93,19 @@ class TestPointGraph():
 	
 	def run_test(self):
 		# Initialize the point graph
-		graph = PointGraph()
+		graph = PointGraph(Path('/tmp'), 'odom')
 
 		# Add nodes to the graph
-		graph.add_node(PointNode(1, "descriptor_1", 
-								0, np.zeros((1, 3)), np.zeros((1, 4))))
-		graph.add_node(PointNode(2, "descriptor_2", 
-								0, np.zeros((1, 3)), np.zeros((1, 4))))
-		graph.add_node(PointNode(3, "descriptor_3", 
-								0, np.zeros((1, 3)), np.zeros((1, 4))))
-		graph.add_node(PointNode(4, "descriptor_4", 
-								0, np.zeros((1, 3)), np.zeros((1, 4))))
+		graph.add_node(PointNode(1, 0, np.zeros((1, 3)), np.zeros((1, 4)), None))
+		graph.add_node(PointNode(2, 0, np.zeros((1, 3)), np.zeros((1, 4)), None))
+		graph.add_node(PointNode(3, 0, np.zeros((1, 3)), np.zeros((1, 4)), None))
+		graph.add_node(PointNode(4, 0, np.zeros((1, 3)), np.zeros((1, 4)), None))
 
 		# Add edges between the nodes with weights
 		graph.add_edge_undirected(graph.get_node(1), graph.get_node(2), 1.0)
 		graph.add_edge_undirected(graph.get_node(2), graph.get_node(3), 2.0)
 		graph.add_edge_undirected(graph.get_node(3), graph.get_node(4), 4.0)
 		graph.add_edge_undirected(graph.get_node(1), graph.get_node(4), 4.0)
-
-		# Get the image descriptor of a specific node
-		node = graph.get_node(2)
-		print(f"Image Descriptor of Node 2: {node.global_descriptor}")
 
 		# Find the shortest path from node 1 to node 4
 		distance, path = dijk_shortest_path(graph, graph.get_node(1), graph.get_node(4))

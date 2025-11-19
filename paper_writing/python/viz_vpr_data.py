@@ -126,23 +126,24 @@ def visualize_vpr_data_queries(db_poses, all_query_poses, all_valid_pairs, query
         ax = fig.add_subplot(111)
         
         ax.plot(
-            db_xy[:,0], db_xy[:,1], c=PALLETE[1], marker='o', markersize=3, label='Reference', zorder=0, linewidth=0
+            db_xy[:,0], db_xy[:,1], c=PALLETE[1], marker='o', markersize=1.5, label='Reference', zorder=1, linewidth=0
         )
                 
         query_xy = np.array([convert_pose_to_2d(p) for p in query_poses])
         ax.plot(
             query_xy[:,0], query_xy[:,1], 
-            c=PALLETE[3], 
-            marker='o', markersize=3,
+            c='k', 
+            marker='o', markersize=1.5,
             linewidth=0,
             label=f'Query', 
-            zorder=1,
+            zorder=2,
+            alpha=0.7
         )
 
         for q_idx, db_idx in all_valid_pairs[query_id]:
             ax.plot([query_xy[q_idx,0], db_xy[db_idx,0]],
                     [query_xy[q_idx,1], db_xy[db_idx,1]],
-                    '-', c='k', linewidth=1.5, alpha=1.0)
+                    '-', c='g', linewidth=0.7, alpha=1.0, zorder=2)
         
         N_query = len(query_poses)
         N_pos = len(all_valid_pairs[query_id])
@@ -150,7 +151,7 @@ def visualize_vpr_data_queries(db_poses, all_query_poses, all_valid_pairs, query
         # ax.set_xlabel('X [m]', fontsize=16)
         # ax.set_ylabel('Y [m]', fontsize=16)
         # ax.set_aspect('equal')
-        ax.set_title(f'Topological Localization [{args.trans_thresh:.1f}m, {args.rot_thresh:.1f}°]: N_pos={N_pos}, N_query={N_query}')
+        ax.set_title(f'GT Loop for Topo-Localization [{args.trans_thresh:.1f}m, {args.rot_thresh:.1f}°]: N_pos={N_pos}, N_query={N_query}')
         ax.tick_params(axis='x', labelsize=12)
         ax.tick_params(axis='y', labelsize=12)
         ax.legend()
@@ -292,8 +293,8 @@ def evaluate_vpr_system(args):
         # visualize_vpr_data(db_poses, query_poses, D_all, valid_pairs, output_dir/f"vpr_data_{query_folder.name}.jpg")
         # np.save(output_dir/f"D_all_{query_folder.name}.npy", D_all)        
 
-    # visualize_vpr_data_queries(all_db_poses[0], all_query_poses, all_valid_pairs, query_names, output_dir)
-    save_img_valid_pairs(all_test_ds, all_valid_pairs, query_names, output_dir)
+    visualize_vpr_data_queries(all_db_poses[0], all_query_poses, all_valid_pairs, query_names, output_dir)
+    # save_img_valid_pairs(all_test_ds, all_valid_pairs, query_names, output_dir)
 
 if __name__ == '__main__':
     args = parse_arguments()
