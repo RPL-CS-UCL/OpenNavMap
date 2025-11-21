@@ -9,12 +9,10 @@ import numpy as np
 import pymap3d as pm
 import simplekml
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from point_graph import PointGraphLoader as GraphLoader
-from point_graph import PointGraph
-from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec
-from utils.utils_setting_color_font import acquire_color_palette
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
+from python.point_graph import PointGraphLoader as GraphLoader
+from python.point_graph import PointGraph
+from python.utils.utils_setting_color_font import acquire_color_palette
 
 PALLETE = acquire_color_palette()  # Call function to get color palette
 
