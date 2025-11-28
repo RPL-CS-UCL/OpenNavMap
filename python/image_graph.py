@@ -2,16 +2,17 @@
 
 import os
 import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 import shutil
 from pathlib import Path
 
-from .utils.utils_geom import read_timestamps, read_intrinsics, read_poses, read_descriptors, read_gps
-from .utils.utils_geom import convert_pose_inv, correct_intrinsic_scale
-from .utils.utils_image import load_rgb_image, load_depth_image
-from .utils.base_graph import BaseGraph
-from .image_node import ImageNode
+from utils.utils_geom import read_timestamps, read_intrinsics, read_poses, read_descriptors, read_gps
+from utils.utils_geom import convert_pose_inv, correct_intrinsic_scale
+from utils.utils_image import load_rgb_image, load_depth_image
+from utils.base_graph import BaseGraph
+from image_node import ImageNode
 
 class ImageGraphLoader:
 	def __init__(self):

@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configuration
-SCENE=s00003_exp_culling
+SCENE=s00000
 ORDER=0
 METHOD=spgo_cc_seqmatch_master
 POSE_EST=master_calib_pretrain
@@ -17,9 +17,9 @@ echo "=== Ablation Study: $SCENE ==="
 # Each configuration: "IQA IG TD Description"
 # (1=enabled, 0=disabled)
 declare -a CONFIGS=(
-    "0 0 0 W.O. Node Culling"
-    "1 0 0 Node Culling-IQA"
-    "1 1 0 Node Culling-IQA + IG"
+    # "0 0 0 W.O. Node Culling"
+    # "1 0 0 Node Culling-IQA"
+    # "1 1 0 Node Culling-IQA + IG"
     "1 1 1 Node Culling-IQA + IG + TD"
 )
 

@@ -19,6 +19,8 @@ rosbag record -O /Titan/dataset/data_litevloc/anymal_lab_upstair_20240722_0/vloc
 
 import os
 import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import pathlib
 import numpy as np
 import time

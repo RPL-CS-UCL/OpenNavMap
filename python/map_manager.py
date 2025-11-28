@@ -1,11 +1,15 @@
 #! /usr/bin/env python
 
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import numpy as np
 from pathlib import Path
 
-from .point_graph import PointGraph, PointGraphLoader
-from .image_graph import ImageGraph, ImageGraphLoader
-from .utils.utils_geom import convert_matrix_to_vec
+from point_graph import PointGraph, PointGraphLoader
+from image_graph import ImageGraph, ImageGraphLoader
+from utils.utils_geom import convert_matrix_to_vec
 
 class MapManager:
 	def __init__(self, map_root: Path, map_id: int = 0):

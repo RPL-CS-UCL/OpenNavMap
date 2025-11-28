@@ -1,12 +1,16 @@
 #! /usr/bin/env python
 
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import numpy as np
 from pathlib import Path
 
-from .point_node import PointNode
-from .utils.utils_shortest_path import dijk_shortest_path
-from .utils.base_graph import BaseGraph
-from .utils.utils_geom import read_timestamps, read_poses, read_gps, convert_pose_inv
+from point_node import PointNode
+from utils.utils_shortest_path import dijk_shortest_path
+from utils.base_graph import BaseGraph
+from utils.utils_geom import read_timestamps, read_poses, read_gps, convert_pose_inv
 
 class PointGraphLoader:
 	def __init__(self):

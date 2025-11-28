@@ -10,6 +10,9 @@ python python/global_planner.py \
 """
 
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import logging
 import pathlib
 import numpy as np
@@ -22,11 +25,11 @@ from visualization_msgs.msg import MarkerArray
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PointStamped
 from std_msgs.msg import Int16
+from sensor_msgs.msg import Image
 
 from point_graph import PointGraphLoader as GraphLoader
 from image_node import ImageNode
 from point_node import PointNode
-from sensor_msgs.msg import Image
 from loc_pipeline import LocPipeline
 from utils.utils_image import rgb_image_to_tensor, to_numpy
 from utils.utils_pipeline import parse_arguments
@@ -185,6 +188,7 @@ class GlobalPlanner:
 		rospy.Rate(self.main_freq).sleep()
 
 	def visualize_graph(self, shortest_path, goal_image_path):
+		import re
 		from utils.utils_setting_color_font import setting_font, acquire_color_palette 
 		import matplotlib.pyplot as plt
 		import cv2
@@ -194,11 +198,19 @@ class GlobalPlanner:
 		
 		fig = plt.figure(figsize=(8, 9.2))
 		# Display goal image if provided
+		base_name = os.path.splitext(os.path.basename(goal_image_path))[0]
+		match = re.search(r'_(\d{8})$', base_name)
+		date_str = match.group(1) if match else None
+
 		ax1 = plt.subplot(2, 1, 1)
 		img = cv2.imread(goal_image_path)
 		img_resize = cv2.resize(img, (int(img.shape[1]/2), int(img.shape[0]/2)))
 		ax1.imshow(cv2.cvtColor(img_resize, cv2.COLOR_BGR2RGB))
 		ax1.axis('off')
+		if date_str:
+			year, month, day = date_str[:4], date_str[4:6], date_str[6:8]
+			ax_title = f"Goal Image Captured on {year}/{month}/{day}"
+			ax1.set_title(ax_title, fontsize=20)
 
 		# Plot all nodes in black
 		ax2 = plt.subplot(2, 1, 2)

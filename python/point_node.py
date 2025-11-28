@@ -1,5 +1,9 @@
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import numpy as np
-from .utils.base_node import BaseNode
+from utils.base_node import BaseNode
 
 class PointNode(BaseNode):
 	def __init__(
