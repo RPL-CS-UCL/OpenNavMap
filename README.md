@@ -10,7 +10,7 @@
 </div>
 
 <div align="center" style="width:100%;">
-  <img src="doc/media/fig1_system_overview.png" alt="System Overview" style="display:block; width:80%; max-width:1000px;">
+  <img src="doc/media/fig1_system_overview.png" alt="System Overview" style="display:block; width:70%; max-width:1000px;">
 </div>
 
 ---
@@ -69,15 +69,29 @@ python scripts/run_vnav.py \
 ## 🎬 Results Gallery
 
 ### Dataset
-![Dataset](doc/media/fig9_dataset.png)
-*Overview of our self-collected dataset using multiple devices, spanning diverse environments over 3.5 months, 35 sequences, and 18.7km.*
+<p align="center">
+  <img src="doc/media/fig9_dataset.png" alt="Dataset" width="60%">
+</p>
+
+<p align="center"><em>
+Overview of our self-collected dataset using multiple devices, spanning diverse environments over 3.5 months, 35 sequences, and 18.7km.
+</em></p>
 
 ### Real-World Image-Goal Navigation
-![VNav Lab](doc/media/fig15_vnav_lab.png)
-*Quadruped robot performing image-goal navigation, covering 160m in 312s.*
 
-![VNav Outside](doc/media/fig19_vnav_around.png)
-*Autonomous navigation across varied outdoor environments with obstacles.*
+<p align="center">
+  <img src="doc/media/fig15_vnav_lab.png" alt="VNav Lab" width="60%">
+</p>
+<p align="center"><em>
+Quadruped robot performing image-goal navigation, covering 160m in 312s.
+</em></p>
+
+<p align="center">
+  <img src="doc/media/fig19_vnav_around.png" alt="VNav Outside" width="60%">
+</p>
+<p align="center"><em>
+Autonomous navigation across varied outdoor environments with obstacles.
+</em></p>
 
 ---
 
