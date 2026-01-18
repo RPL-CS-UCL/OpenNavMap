@@ -80,8 +80,8 @@ Overview of our self-collected dataset using multiple devices, spanning diverse 
 ### Multi-Session Mapping
 
 <p align="center">
-  <img src="doc/media/fig15_hkustcampus_crowd-crop.png" alt="campus" width="47%" style="max-width:500px;">
-  <img src="doc/media/fig15_uclcampus_crowd-crop.png" alt="campus" width="48%" style="max-width:500px;">
+  <img src="doc/media/fig15_hkustcampus_crowd.png" alt="campus" width="47%" style="max-width:500px;">
+  <img src="doc/media/fig15_uclcampus_crowd.png" alt="campus" width="48%" style="max-width:500px;">
 </p>
 <p align="center"><em>
 Multi-session mapping with heterogeneous devices across two regions.
