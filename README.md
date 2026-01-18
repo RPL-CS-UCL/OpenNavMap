@@ -10,7 +10,7 @@
 </div>
 
 <div align="center" style="width:100%;">
-  <img src="doc/media/fig1_system_overview.png" alt="System Overview" style="display:block; width:60%; max-width:700px;">
+  <img src="doc/media/fig1_system_overview.png" alt="System Overview" style="display:block; width:60%; max-width:500px;">
 </div>
 
 ---
@@ -70,7 +70,7 @@ python scripts/run_vnav.py \
 
 ### Dataset
 <p align="center">
-  <img src="doc/media/fig9_dataset.png" alt="Dataset" width="60%" style="max-width:700px;">
+  <img src="doc/media/fig9_dataset.png" alt="Dataset" width="60%" style="max-width:500px;">
 </p>
 
 <p align="center"><em>
@@ -80,14 +80,14 @@ Overview of our self-collected dataset using multiple devices, spanning diverse 
 ### Real-World Image-Goal Navigation
 
 <p align="center">
-  <img src="doc/media/fig15_vnav_lab.png" alt="VNav Lab" width="60%" style="max-width:700px;">
+  <img src="doc/media/fig15_vnav_lab.png" alt="VNav Lab" width="60%" style="max-width:500px;">
 </p>
 <p align="center"><em>
 Quadruped robot performing image-goal navigation, covering 160m in 312s.
 </em></p>
 
 <p align="center">
-  <img src="doc/media/fig19_vnav_around.png" alt="VNav Outside" width="60%" style="max-width:700px;">
+  <img src="doc/media/fig19_vnav_around.png" alt="VNav Outside" width="60%" style="max-width:500px;">
 </p>
 <p align="center"><em>
 Autonomous navigation across varied outdoor environments with obstacles.
