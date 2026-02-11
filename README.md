@@ -16,6 +16,9 @@
 
 ---
 
+## Open-Sourced
+The code will be publicly released if the paper is accepted. If you are interested in some implementation details, please feel free to contact me.
+
 ## 🚀 Overview
 
 OpenNavMap is a lightweight, structure-free topometric mapping system that enables large-scale collaborative localization across multiple sessions without requiring pre-built 3D models. It leverages 3D geometric foundation models for on-demand reconstruction and provides robust metric localization performance.
