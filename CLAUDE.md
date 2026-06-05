@@ -4,24 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目简介
 
-### OpenNavMap（顶层系统）
+**OpenNavMap** 是一个面向众包建图的多会话建图系统，目标是支持大规模、可扩展的 Image-goal Visual Navigation，涵盖从地图构建、视觉定位到路径规划的完整导航流程。
 
-**OpenNavMap** 是一个面向众包建图的多会话建图系统，目标是支持大规模、可扩展的 Image-goal Visual Navigation。整个系统由多个子项目组成，位于 `/Titan/code/robohike_ws/src/`，各子项目协作完成从地图构建、视觉定位到路径规划的完整导航流程。
-
-**子项目及其职责：**
-
-| 子项目 | 功能 |
-|--------|------|
-| `litevloc_private` | 层次化视觉定位（VPR + 图像匹配 + 位姿求解），ICRA 2025 |
-| `MSG` | 多视图场景图构建，用于 3D 场景理解与拓扑定位，NeurIPS 2024 |
-| `openintmap` | 关节化对象的最小化运动学场景图映射管道（MoMa-SG） |
-| `VPR-methods-evaluation` | VPR 方法统一评估框架（12+ 模型） |
-| `VPR-datasets-downloader` | VPR 数据集标准化下载与处理 |
-| `f3loc` | 基于平面图的融合过滤定位，CVPR 2024 highlight |
-
-### litevloc（本子项目）
-
-**LiteVLoc** 是 OpenNavMap 的核心定位模块，实现轻量级拓扑度量地图上的高效相机位姿估计。ROS 包名为 `litevloc`，主要语言为 Python 3.8。
+**LiteVLoc** 是 OpenNavMap 的 Image-goal Visual Navigation 核心模块，基于轻量级拓扑度量地图实现高效相机位姿估计，支持机器人以目标图像为导航目标完成端到端定位与规划。ROS 包名为 `litevloc`，主要语言为 Python 3.8。
 
 ## 常用命令
 
