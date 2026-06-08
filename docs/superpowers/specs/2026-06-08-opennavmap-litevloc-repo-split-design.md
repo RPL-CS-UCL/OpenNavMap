@@ -107,6 +107,7 @@ OpenNavMap does **not** carry as primary scope:
 ```
 python/segment_change/        # remove from main scope; archive or delete later
 python/ltl_task_planner/      # remove from main scope; archive or delete later
+python/utils/benchmark/       # LiteVLoc-owned; will be removed in Phase C Batch 3
 ```
 
 ### 4.2 LiteVLoc
@@ -330,32 +331,51 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code                # temporary clone loca
      cp "$OPENNAVMAP_ROOT/python/${f}.py" "$LITEVLOC_WORKDIR/python/"
    done
 
-   # Directories
+   # Benchmark dirs and test
    cp -r "$OPENNAVMAP_ROOT/python/benchmark_map_free" "$LITEVLOC_WORKDIR/python/"
    cp -r "$OPENNAVMAP_ROOT/python/benchmark_rpe"      "$LITEVLOC_WORKDIR/python/"
-   cp -r "$OPENNAVMAP_ROOT/python/utils"               "$LITEVLOC_WORKDIR/python/"
    cp -r "$OPENNAVMAP_ROOT/python/test"                "$LITEVLOC_WORKDIR/python/"
    if [ -d "$OPENNAVMAP_ROOT/python/config" ]; then
      cp -r "$OPENNAVMAP_ROOT/python/config" "$LITEVLOC_WORKDIR/python/"
    fi
-   cp -r "$OPENNAVMAP_ROOT/launch"  "$LITEVLOC_WORKDIR/"
-   cp -r "$OPENNAVMAP_ROOT/scripts" "$LITEVLOC_WORKDIR/"
 
-   # Remove OpenNavMap-owned scripts from LiteVLoc copy
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_map_merging.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_map_merging_ablation_studies.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_benchmark_vpr_submission.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_benchmark_vpr_evaluation.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_benchmark_kf_selection.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_benchmark_kf_submission.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_benchmark_kf_evaluation.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_batch_gendata.sh"
-   rm -f "$LITEVLOC_WORKDIR/scripts/run_batch_gendata_vpr.sh"
+   # Utils — whitelist copy: only LiteVLoc-owned files; avoids pulling OpenNavMap-only utils
+   mkdir -p "$LITEVLOC_WORKDIR/python/utils"
+   for f in utils_vpr_method utils_image_matching_method \
+             pose_solver pose_solver_default \
+             utils_geom utils_image gtsam_pose_graph \
+             utils_pipeline utils_shortest_path \
+             utils_stamped_poses utils_convert_pose_format utils_convert_pose_to_kml \
+             utils_viz2d_camera utils_viz3d_camera utils_viz2d_graph \
+             utils_setting_color_font utils_trajectory \
+             extract_vpr_descriptors extract_iqa vpr_sequence_matching \
+             vpr_sequence_matching_adaptive vpr_single_matching vpr_topological_filter \
+             vpr_graph_search base_graph base_node; do
+     [ -f "$OPENNAVMAP_ROOT/python/utils/${f}.py" ] && \
+       cp "$OPENNAVMAP_ROOT/python/utils/${f}.py" "$LITEVLOC_WORKDIR/python/utils/"
+   done
+   # Copy __init__ if present
+   [ -f "$OPENNAVMAP_ROOT/python/utils/__init__.py" ] && \
+     cp "$OPENNAVMAP_ROOT/python/utils/__init__.py" "$LITEVLOC_WORKDIR/python/utils/"
+   # Subdirectories owned by LiteVLoc
+   cp -r "$OPENNAVMAP_ROOT/python/utils/utils_ros"   "$LITEVLOC_WORKDIR/python/utils/"
+   cp -r "$OPENNAVMAP_ROOT/python/utils/benchmark"   "$LITEVLOC_WORKDIR/python/utils/"
 
-   # Remove OpenNavMap-only utils from LiteVLoc copy
-   # DO NOT remove gtsam_pose_graph.py, utils_geom.py, utils_image.py — see §6
-   rm -f "$LITEVLOC_WORKDIR/python/utils/utils_map_merging.py"
-   rm -f "$LITEVLOC_WORKDIR/python/utils/gen_covis_trav_edges.py"
+   # Launch files
+   cp -r "$OPENNAVMAP_ROOT/launch" "$LITEVLOC_WORKDIR/"
+
+   # Scripts — whitelist copy: only LiteVLoc-owned scripts
+   mkdir -p "$LITEVLOC_WORKDIR/scripts"
+   for s in run_loc_pipeline record_rosbag_loc_simu \
+             export_odom_vloc_simu export_odom_vloc_anymal \
+             run_benchmark_mf_submission run_benchmark_mf_evaluation \
+             run_benchmark_rpe_submission run_benchmark_rpe_evaluation \
+             run_benchmark_rpe_depth_generation run_finetune_rpe_test \
+             run_ego_blur run_batch_extract_vpr_iqa run_batch_vpr_seq_slam; do
+     [ -f "$OPENNAVMAP_ROOT/scripts/${s}.sh" ] && \
+       cp "$OPENNAVMAP_ROOT/scripts/${s}.sh" "$LITEVLOC_WORKDIR/scripts/"
+   done
+   # Note: run_batch_gendata.sh, run_batch_gendata_vpr.sh go to OpenNavMap — not copied here
 
    # Metadata
    cp "$OPENNAVMAP_ROOT/requirements.txt" "$LITEVLOC_WORKDIR/"
@@ -447,7 +467,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    ```
    If `$LITEVLOC_INTEGRATION_COMMIT` is not in shell, retrieve it with:
    ```bash
-   cd /tmp/litevloc_code && git rev-parse HEAD
+   cd "$LITEVLOC_WORKDIR" && git rev-parse HEAD
    ```
 
 3. Update OpenNavMap documentation and CLAUDE.md to reflect OpenNavMap identity and new boundary.
@@ -465,10 +485,15 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    expected_utils = opennavmap_root / "python" / "utils"
 
    # Verify core OpenNavMap modules import cleanly
-   core_modules = ["map_merge_pipeline", "map_manager"]
+   core_modules = [
+       "map_merge_pipeline", "map_manager",
+       "benchmark_mms",                    # import top-level __init__ or a submodule
+   ]
+   # Spot-check benchmark dirs that must not import from third_party
+   benchmark_spot = ["benchmark_vpr.evaluation", "benchmark_kf_selection.keyframe_selection"]
    shared_utils = ["utils.gtsam_pose_graph", "utils.utils_geom", "utils.utils_image"]
 
-   for name in core_modules + shared_utils:
+   for name in core_modules + benchmark_spot + shared_utils:
        mod = importlib.import_module(name)
        mod_file = pathlib.Path(mod.__file__).resolve()
        assert opennavmap_root in mod_file.parents, \
@@ -581,8 +606,17 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    python "$OPENNAVMAP_ROOT/tmp/opennavmap_split_validation/validate_opennavmap_core_imports.py"
    ```
 
-   **Batch 4 — LiteVLoc-owned scripts and launch files:**
+   **Batch 4a — confirmed LiteVLoc-owned scripts:**
    ```bash
+   # Scripts and launch files do not affect Python imports, but verify no OpenNavMap
+   # retained Python file sources or calls them before deleting.
+   rg "run_loc_pipeline|record_rosbag|export_odom_vloc|benchmark_mf|benchmark_rpe|run_finetune_rpe" \
+     "$OPENNAVMAP_ROOT/python/map_merge_pipeline.py" \
+     "$OPENNAVMAP_ROOT/python/map_manager.py" \
+     "$OPENNAVMAP_ROOT/python/benchmark_mms" \
+     "$OPENNAVMAP_ROOT/python/benchmark_vpr" \
+     "$OPENNAVMAP_ROOT/python/benchmark_kf_selection" || true
+
    rm -f "$OPENNAVMAP_ROOT/scripts/run_loc_pipeline.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/record_rosbag_loc_simu.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/export_odom_vloc_simu.sh"
@@ -593,13 +627,25 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    rm -f "$OPENNAVMAP_ROOT/scripts/run_benchmark_rpe_evaluation.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/run_benchmark_rpe_depth_generation.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/run_finetune_rpe_test.sh"
-   # (plus ego_blur, extract_vpr_iqa, batch_vpr_seq_slam if confirmed LiteVLoc-owned in §4.2)
    rm -f "$OPENNAVMAP_ROOT/launch/run_vloc_online_anymal.launch"
    rm -f "$OPENNAVMAP_ROOT/launch/run_vloc_online_simuenv.launch"
    rm -f "$OPENNAVMAP_ROOT/launch/run_vloc_offline_files.launch"
    rm -f "$OPENNAVMAP_ROOT/launch/run_pose_fusion.launch"
    rm -f "$OPENNAVMAP_ROOT/launch/run_navigation_interface_simuenv.launch"
    rm -f "$OPENNAVMAP_ROOT/launch/run_depth_reg.launch"
+
+   # Re-run validation after batch 4a
+   PYTHONPATH="$OPENNAVMAP_ROOT/python" \
+   OPENNAVMAP_ROOT="$OPENNAVMAP_ROOT" \
+   python "$OPENNAVMAP_ROOT/tmp/opennavmap_split_validation/validate_opennavmap_core_imports.py"
+   ```
+
+   **Batch 4b — scripts confirmed LiteVLoc-owned during Phase B step 1:**
+   Only execute after confirming assignment in §4.2:
+   ```bash
+   rm -f "$OPENNAVMAP_ROOT/scripts/run_ego_blur.sh"
+   rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_extract_vpr_iqa.sh"
+   rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_vpr_seq_slam.sh"
    ```
 
 ---
