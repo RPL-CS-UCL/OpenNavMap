@@ -1,12 +1,18 @@
-## LiteVloc: Map-Lite Visual Localization for Image-Goal Navigation 
-Accepted by ICRA2025
+# OpenNavMap
 
-### Overview of LiteVloc
-LiteVLoc is a **hierarchical visual localization** framework designed to enable efficient and precise camera pose estimation using lightweight topometric maps. Our goal is for this package to serve as a foundational tool for scalable navigation, empowering researchers and developers to build advanced robotic systems with ease.
+OpenNavMap is the main system for multi-session topometric map construction, submap merging, and scalable image-goal navigation experiments.
+
+LiteVLoc (https://github.com/RPL-CS-UCL/litevloc_code) is the visual localization submodule, included under `third_party/litevloc_code` as a pinned git submodule.
+
+## Overview
+
+OpenNavMap builds, aligns, merges, and maintains multi-session topometric maps for large-scale navigation. The repository contains the OpenNavMap mapping pipeline, map-level benchmarks, and paper experiment code. LiteVLoc remains an independently runnable ROS/Python localization package in `third_party/litevloc_code`.
+
+LiteVLoc was accepted by ICRA2025 as a hierarchical visual localization framework for efficient camera pose estimation using lightweight topometric maps.
 
 <div align="center">
     <a href="">
-      <img src="doc/media/litevloc_overview.png" width="40%" 
+      <img src="docs/media/litevloc_overview.png" width="40%" 
       alt="ins_simu_results">
     </a>
 </div>
@@ -15,14 +21,14 @@ LiteVLoc is a **hierarchical visual localization** framework designed to enable 
 We use the AR glass to create a lightweight topometric map for camera pose estimation and path planning. We can show an image to the robot, and the robot can autonomously navigate to the goal. Please check our [paper](https://arxiv.org/abs/2410.04419) for the technical explanation and [website](https://rpl-cs-ucl.github.io/LiteVLoc/) for more demonstrations.
 <div align="center">
     <a href="">
-      <img src="doc/media/exp_real_world_map_meta.png" width="60%" 
+      <img src="docs/media/exp_real_world_map_meta.png" width="60%" 
       alt="ins_simu_results">
     </a>
 </div>
 
 <div align="center">
     <a href="">
-      <img src="doc/media/litevloc_real_world_result.png" width="60%" 
+      <img src="docs/media/litevloc_real_world_result.png" width="60%" 
       alt="ins_simu_results">
     </a>
 </div>
@@ -36,8 +42,8 @@ cd catkin_ws/src/
 ```
 Create conda environment
 ```bash
-conda create --name litevloc python=3.8
-conda activate litevloc
+conda create --name opennavmap python=3.8
+conda activate opennavmap
 ```
 Install ```image-matching-methods```
 ```bash
@@ -48,9 +54,9 @@ Install  ```VPR-evaluation-methods```
 ```bash
 git clone git@github.com:gogojjh/VPR-methods-evaluation.git
 ```
-Create conda environment (NVIDIA GeForce RTX 4090 and CUDA 11.8)
+Clone with submodules and create conda environment (NVIDIA GeForce RTX 4090 and CUDA 11.8)
 ```bash
-git clone https://github.com/RPL-CS-UCL/litevloc_code
+git clone --recurse-submodules git@github.com:RPL-CS-UCL/OpenNavMap.git
 conda install pytorch=2.0.1 torchvision=0.15.2 pytorch-cuda=11.8 numpy=1.24.3 -c pytorch -c nvidia # use the correct version of cuda for your system
 pip install -r requirements.txt
 ```
@@ -63,12 +69,12 @@ Build LiteVloc as the ROS package (optional)
 catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
 ```
 
-### We provide several usage of LiteVloc
-1. [Instruction in Performing Map-free Benchmarking](doc/instruction_map_free_benchmark.md)
-2. [Instruction in Running LiteVloc with Offline Data](doc/instruction_vloc_data.md)
-3. [Instruction in Running LiteVloc with Simulated Matterport3d Environment](doc/instruction_vnav_simu_matterport3d.md)
-4. [Instruction in Processing Dataset](doc/instruction_dataset.md)
-5. [Instruction in Running Map Merging](doc/instruction_map_merging.md)
+### Documentation
+1. [Instruction in Running Map Merging](docs/instruction_map_merging.md)
+2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
+3. [Instruction in Running LiteVLoc with Offline Data](docs/instruction_vloc_data.md)
+4. [Instruction in Running LiteVLoc with Simulated Matterport3d Environment](docs/instruction_vnav_simu_matterport3d.md)
+5. [Instruction in Performing Map-free Benchmarking](docs/instruction_map_free_benchmark.md)
 
 ### Multi-Session Mapping Benchmark
 

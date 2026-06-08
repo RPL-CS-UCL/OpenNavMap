@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目简介
 
+This repository is **OpenNavMap**: a multi-session topometric mapping and scalable image-goal navigation system.
+
 **OpenNavMap** 是当前仓库承载的主系统：一个面向多次采集数据的 **multi-session topometric mapping** 系统，目标是构建、对齐、合并并维护可用于导航的轻量级拓扑度量地图，并进一步支持大规模、可扩展的 Image-goal Visual Navigation。
 
-**LiteVLoc** 是 OpenNavMap 中的视觉定位子模块，负责基于最终构建出的 **multi-session topometric map** 执行 global visual localization，并在在线系统中与路径规划、位姿融合等模块协同。ROS 包名为 `litevloc`，主要语言为 Python 3.8。
+**LiteVLoc** 是 OpenNavMap 的视觉定位子模块，位于 `third_party/litevloc_code`，并以 pinned git submodule 形式维护。LiteVLoc 负责基于最终构建出的 **multi-session topometric map** 执行 global visual localization，并在在线系统中与路径规划、位姿融合等模块协同。LiteVLoc 的 ROS 包名仍为 `litevloc`，主要语言为 Python 3.8。
 
 ## 常用命令
 
@@ -23,18 +25,17 @@ python test_torch_install.py
 # 构建 ROS 包（可选）
 catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
 
-# 运行单个测试
-python -m pytest python/test/test_pose_solver.py
-python -m pytest python/test/test_shortest_path.py
+# OpenNavMap 核心 import 验证（不依赖 LiteVLoc submodule）
+PYTHONPATH=$(pwd)/python python python/map_merge_pipeline.py --help
 
-# 离线定位 pipeline
-python python/loc_pipeline.py \
+# LiteVLoc 离线定位 pipeline（submodule）
+PYTHONPATH=$(pwd)/third_party/litevloc_code/python python third_party/litevloc_code/python/loc_pipeline.py \
     --map_path <map_dir> \
     --query_data_path <query_dir> \
     --image_size 512 288 --device=cuda \
     --vpr_method cosplace --vpr_backbone=ResNet18 --vpr_descriptors_dimension=256 \
     --img_matcher master \
-    --pose_solver pnp --config_pose_solver python/config/dataset/matterport3d.yaml
+    --pose_solver pnp --config_pose_solver third_party/litevloc_code/python/config/dataset/matterport3d.yaml
 
 # ROS 在线定位（仿真/实机）
 roslaunch litevloc run_vloc_online_simuenv.launch
@@ -53,11 +54,11 @@ bash scripts/run_map_merging.sh
    - 负责多子地图读取、跨图匹配、回环建立、GTSAM 优化与地图融合
 
 2. **LiteVLoc 视觉定位**
-   - 主入口：`python/loc_pipeline.py`、`python/ros_loc_pipeline.py`
+   - 主入口：`third_party/litevloc_code/python/loc_pipeline.py`、`third_party/litevloc_code/python/ros_loc_pipeline.py`
    - 基于已构建的 topometric map 执行全局检索与局部位姿精化
 
 3. **导航与系统集成**
-   - 主入口：`python/global_planner.py`、`python/pose_fusion.py`
+   - 主入口：`third_party/litevloc_code/python/global_planner.py`、`third_party/litevloc_code/python/pose_fusion.py`
    - 负责目标图像导航、位姿融合与 ROS 在线系统对接
 
 ### LiteVLoc 三层层次化定位
@@ -81,37 +82,35 @@ bash scripts/run_map_merging.sh
 |------|------|
 | `python/map_merge_pipeline.py` | OpenNavMap 主干，多子地图对齐、回环建立与合并 |
 | `python/map_manager.py` | 多图协调管理，统一组织 `odom` / `trav` / `covis` 图 |
-| `python/image_graph.py` / `point_graph.py` | topometric map 的核心图结构 |
-| `python/loc_pipeline.py` | LiteVLoc 主定位流程（VPR → 图像匹配 → 位姿求解） |
-| `python/ros_loc_pipeline.py` | LiteVLoc 在线 ROS 封装 |
-| `python/global_planner.py` | 基于目标图像的最短路径规划 |
-| `python/pose_fusion.py` | VIO + 视觉定位融合（GTSAM 后端） |
+| `third_party/litevloc_code/python/image_graph.py` / `point_graph.py` | topometric map 的图结构，LiteVLoc 维护 source-of-truth |
+| `third_party/litevloc_code/python/loc_pipeline.py` | LiteVLoc 主定位流程（VPR → 图像匹配 → 位姿求解） |
+| `third_party/litevloc_code/python/ros_loc_pipeline.py` | LiteVLoc 在线 ROS 封装 |
+| `third_party/litevloc_code/python/global_planner.py` | 基于目标图像的最短路径规划 |
+| `third_party/litevloc_code/python/pose_fusion.py` | VIO + 视觉定位融合（GTSAM 后端） |
 
 ### 目录结构
 
 ```
 python/
-├── *.py                    # 核心算法模块（建图 / 定位 / 规划 / 融合）
-├── ros_*.py                # ROS 节点封装
-├── utils/                  # 工具函数（45+ 文件）
-│   ├── utils_vpr_method.py     # VPR 模型初始化与推理
-│   ├── utils_image_matching_method.py  # 特征匹配封装
-│   ├── utils_geom.py           # 位姿转换与误差计算
-│   ├── pose_solver.py          # 抽象位姿求解器接口
-│   ├── gtsam_pose_graph.py     # GTSAM 后端
-│   └── utils_ros/              # ROS 消息转换
 ├── map_merge_pipeline.py   # 多会话地图构建与合并主入口
-├── loc_pipeline.py         # LiteVLoc 离线定位主入口
-├── global_planner.py       # 基于 trav graph 的全局规划
-├── pose_fusion.py          # 里程计与视觉定位融合
+├── map_manager.py          # 多图协调管理
+├── benchmark_mms/          # 多会话建图 benchmark
 ├── benchmark_vpr/          # VPR 评估
-├── benchmark_map_free/     # 无地图特征匹配评估
-├── benchmark_rpe/          # 相对位姿估计评估
 ├── benchmark_kf_selection/ # 关键帧选择评估
-├── config/dataset/         # 各数据集的 YACS 配置（.yaml）
-├── segment_change/         # 场景变化检测
-├── ltl_task_planner/       # 时态逻辑任务规划
-└── test/                   # 单元测试
+├── utils/                  # OpenNavMap 核心工具函数
+│   ├── utils_map_merging.py    # 地图合并工具
+│   ├── gen_covis_trav_edges.py # covis/trav edge 生成
+│   ├── utils_geom.py           # 位姿转换与误差计算
+│   ├── utils_image.py          # 图像工具（OpenNavMap 本地副本）
+│   ├── gtsam_pose_graph.py     # GTSAM 后端
+
+third_party/litevloc_code/
+├── python/loc_pipeline.py      # LiteVLoc 离线定位主入口
+├── python/ros_loc_pipeline.py  # LiteVLoc 在线定位 ROS 封装
+├── python/global_planner.py    # 基于 trav graph 的全局规划
+├── python/pose_fusion.py       # 里程计与视觉定位融合
+├── python/benchmark_map_free/  # 无地图特征匹配评估
+└── python/benchmark_rpe/       # 相对位姿估计评估
 ```
 
 ## 地图数据格式
@@ -147,5 +146,6 @@ map_root/
 
 ## `third_party` 相关依赖
 
-- `third_party/vismatch`：局部图像匹配模型依赖，对应 `python/utils/utils_image_matching_method.py`
-- `third_party/VPR-methods-evaluation`：全局视觉检索模型依赖，对应 `python/utils/utils_vpr_method.py` 和 `python/utils/utils_pipeline.py`
+- `third_party/litevloc_code`：LiteVLoc 视觉定位 submodule，对应定位、规划、位姿融合、map-free/RPE benchmarks
+- `third_party/vismatch`：局部图像匹配模型依赖，最终由 LiteVLoc 使用
+- `third_party/VPR-methods-evaluation`：全局视觉检索模型依赖，最终由 LiteVLoc 使用
