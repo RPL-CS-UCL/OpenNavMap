@@ -70,6 +70,46 @@ catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
 4. [Instruction in Processing Dataset](doc/instruction_dataset.md)
 5. [Instruction in Running Map Merging](doc/instruction_map_merging.md)
 
+### Multi-Session Mapping Benchmark
+
+We provide a pure Python benchmark under `python/benchmark_mms/` to demonstrate the navigation benefit of multi-session mapping compared with single-session mapping.
+
+The benchmark uses a real OpenStreetMap occupancy grid and simulates 10 crowdsourced mapping sessions. It evaluates spatial coverage growth, goal reachability improvement, path optimality improvement, and long-term map update behavior under dynamic obstacles.
+
+Run:
+
+```bash
+conda activate opennavmap
+python python/benchmark_mms/multisession_sim_osm.py
+```
+
+Generated outputs are saved to:
+
+```bash
+python/benchmark_mms/output/
+```
+
+The detailed experimental specification is documented in:
+
+```bash
+python/benchmark_mms/REQUIREMENTS.md
+```
+
+The plotting code uses the project font helper `python/utils/utils_setting_color_font.py`, which enables Matplotlib LaTeX rendering (`usetex=True`). Make sure LaTeX is available:
+
+```bash
+which latex
+which pdflatex
+which dvipng
+```
+
+If missing:
+
+```bash
+apt-install update
+apt-install install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended dvipng cm-super
+```
+
 
 ### Issues
 Issue: ```cannot import name 'cache' from 'functools'```
