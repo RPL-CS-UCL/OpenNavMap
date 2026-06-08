@@ -154,7 +154,6 @@ python/utils/utils_pipeline.py
 python/utils/utils_shortest_path.py
 python/utils/utils_ros/
 python/utils/benchmark/
-python/test/
 ```
 
 **Launch files**
@@ -331,10 +330,9 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code                # temporary clone loca
      cp "$OPENNAVMAP_ROOT/python/${f}.py" "$LITEVLOC_WORKDIR/python/"
    done
 
-   # Benchmark dirs and test
+   # Benchmark dirs
    cp -r "$OPENNAVMAP_ROOT/python/benchmark_map_free" "$LITEVLOC_WORKDIR/python/"
    cp -r "$OPENNAVMAP_ROOT/python/benchmark_rpe"      "$LITEVLOC_WORKDIR/python/"
-   cp -r "$OPENNAVMAP_ROOT/python/test"                "$LITEVLOC_WORKDIR/python/"
    if [ -d "$OPENNAVMAP_ROOT/python/config" ]; then
      cp -r "$OPENNAVMAP_ROOT/python/config" "$LITEVLOC_WORKDIR/python/"
    fi
@@ -434,12 +432,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code                # temporary clone loca
 
    If any assertion fails, fix the copy step before proceeding. Do NOT commit until all assertions pass.
 
-5. Run existing LiteVLoc tests:
-   ```bash
-   cd "$LITEVLOC_WORKDIR"
-   PYTHONPATH="$LITEVLOC_WORKDIR/python" \
-   python -m pytest python/test/test_pose_solver.py -v
-   ```
+5. Do not copy or run legacy `python/test/` during this split. Those tests depend on unavailable external packages and stale hard-coded data paths. The migration gate for this phase is the temporary validation script from step 4.
 
 6. Push integration branch:
    ```bash
@@ -701,9 +694,6 @@ Run with isolated PYTHONPATH (`PYTHONPATH="$LITEVLOC_WORKDIR/python"` only):
 - [ ] `python python/loc_pipeline.py --help` succeeds
 - [ ] `python python/global_planner.py --help` succeeds
 - [ ] `python python/pose_fusion.py --help` succeeds
-- [ ] `python -m pytest python/test/test_pose_solver.py` passes
-- [ ] `python -m pytest python/test/test_batch_image_matching_method.py` passes
-- [ ] `python -m pytest python/test/test_batch_vpr_method.py` passes
 - [ ] `benchmark_map_free` and `benchmark_rpe` imports resolve
 
 ### OpenNavMap
