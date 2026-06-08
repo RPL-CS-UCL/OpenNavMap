@@ -136,7 +136,7 @@ map_root/
 
 ## 配置系统
 
-使用 YACS 进行层次化配置，数据集配置位于 `python/config/dataset/`（matterport3d、ucl_campus、hkust 等）。`--config_pose_solver` 参数指定 yaml 文件路径。
+OpenNavMap root 中的配置仅用于 map-level workflows。LiteVLoc 定位相关 YACS 数据集配置位于 `third_party/litevloc_code/python/config/dataset/`（matterport3d、ucl_campus、hkust 等）。运行 LiteVLoc pipeline 时，`--config_pose_solver` 应指向 submodule 内的 yaml，例如 `third_party/litevloc_code/python/config/dataset/matterport3d.yaml`。
 
 ## 已知问题
 

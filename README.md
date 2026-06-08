@@ -13,23 +13,23 @@ LiteVLoc was accepted by ICRA2025 as a hierarchical visual localization framewor
 <div align="center">
     <a href="">
       <img src="docs/media/litevloc_overview.png" width="40%" 
-      alt="ins_simu_results">
+      alt="LiteVLoc overview">
     </a>
 </div>
 <br>
 
-We use the AR glass to create a lightweight topometric map for camera pose estimation and path planning. We can show an image to the robot, and the robot can autonomously navigate to the goal. Please check our [paper](https://arxiv.org/abs/2410.04419) for the technical explanation and [website](https://rpl-cs-ucl.github.io/LiteVLoc/) for more demonstrations.
+The following figures and links summarize the original LiteVLoc localization and image-goal navigation demonstrations. They are retained here as background for the `third_party/litevloc_code` submodule. See the LiteVLoc [paper](https://arxiv.org/abs/2410.04419) and [website](https://rpl-cs-ucl.github.io/LiteVLoc/) for the localization module details.
 <div align="center">
     <a href="">
       <img src="docs/media/exp_real_world_map_meta.png" width="60%" 
-      alt="ins_simu_results">
+      alt="LiteVLoc real-world map metadata">
     </a>
 </div>
 
 <div align="center">
     <a href="">
       <img src="docs/media/litevloc_real_world_result.png" width="60%" 
-      alt="ins_simu_results">
+      alt="LiteVLoc real-world result">
     </a>
 </div>
 
@@ -64,7 +64,7 @@ Enter this code to check whether torch-related packages are installed
 ```bash
 python test_torch_install.py
 ```
-Build LiteVloc as the ROS package (optional)
+Build LiteVLoc as the ROS package (optional)
 ```bash
 catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
 ```
@@ -112,8 +112,8 @@ which dvipng
 If missing:
 
 ```bash
-apt-install update
-apt-install install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended dvipng cm-super
+apt update
+apt install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended dvipng cm-super
 ```
 
 
