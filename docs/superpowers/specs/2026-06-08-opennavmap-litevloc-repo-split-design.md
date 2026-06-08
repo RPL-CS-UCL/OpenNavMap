@@ -108,6 +108,7 @@ OpenNavMap does **not** carry as primary scope:
 python/segment_change/        # remove from main scope; archive or delete later
 python/ltl_task_planner/      # remove from main scope; archive or delete later
 python/utils/benchmark/       # LiteVLoc-owned; will be removed in Phase C Batch 3
+python/test/                  # legacy LiteVLoc tests; not an OpenNavMap migration gate
 ```
 
 ### 4.2 LiteVLoc
@@ -516,14 +517,9 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
 
    If any assertion fails, stop and fix the file ownership before proceeding to cleanup.
 
-5. Run existing OpenNavMap tests:
-   ```bash
-   PYTHONPATH="$OPENNAVMAP_ROOT/python" \
-   python -m pytest "$OPENNAVMAP_ROOT/python/test/test_shortest_path.py" -v
-   ```
-   Note: only run tests for files that are OpenNavMap-retained. Skip tests for LiteVLoc-owned modules.
+5. Do not run legacy `python/test/` during this split. Those tests depend on unavailable external packages and LiteVLoc-owned modules that will be removed. The OpenNavMap migration gate is the temporary validation script from step 4.
 
-6. **Gate: only after steps 4–5 pass**, remove LiteVLoc-owned duplicate files from OpenNavMap in small batches. Before each batch, run a reference scan to confirm no retained file still imports the files being deleted:
+6. **Gate: only after step 4 passes**, remove LiteVLoc-owned duplicate files from OpenNavMap in small batches. Before each batch, run a reference scan to confirm no retained file still imports the files being deleted:
 
    **Batch 1 — runtime python modules:**
    ```bash
@@ -599,6 +595,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    rm -f "$OPENNAVMAP_ROOT/python/utils/utils_shortest_path.py"
    rm -rf "$OPENNAVMAP_ROOT/python/utils/utils_ros"
    rm -rf "$OPENNAVMAP_ROOT/python/utils/benchmark"
+   rm -rf "$OPENNAVMAP_ROOT/python/test"
 
    # DO NOT remove: gtsam_pose_graph.py, utils_geom.py, utils_image.py — see §6
    # DO NOT remove: utils_map_merging.py, gen_covis_trav_edges.py — OpenNavMap-owned
