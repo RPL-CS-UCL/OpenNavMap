@@ -1,0 +1,9 @@
+[submodule "third_party/vismatch"]
+	path = third_party/vismatch
+	url = /tmp/opencode/vismatch
+[submodule "third_party/pose_estimation_models"]
+	path = third_party/pose_estimation_models
+	url = /tmp/opencode/pose_estimation_models
+[submodule "third_party/VPR-methods-evaluation"]
+	path = third_party/VPR-methods-evaluation
+	url = /tmp/opencode/VPR-methods-evaluation
