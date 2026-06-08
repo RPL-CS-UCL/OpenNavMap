@@ -30,6 +30,12 @@
 ```text
 opennavmap/
 ├── python/            # OpenNavMap 核心建图、合并与 map-level benchmark
+│   ├── map_merge_pipeline.py
+│   ├── map_manager.py
+│   ├── benchmark_mms/
+│   ├── benchmark_vpr/
+│   ├── benchmark_kf_selection/
+│   └── utils/         # OpenNavMap 本地 utils：map merging / GTSAM / geom / image
 ├── launch/            # OpenNavMap 启动入口（LiteVLoc launch 位于 submodule）
 ├── scripts/           # 批处理脚本与实验入口
 ├── docs/              # 使用说明与流程文档
@@ -70,6 +76,12 @@ opennavmap/
 
 - `python/utils/gtsam_pose_graph.py`
   - GTSAM 后端封装，用于地图合并与位姿图优化
+
+- `python/utils/utils_geom.py` / `python/utils/utils_image.py`
+  - OpenNavMap 本地保留的共享基础工具，保证 map merging core 不依赖 LiteVLoc submodule
+
+- `python/benchmark_mms/` / `python/benchmark_vpr/` / `python/benchmark_kf_selection/`
+  - OpenNavMap 的 map-level benchmark 与论文实验评估
 
 从系统角度看，OpenNavMap 的地图不是单一结构，而是至少包含三类互补图：
 
@@ -140,14 +152,14 @@ LiteVLoc 的职责不是建图，而是：
 
 - `third_party/vismatch`
   - 提供局部图像匹配能力
-  - 被 `python/utils/utils_image_matching_method.py` 所依赖
+  - 被 `third_party/litevloc_code/python/utils/utils_image_matching_method.py` 所依赖
   - 是 LiteVLoc 局部精定位阶段的重要底层组件
 
 ### 5.2 仓库内的外部模型组件
 
 - `third_party/VPR-methods-evaluation`
   - 为 VPR 模型、描述子提取和检索流程提供支持
-  - 当前仓库中的 `utils_pipeline.py` 和 `utils_vpr_method.py` 会显式把它加入 `sys.path`
+  - LiteVLoc submodule 中的 `third_party/litevloc_code/python/utils/utils_pipeline.py` 和 `third_party/litevloc_code/python/utils/utils_vpr_method.py` 会显式把它加入 `sys.path`
   - 它支撑 LiteVLoc 的全局视觉检索能力
 
 因此，如果从系统组成的角度描述 OpenNavMap，可以理解为：
