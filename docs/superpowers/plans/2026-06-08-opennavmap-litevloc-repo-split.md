@@ -25,7 +25,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
 
 ## Phase A — OpenNavMap Branch and Remote
 
-### Task 1: Create `tro_opennavmap_third_version` branch
+### Task 1: Create `opennavmap_third_version` branch
 
 **Files:** git only (no file changes)
 
@@ -42,17 +42,17 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
 
   ```bash
   git checkout tro_opennavmap_second_version
-  git checkout -b tro_opennavmap_third_version
-  git push -u origin tro_opennavmap_third_version
+  git checkout -b opennavmap_third_version
+  git push -u origin opennavmap_third_version
   ```
-  Expected: new branch created and tracking `origin/tro_opennavmap_third_version`.
+  Expected: new branch created and tracking `origin/opennavmap_third_version`.
 
 - [ ] **Step 3: Verify branch**
 
   ```bash
   git branch -vv
   ```
-  Expected: `* tro_opennavmap_third_version` tracking `origin/tro_opennavmap_third_version`.
+  Expected: `* opennavmap_third_version` tracking `origin/opennavmap_third_version`.
 
 ---
 
@@ -102,14 +102,14 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
 
   Preliminary assignments (confirm or override):
   ```
-  run_batch_gendata.sh        -> OpenNavMap  (multi-session map data generation)
-  run_batch_gendata_vpr.sh    -> OpenNavMap  (VPR benchmark data generation)
+  run_batch_gendata.sh        -> LiteVLoc    (external pycpptools data generation)
+  run_batch_gendata_vpr.sh    -> LiteVLoc    (external pycpptools VPR data generation)
   run_ego_blur.sh             -> LiteVLoc    (image preprocessing)
   run_batch_extract_vpr_iqa.sh-> LiteVLoc    (calls rosrun litevloc)
   run_batch_vpr_seq_slam.sh   -> LiteVLoc    (calls rosrun litevloc)
   ```
 
-  If assignments differ, update the copy list in Task 4 accordingly before executing it.
+  If assignments differ, update the copy list in Task 6 accordingly before executing it.
 
 ---
 
@@ -234,7 +234,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
       cp "$OPENNAVMAP_ROOT/scripts/${s}.sh" "$LITEVLOC_WORKDIR/scripts/"
   done
   ```
-  Note: `run_batch_gendata.sh` and `run_batch_gendata_vpr.sh` are OpenNavMap-owned — do NOT copy them.
+  Note: `run_batch_gendata.sh` and `run_batch_gendata_vpr.sh` were confirmed LiteVLoc-owned in Task 3 and must be copied.
   If Task 3 changed assignment for `run_ego_blur.sh`, `run_batch_extract_vpr_iqa.sh`, or `run_batch_vpr_seq_slam.sh`, adjust the list above.
 
 - [ ] **Step 3: Copy metadata files**
@@ -261,7 +261,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
   ```bash
   mkdir -p "$LITEVLOC_WORKDIR/tmp/split_validation"
   cat > "$LITEVLOC_WORKDIR/tmp/split_validation/validate_litevloc_integration_imports.py" << 'EOF'
-  import os, pathlib, importlib, sys
+  import os, pathlib, importlib.util, sys
 
   litevloc_root = pathlib.Path(os.environ["LITEVLOC_WORKDIR"]).resolve()
   opennavmap_root = pathlib.Path(os.environ["OPENNAVMAP_ROOT"]).resolve()
@@ -270,15 +270,18 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
       "loc_pipeline", "ros_loc_pipeline",
       "image_graph", "point_graph", "image_node", "point_node",
       "pose_fusion", "global_planner",
-      "benchmark_map_free", "benchmark_rpe",
   ]
+  required_dirs = ["benchmark_map_free", "benchmark_rpe"]
   util_modules = ["utils.utils_geom", "utils.utils_image", "utils.gtsam_pose_graph"]
 
   failed = []
   for name in required_modules + util_modules:
       try:
-          mod = importlib.import_module(name)
-          mod_file = pathlib.Path(mod.__file__).resolve()
+          spec = importlib.util.find_spec(name)
+          if spec is None or spec.origin is None:
+              failed.append(f"FAIL {name}: module spec not found")
+              continue
+          mod_file = pathlib.Path(spec.origin).resolve()
           if litevloc_root not in mod_file.parents:
               failed.append(f"FAIL {name}: {mod_file} not under {litevloc_root}")
           elif opennavmap_root in mod_file.parents:
@@ -287,6 +290,15 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
               print(f"OK   {name}: {mod_file}")
       except Exception as e:
           failed.append(f"FAIL {name}: import error — {e}")
+
+  for name in required_dirs:
+      dir_path = litevloc_root / "python" / name
+      if not dir_path.is_dir():
+          failed.append(f"FAIL {name}: directory not found at {dir_path}")
+      elif opennavmap_root in dir_path.resolve().parents:
+          failed.append(f"FAIL {name}: directory leaks from OpenNavMap root")
+      else:
+          print(f"OK   {name}: {dir_path.resolve()}")
 
   if failed:
       print("\n--- FAILURES ---")
@@ -751,9 +763,11 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
   Only execute the relevant lines based on Task 3 decisions:
   ```bash
   # Delete if confirmed LiteVLoc-owned in Task 3:
-  rm -f "$OPENNAVMAP_ROOT/scripts/run_ego_blur.sh"            # preliminary: LiteVLoc
-  rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_extract_vpr_iqa.sh" # preliminary: LiteVLoc
-  rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_vpr_seq_slam.sh"  # preliminary: LiteVLoc
+  rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_gendata.sh"          # confirmed: LiteVLoc
+  rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_gendata_vpr.sh"      # confirmed: LiteVLoc
+  rm -f "$OPENNAVMAP_ROOT/scripts/run_ego_blur.sh"              # confirmed: LiteVLoc
+  rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_extract_vpr_iqa.sh" # confirmed: LiteVLoc
+  rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_vpr_seq_slam.sh"    # confirmed: LiteVLoc
   ```
   If any of these were re-assigned to OpenNavMap in Task 3, skip the corresponding `rm`.
 
@@ -802,7 +816,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
   git log --oneline -8
   ```
   Expected:
-  - On `tro_opennavmap_third_version`
+  - On `opennavmap_third_version`
   - Remote is `git@github.com:RPL-CS-UCL/opennavmap.git`
   - Recent commits reflect Phase C cleanup
 

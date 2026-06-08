@@ -1,7 +1,7 @@
 # OpenNavMap / LiteVLoc Repo Split Design
 
 **Date:** 2026-06-08
-**Branch:** tro_opennavmap_third_version
+**Branch:** opennavmap_third_version
 **Status:** Approved
 
 ---
@@ -38,7 +38,7 @@ OpenNavMap uses LiteVLoc as a git submodule. LiteVLoc does not depend on OpenNav
 | Current repo | `RPL-CS-UCL/litevloc_private` |
 | Target repo | `RPL-CS-UCL/opennavmap` |
 | Migration method | GitHub repo rename (preserves history, issues, branches) |
-| Work branch | `tro_opennavmap_third_version` |
+| Work branch | `opennavmap_third_version` |
 
 ### LiteVLoc
 
@@ -188,8 +188,8 @@ Decision rule: if the script's primary invocation calls `map_merge_pipeline.py`,
 Preliminary assignments based on content inspection:
 
 ```
-scripts/run_batch_gendata.sh           -> OpenNavMap  (generates multi-session map data for map merging)
-scripts/run_batch_gendata_vpr.sh       -> OpenNavMap  (generates VPR benchmark data for benchmark_vpr)
+scripts/run_batch_gendata.sh           -> LiteVLoc    (external pycpptools data generation; no OpenNavMap core entry)
+scripts/run_batch_gendata_vpr.sh       -> LiteVLoc    (external pycpptools VPR data generation; no OpenNavMap core entry)
 scripts/run_ego_blur.sh                -> LiteVLoc    (image preprocessing for localization datasets)
 scripts/run_batch_extract_vpr_iqa.sh   -> LiteVLoc    (extracts VPR descriptors and IQA from map sequences, calls rosrun litevloc)
 scripts/run_batch_vpr_seq_slam.sh      -> LiteVLoc    (runs sequential VPR matching, calls rosrun litevloc)
@@ -278,8 +278,8 @@ The submodule must be pinned to a specific commit, not rely on floating branch s
 2. Create new work branch from current `tro_opennavmap_second_version`:
    ```bash
    git checkout tro_opennavmap_second_version
-   git checkout -b tro_opennavmap_third_version
-   git push -u origin tro_opennavmap_third_version
+   git checkout -b opennavmap_third_version
+   git push -u origin opennavmap_third_version
    ```
 
 3. Rename GitHub repo via GitHub UI:
@@ -371,11 +371,12 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code                # temporary clone loca
              run_benchmark_mf_submission run_benchmark_mf_evaluation \
              run_benchmark_rpe_submission run_benchmark_rpe_evaluation \
              run_benchmark_rpe_depth_generation run_finetune_rpe_test \
-             run_ego_blur run_batch_extract_vpr_iqa run_batch_vpr_seq_slam; do
+             run_ego_blur run_batch_extract_vpr_iqa run_batch_vpr_seq_slam \
+             run_batch_gendata run_batch_gendata_vpr; do
      [ -f "$OPENNAVMAP_ROOT/scripts/${s}.sh" ] && \
        cp "$OPENNAVMAP_ROOT/scripts/${s}.sh" "$LITEVLOC_WORKDIR/scripts/"
    done
-   # Note: run_batch_gendata.sh, run_batch_gendata_vpr.sh go to OpenNavMap — not copied here
+   # Task 3 confirmed run_batch_gendata.sh and run_batch_gendata_vpr.sh are LiteVLoc-owned
 
    # Metadata
    cp "$OPENNAVMAP_ROOT/requirements.txt" "$LITEVLOC_WORKDIR/"
@@ -391,7 +392,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code                # temporary clone loca
    ```bash
    mkdir -p "$LITEVLOC_WORKDIR/tmp/split_validation"
    cat > "$LITEVLOC_WORKDIR/tmp/split_validation/validate_litevloc_integration_imports.py" << 'EOF'
-   import os, pathlib, importlib, sys
+   import os, pathlib, importlib.util, sys
 
    litevloc_root = pathlib.Path(os.environ["LITEVLOC_WORKDIR"]).resolve()
    opennavmap_root = pathlib.Path(os.environ["OPENNAVMAP_ROOT"]).resolve()
@@ -400,18 +401,27 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code                # temporary clone loca
        "loc_pipeline", "ros_loc_pipeline",
        "image_graph", "point_graph", "image_node", "point_node",
        "pose_fusion", "global_planner",
-       "benchmark_map_free", "benchmark_rpe",
    ]
+   required_dirs = ["benchmark_map_free", "benchmark_rpe"]
    util_modules = ["utils.utils_geom", "utils.utils_image", "utils.gtsam_pose_graph"]
 
    for name in required_modules + util_modules:
-       mod = importlib.import_module(name)
-       mod_file = pathlib.Path(mod.__file__).resolve()
+       spec = importlib.util.find_spec(name)
+       if spec is None or spec.origin is None:
+           raise AssertionError(f"FAIL {name}: module spec not found")
+       mod_file = pathlib.Path(spec.origin).resolve()
        assert litevloc_root in mod_file.parents, \
            f"FAIL {name}: {mod_file} not under {litevloc_root}"
        assert opennavmap_root not in mod_file.parents, \
            f"FAIL {name}: {mod_file} leaks from OpenNavMap root"
        print(f"OK {name}: {mod_file}")
+
+   for name in required_dirs:
+       dir_path = litevloc_root / "python" / name
+       assert dir_path.is_dir(), f"FAIL {name}: directory not found at {dir_path}"
+       assert opennavmap_root not in dir_path.resolve().parents, \
+           f"FAIL {name}: directory leaks from OpenNavMap root"
+       print(f"OK {name}: {dir_path.resolve()}")
 
    print("\nAll LiteVLoc imports resolved correctly.")
    EOF
@@ -643,6 +653,8 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    **Batch 4b — scripts confirmed LiteVLoc-owned during Phase B step 1:**
    Only execute after confirming assignment in §4.2:
    ```bash
+   rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_gendata.sh"
+   rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_gendata_vpr.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/run_ego_blur.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_extract_vpr_iqa.sh"
    rm -f "$OPENNAVMAP_ROOT/scripts/run_batch_vpr_seq_slam.sh"
@@ -656,7 +668,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
 
 ```
 docs: add OpenNavMap/LiteVLoc repo split design
-chore: create tro_opennavmap_third_version branch
+chore: create opennavmap_third_version branch
 docs: rename repository identity to OpenNavMap
 chore: add LiteVLoc submodule at pinned commit
 docs: update CLAUDE.md and README for OpenNavMap identity
