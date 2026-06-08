@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-08
 **Branch:** tro_opennavmap_third_version
-**Status:** Draft (pending final review)
+**Status:** Approved
 
 ---
 
