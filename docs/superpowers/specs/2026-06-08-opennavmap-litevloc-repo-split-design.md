@@ -69,7 +69,8 @@ LiteVLoc  -/-> OpenNavMap
 
 Specifically:
 - OpenNavMap map merging core does **not** depend on LiteVLoc submodule.
-- OpenNavMap integration demos and launch files **may** use LiteVLoc submodule.
+- The following OpenNavMap integration entry points **may** reference LiteVLoc submodule indirectly via `PYTHONPATH`: online navigation launch files, demo scripts, and paper experiment scripts that invoke the full localization + navigation stack.
+- The following OpenNavMap files must **never** import from `third_party/litevloc_code`: `map_merge_pipeline.py`, `map_manager.py`, `benchmark_mms/`, `benchmark_vpr/`, `benchmark_kf_selection/`, `utils/utils_map_merging.py`, `utils/gtsam_pose_graph.py`, `utils/gen_covis_trav_edges.py`.
 - LiteVLoc must **never** import from OpenNavMap.
 
 ---
@@ -177,14 +178,21 @@ scripts/run_benchmark_rpe_depth_generation.sh
 scripts/run_finetune_rpe_test.sh
 ```
 
-**Scripts requiring per-file inspection before final assignment**
+**Scripts: final assignment to be resolved in Phase B step 1 by reading each file**
+
+Decision rule: if the script's primary invocation calls `map_merge_pipeline.py`, `benchmark_vpr/`, or `benchmark_kf_selection/`, it goes to OpenNavMap; otherwise it goes to LiteVLoc.
+
+Preliminary assignments based on content inspection:
+
 ```
-scripts/run_batch_gendata.sh           # likely OpenNavMap if for multi-session map data generation
-scripts/run_batch_gendata_vpr.sh       # likely OpenNavMap if for VPR benchmark data generation
-scripts/run_ego_blur.sh                # likely LiteVLoc/experimental
-scripts/run_batch_extract_vpr_iqa.sh   # likely OpenNavMap if tied to map IQA
-scripts/run_batch_vpr_seq_slam.sh      # likely OpenNavMap if tied to benchmark_vpr
+scripts/run_batch_gendata.sh           -> OpenNavMap  (generates multi-session map data for map merging)
+scripts/run_batch_gendata_vpr.sh       -> OpenNavMap  (generates VPR benchmark data for benchmark_vpr)
+scripts/run_ego_blur.sh                -> LiteVLoc    (image preprocessing for localization datasets)
+scripts/run_batch_extract_vpr_iqa.sh   -> LiteVLoc    (extracts VPR descriptors and IQA from map sequences, calls rosrun litevloc)
+scripts/run_batch_vpr_seq_slam.sh      -> LiteVLoc    (runs sequential VPR matching, calls rosrun litevloc)
 ```
+
+These assignments must be confirmed by reading each script at the start of Phase B before copying files.
 
 ---
 
@@ -272,7 +280,18 @@ The submodule must be pinned to a specific commit, not rely on floating branch s
 
 ### Phase B: LiteVLoc integration branch
 
-1. Clone LiteVLoc public repo separately (do not touch current OpenNavMap working tree):
+1. Confirm script assignments for the five ambiguous scripts by reading each one:
+   ```bash
+   cd /Titan/code/robohike_ws/src/litevloc_private
+   cat scripts/run_batch_gendata.sh | head -20
+   cat scripts/run_batch_gendata_vpr.sh | head -20
+   cat scripts/run_ego_blur.sh | head -20
+   cat scripts/run_batch_extract_vpr_iqa.sh | head -20
+   cat scripts/run_batch_vpr_seq_slam.sh | head -20
+   ```
+   Apply the decision rule in §4.2 and update the assignment list if preliminary assignments are wrong.
+
+2. Clone LiteVLoc public repo separately (do not touch current OpenNavMap working tree):
    ```bash
    git clone git@github.com:RPL-CS-UCL/litevloc_code.git /tmp/litevloc_code
    cd /tmp/litevloc_code
@@ -280,18 +299,70 @@ The submodule must be pinned to a specific commit, not rely on floating branch s
    git checkout -b opennavmap-integration
    ```
 
-2. Copy LiteVLoc-owned files from OpenNavMap working tree into `/tmp/litevloc_code`.
+3. Copy LiteVLoc-owned files from the OpenNavMap working tree into `/tmp/litevloc_code`, preserving the directory structure under `python/`, `launch/`, `scripts/`, and `docs/`. Also copy or create the following metadata files:
+   - `requirements.txt` — copy from OpenNavMap (shared environment; trim OpenNavMap-only deps later)
+   - `environment.yaml` — copy from OpenNavMap
+   - `package.xml` — copy from OpenNavMap as-is (ROS package name stays `litevloc`)
+   - `CMakeLists.txt` — copy from OpenNavMap as-is
+   - `README.md` — copy from OpenNavMap, then update to describe LiteVLoc as standalone package
+   - `.gitignore` — copy from OpenNavMap
+   - `python/__init__.py` — copy if present
+   - `python/utils/__init__.py` — copy if present
+   - `python/config/` — copy if present (YACS dataset configs used by loc_pipeline)
 
-3. Verify LiteVLoc runs independently:
+   Example copy commands:
    ```bash
+   ONAV=/Titan/code/robohike_ws/src/litevloc_private
+   LVLOC=/tmp/litevloc_code
+
+   # Python modules
+   for f in loc_pipeline ros_loc_pipeline global_planner ros_global_planner \
+             pose_fusion ros_pose_fusion ros_publish_graph ros_publish_goal_image \
+             depth_registration camera_keyframe_select \
+             image_graph point_graph image_node point_node; do
+     cp $ONAV/python/${f}.py $LVLOC/python/
+   done
+
+   # Directories
+   cp -r $ONAV/python/benchmark_map_free $LVLOC/python/
+   cp -r $ONAV/python/benchmark_rpe      $LVLOC/python/
+   cp -r $ONAV/python/utils              $LVLOC/python/
+   cp -r $ONAV/python/test               $LVLOC/python/
+   cp -r $ONAV/python/config             $LVLOC/python/  # if present
+   cp -r $ONAV/launch                    $LVLOC/
+   cp -r $ONAV/scripts                   $LVLOC/  # only LiteVLoc-owned scripts
+
+   # Then REMOVE utils files that belong to OpenNavMap only:
+   rm $LVLOC/python/utils/utils_map_merging.py
+   rm $LVLOC/python/utils/gen_covis_trav_edges.py
+   # Keep gtsam_pose_graph.py (LiteVLoc needs it for pose_fusion.py)
+
+   # Metadata
+   cp $ONAV/requirements.txt $LVLOC/
+   cp $ONAV/environment.yaml $LVLOC/
+   cp $ONAV/package.xml      $LVLOC/
+   cp $ONAV/CMakeLists.txt   $LVLOC/
+   cp $ONAV/README.md        $LVLOC/
+   cp $ONAV/.gitignore       $LVLOC/
+   ```
+
+4. Verify LiteVLoc runs independently. Use the full validation checklist in §10 LiteVLoc section. At minimum:
+   ```bash
+   cd /tmp/litevloc_code
+   export PYTHONPATH=$(pwd)/python:$PYTHONPATH
    python python/loc_pipeline.py --help
    python python/global_planner.py --help
    python python/pose_fusion.py --help
-   python -m pytest python/test/test_pose_solver.py
+   python -c "from loc_pipeline import LocPipeline; print('OK')"
+   python -c "from pose_fusion import PoseFusion; print('OK')"
+   python -c "from image_graph import ImageGraph; print('OK')"
+   python -m pytest python/test/test_pose_solver.py -v
    ```
 
-4. Push integration branch:
+5. Push integration branch:
    ```bash
+   git add -A
+   git commit -m "sync: import LiteVLoc modules from OpenNavMap working tree"
    git push -u origin opennavmap-integration
    ```
 
@@ -304,13 +375,39 @@ The submodule must be pinned to a specific commit, not rely on floating branch s
      third_party/litevloc_code
    ```
 
-2. Pin to specific commit.
+2. Pin the submodule to the specific commit pushed in Phase B:
+   ```bash
+   cd third_party/litevloc_code
+   git checkout <commit-hash-from-phase-B-push>
+   cd ../..
+   git add third_party/litevloc_code
+   git commit -m "chore: pin LiteVLoc submodule to opennavmap-integration commit"
+   ```
+   The commit hash is the output of `git rev-parse HEAD` run inside `/tmp/litevloc_code` after Phase B step 5.
 
-3. Update OpenNavMap documentation and CLAUDE.md.
+3. Update OpenNavMap documentation and CLAUDE.md to reflect OpenNavMap identity and new boundary.
 
-4. Verify map merging does not import from LiteVLoc.
+4. Verify map merging does not import from LiteVLoc. Use the full OpenNavMap validation checklist in §10. At minimum:
+   ```bash
+   export OPENNAVMAP_ROOT=$(pwd)
+   export PYTHONPATH=$OPENNAVMAP_ROOT/python:$OPENNAVMAP_ROOT/third_party/litevloc_code/python:$PYTHONPATH
+   python python/map_merge_pipeline.py --help
+   python -c "
+   import sys
+   from utils.gtsam_pose_graph import PoseGraph
+   # Confirm the module file is from OpenNavMap local, not LiteVLoc submodule
+   import utils.gtsam_pose_graph as mod
+   assert 'third_party' not in mod.__file__, f'Wrong path: {mod.__file__}'
+   print('OK: gtsam_pose_graph resolved from OpenNavMap local python/')
+   "
+   ```
 
-5. In subsequent commits, remove LiteVLoc-owned duplicate files from OpenNavMap scope.
+5. After validation checklist in §10 passes, remove LiteVLoc-owned duplicate files from OpenNavMap in small increments per commit. Order:
+   - First remove runtime python files: `loc_pipeline.py`, `ros_loc_pipeline.py`, `global_planner.py`, etc.
+   - Then remove benchmark dirs: `benchmark_map_free/`, `benchmark_rpe/`
+   - Then remove LiteVLoc-only utils: `utils_vpr_method.py`, `utils_image_matching_method.py`, etc.
+   - After each removal, re-run the OpenNavMap validation checklist before proceeding to the next batch.
+   - Do NOT remove `gtsam_pose_graph.py` from OpenNavMap; it is intentionally retained (see §6).
 
 ---
 
@@ -356,9 +453,12 @@ docs: document OpenNavMap integration branch usage
 
 - [ ] `python python/map_merge_pipeline.py --help` succeeds
 - [ ] `map_merge_pipeline.py` imports resolve using only OpenNavMap-local `python/`
-- [ ] `utils/gtsam_pose_graph.py` is resolved from OpenNavMap local path, not LiteVLoc submodule
+- [ ] `utils/gtsam_pose_graph.py` is resolved from OpenNavMap local path, not LiteVLoc submodule — verified by:
+  ```bash
+  python -c "import utils.gtsam_pose_graph as m; assert 'third_party' not in m.__file__; print('OK:', m.__file__)"
+  ```
 - [ ] `benchmark_mms/`, `benchmark_vpr/`, `benchmark_kf_selection/` imports resolve
-- [ ] LiteVLoc submodule exists at `third_party/litevloc_code` and is pinned
+- [ ] LiteVLoc submodule exists at `third_party/litevloc_code` and is pinned to a specific commit (not floating branch)
 - [ ] README.md identifies repo as OpenNavMap
 - [ ] CLAUDE.md identifies repo as OpenNavMap
 - [ ] `docs/repo_structure_brief.md` reflects new boundary
