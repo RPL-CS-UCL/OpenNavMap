@@ -48,9 +48,9 @@ RES = 0.5  # m/cell → real world 500 × 500 m
 N_SESSIONS = 10
 N_GOAL_PAIRS = 20
 
-FOV_HALF_DEG = 30.0
+FOV_HALF_DEG = 45.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
-FOV_RANGE_M = 7.0
+FOV_RANGE_M = 15.0
 FOV_RANGE_CELLS = int(np.ceil(FOV_RANGE_M / RES))
 
 TRANS_THRESH_M = 7.0
@@ -166,7 +166,7 @@ def find_zones(grid, n_zones=N_SESSIONS):
         dists_to_best = np.abs(candidates[:, 0] - best[0]) + np.abs(
             candidates[:, 1] - best[1]
         )
-        candidates = candidates[dists_to_best > 90]
+        candidates = candidates[dists_to_best > 40]
 
     if len(seeds) < n_zones:
         print(f"  Only {len(seeds)} seeds found; fallback to grid subdivision ...")
@@ -435,61 +435,48 @@ def _check_connectivity(grid_with_obs, seeds):
 # ============================================================================
 # Step 8: Goal pair sampling
 # ============================================================================
-def sample_goals(base_grid, seeds, n_local=4, n_adj=8, n_far=8):
+def sample_goals(base_grid, obs_merged_k10, seeds, n_total=N_GOAL_PAIRS):
     inf_grid = inflate(base_grid)
-    free = np.argwhere(inf_grid == 0)
-    if len(free) == 0:
+    known_free = np.argwhere(obs_merged_k10 == -1)
+    if len(known_free) < 20:
         return []
 
-    goals = []
+    rng = np.random.default_rng(42)
+    goals: list = []
 
-    def _valid_pair(s, g):
+    def _valid_good_pair(s, g):
+        if np.hypot(s[0] - g[0], s[1] - g[1]) < 30:
+            return False
         p, _ = astar(inf_grid, s, g)
         return p is not None
 
-    def _try_sample(candidates_s, candidates_g, n):
-        pairs = []
-        rng = np.random.default_rng(42 + len(goals))
-        tries = 0
-        while len(pairs) < n and tries < 2000:
-            s = (int(candidates_s[rng.integers(0, len(candidates_s))][0]),
-                 int(candidates_s[rng.integers(0, len(candidates_s))][1]))
-            g = (int(candidates_g[rng.integers(0, len(candidates_g))][0]),
-                 int(candidates_g[rng.integers(0, len(candidates_g))][1]))
-            if s != g and _valid_pair(s, g) and (s, g) not in pairs and (g, s) not in pairs:
-                pairs.append((s, g))
-            tries += 1
-        return pairs
+    def _unique(s, g):
+        return (s, g) not in goals and (g, s) not in goals
 
-    for _ in range(n_local // 2):
-        zone_idx = np.random.default_rng(99 + len(goals)).integers(0, len(seeds))
-        region = free[
-            np.abs(free[:, 0] - seeds[zone_idx][0]) < 50
-        ]
-        region = region[np.abs(region[:, 1] - seeds[zone_idx][1]) < 50]
-        if len(region) < 10:
-            region = free
-        goals.extend(_try_sample(region, region, 2))
+    for _ in range(300):
+        if len(goals) >= n_total:
+            break
+        si = rng.integers(0, len(known_free))
+        gi = rng.integers(0, len(known_free))
+        s = (int(known_free[si][0]), int(known_free[si][1]))
+        g = (int(known_free[gi][0]), int(known_free[gi][1]))
+        if _valid_good_pair(s, g) and _unique(s, g):
+            goals.append((s, g))
 
-    adj_pairs = [(i, (i + 1) % len(seeds)) for i in range(min(4, len(seeds)))]
-    for zi, zj in adj_pairs:
-        goals.extend(_try_sample(
-            np.array([seeds[zi]]),
-            np.array([seeds[zj]]),
-            2,
-        ))
+    if len(goals) < 6:
+        free_all = np.argwhere(inf_grid == 0)
+        for _ in range(500):
+            if len(goals) >= n_total:
+                break
+            si = rng.integers(0, len(free_all))
+            gi = rng.integers(0, len(free_all))
+            s = (int(free_all[si][0]), int(free_all[si][1]))
+            g = (int(free_all[gi][0]), int(free_all[gi][1]))
+            if _valid_good_pair(s, g) and _unique(s, g):
+                goals.append((s, g))
 
-    far_pairs = [(i, (i + 5) % len(seeds)) for i in range(min(4, len(seeds)))]
-    for zi, zj in far_pairs:
-        goals.extend(_try_sample(
-            np.array([seeds[zi]]),
-            np.array([seeds[zj]]),
-            2,
-        ))
-
-    goals = goals[:N_GOAL_PAIRS]
-    print(f"  Sampled {len(goals)} goal pairs (local/adj/far).")
-    return goals
+    print(f"  Sampled {len(goals)} goal pairs (min cross-distance >= 30 cells, GT-reachable).")
+    return goals[:n_total]
 
 
 # ============================================================================
@@ -504,12 +491,18 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         )
 
     merged_topos_all = [None] * N_SESSIONS
+    prev_merged = None
     for k in range(N_SESSIONS):
-        merged_topos_all[k] = merge_topometric_graphs(
-            subgraphs[: k + 1], base_grid
-        )
+        if prev_merged is None:
+            merged_topos_all[k] = merge_topometric_graphs(
+                subgraphs[: k + 1], base_grid
+            )
+        else:
+            merged_topos_all[k] = _add_subgraph_to_merged(
+                prev_merged, subgraphs[k], k, base_grid
+            )
+        prev_merged = merged_topos_all[k]
 
-    # A1 reachable_ratio + A2 metric
     inflate_base = inflate(base_grid)
     gt_cache = {}
     for s, g in goals:
@@ -523,32 +516,44 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
     cov_area_m2 = []
     cov_free_m2 = []
     goal_success_mat = np.zeros((N_SESSIONS, len(goals)), dtype=bool)
+    path_len_cache = {}
 
+    print(f"  Evaluating k=1..{N_SESSIONS} ...")
     for k in range(N_SESSIONS):
-        pg = (merged_obs_all[k] == -1).astype(np.uint8)  # 1=free, 0=unknown/obstacle
-        pg = 1 - pg  # 0=free, 1=obstacle/unknown
+        pg = 1 - (merged_obs_all[k] == -1).astype(np.uint8)
         inf_pg = inflate(pg)
         n_reached = 0
         for gi, (s, g) in enumerate(goals):
-            path, _ = astar(inf_pg, s, g)
+            if k > 0 and goal_success_mat[k - 1, gi]:
+                goal_success_mat[k, gi] = True
+                n_reached += 1
+                continue
+            pg_mod = pg.copy()
+            pg_mod[s], pg_mod[g] = 0, 0
+            inf_mod = inflate(pg_mod)
+            path, est_len = astar(inf_mod, s, g)
             if path is not None:
                 goal_success_mat[k, gi] = True
                 n_reached += 1
+                path_len_cache[(k, gi)] = est_len
         reachable_ratios.append(n_reached / len(goals))
 
-        # coverage
         known = (merged_obs_all[k] != 0)
         cov_area_m2.append(known.sum() * RES * RES)
         cov_free_m2.append(((merged_obs_all[k] == -1) & known).sum() * RES * RES)
 
-        # A2 on fully-reachable subset (k=9)
-        full_reachable_ids = np.where(goal_success_mat[-1])[0]
+        full_reachable_ids = np.where(goal_success_mat[k])[0]
         if len(full_reachable_ids) >= 3:
             mr_vals = []
             tr_vals = []
             for gi in full_reachable_ids:
                 s, g = goals[gi]
-                _, est_len = astar(inf_pg, s, g)
+                est_len = path_len_cache.get((k, gi))
+                if est_len is None:
+                    pg_mod = pg.copy()
+                    pg_mod[s], pg_mod[g] = 0, 0
+                    _, est_len = astar(inflate(pg_mod), s, g)
+                    path_len_cache[(k, gi)] = est_len
                 gt_len = gt_cache[(s, g)]
                 if gt_len > 0 and est_len < float("inf"):
                     mr_vals.append(est_len / gt_len)
@@ -557,15 +562,15 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
             topo = merged_topos_all[k]
             for gi in full_reachable_ids:
                 s, g = goals[gi]
-                s_cell = (int(s[0] * RES), int(s[1] * RES))
-                g_cell = (int(g[0] * RES), int(g[1] * RES))
+                sx, sy = s[1] * RES, s[0] * RES
+                gx, gy = g[1] * RES, g[0] * RES
                 s_nodes = [
                     n for n, d in topo.nodes(data=True)
-                    if np.hypot(d["x"] - s_cell[1], d["y"] - s_cell[0]) < 5.0
+                    if np.hypot(d["x"] - sx, d["y"] - sy) < 5.0
                 ]
                 g_nodes = [
                     n for n, d in topo.nodes(data=True)
-                    if np.hypot(d["x"] - g_cell[1], d["y"] - g_cell[0]) < 5.0
+                    if np.hypot(d["x"] - gx, d["y"] - gy) < 5.0
                 ]
                 if s_nodes and g_nodes:
                     try:
@@ -582,55 +587,9 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
 
         node_counts.append(merged_topos_all[k].number_of_nodes())
 
-    # B4 temporal adaptability
-    stale_merged = sessions_obs[0]
-    pg_stale = (stale_merged == -1).astype(np.uint8)
-    pg_stale = 1 - pg_stale
-    inf_stale = inflate(pg_stale)
-
-    start_b4 = seeds[0]
-    goal_b4 = seeds[1]
-
-    _, stale_len = astar(inf_stale, start_b4, goal_b4)
-
-    true_world = base_grid.copy()
-    if dyn_obs_blocks:
-        for r0, c0, r1, c1 in dyn_obs_blocks:
-            true_world[r0:r1, c0:c1] = 1
-
-    stale_collides = False
-    stale_path, _ = astar(inf_stale, start_b4, goal_b4)
-    if stale_path:
-        for (rr, cc) in stale_path:
-            if true_world[rr, cc] == 1:
-                stale_collides = True
-                stale_len = float(
-                    RES
-                    * np.sum(
-                        np.hypot(
-                            np.diff([p[0] for p in stale_path]),
-                            np.diff([p[1] for p in stale_path]),
-                        )
-                    )
-                )
-                break
-
-    pg_updated = (merged_obs_all[-1] == -1).astype(np.uint8)
-    pg_updated = 1 - pg_updated
-    inf_updated = inflate(pg_updated)
-    _, updated_len = astar(inf_updated, start_b4, goal_b4)
-
-    updated_collides = False
-    updated_path, _ = astar(inf_updated, start_b4, goal_b4)
-    if updated_path:
-        for (rr, cc) in updated_path:
-            if true_world[rr, cc] == 1:
-                updated_collides = True
-                break
-
-    if stale_len == float("inf"):
-        stale_len = 0.0
-
+    stale_len, updated_len, stale_collides, updated_collides = _eval_b4(
+        base_grid, sessions_obs, sessions_poses, dyn_obs_blocks
+    )
     new_reachable = int(reachable_ratios[-1] * len(goals)) - int(reachable_ratios[0] * len(goals))
     new_reachable = max(0, new_reachable)
 
@@ -649,8 +608,70 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         "updated_collides": updated_collides,
         "new_reachable": new_reachable,
         "dyn_obs_blocks": dyn_obs_blocks,
-        "inflate_base": inflate_base,
     }
+
+
+def _add_subgraph_to_merged(prev_merged, new_subgraph, new_idx, base_grid, res=RES):
+    offset = max(prev_merged.nodes()) + 1 if prev_merged.nodes() else 0
+    mapping = {n: n + offset for n in new_subgraph.nodes}
+    merged = nx.compose(prev_merged, nx.relabel_nodes(new_subgraph, mapping))
+    new_nodes = [(n + offset, d["x"], d["y"]) for n, d in new_subgraph.nodes(data=True)]
+    old_nodes_list = [
+        (n, d["x"], d["y"])
+        for n, d in prev_merged.nodes(data=True)
+    ]
+    for ni, xi, yi in new_nodes:
+        for nj, xj, yj in old_nodes_list:
+            d = np.hypot(xi - xj, yi - yj)
+            if d < CROSS_DIST_M and not merged.has_edge(ni, nj):
+                ri, ci = int(yi / res), int(xi / res)
+                rj, cj = int(yj / res), int(xj / res)
+                if _line_free(ri, ci, rj, cj, base_grid):
+                    merged.add_edge(ni, nj, weight=d, rel_pose=(xj - xi, yj - yi, 0.0))
+    return merged
+
+
+def _eval_b4(base_grid, sessions_obs, sessions_poses, dyn_obs_blocks):
+    obs_stale = sessions_obs[0]
+    obs_updated = sessions_obs[-1]
+    true_world = base_grid.copy()
+    for r0, c0, r1, c1 in dyn_obs_blocks:
+        true_world[r0:r1, c0:c1] = 1
+
+    route = sessions_poses[0]
+    mid = len(route) // 2
+    start_b4 = (int(route[mid // 2][0]), int(route[mid // 2][1]))
+    goal_b4 = (int(route[min(mid + mid // 2, len(route) - 1)][0]),
+               int(route[min(mid + mid // 2, len(route) - 1)][1]))
+
+    pg_stale = 1 - (obs_stale == -1).astype(np.uint8)
+    inf_stale = inflate(pg_stale)
+    stale_path, stale_len = astar(inf_stale, start_b4, goal_b4)
+
+    stale_collides = False
+    if stale_path:
+        for rr, cc in stale_path:
+            if true_world[rr, cc] == 1:
+                stale_collides = True
+                break
+
+    pg_updated = 1 - (obs_updated == -1).astype(np.uint8)
+    inf_updated = inflate(pg_updated)
+    updated_path, updated_len = astar(inf_updated, start_b4, goal_b4)
+
+    updated_collides = False
+    if updated_path:
+        for rr, cc in updated_path:
+            if true_world[rr, cc] == 1:
+                updated_collides = True
+                break
+
+    if stale_len == float("inf"):
+        stale_len = 0.0
+    if updated_len == float("inf"):
+        updated_len = 0.0
+
+    return stale_len, updated_len, stale_collides, updated_collides
 
 
 # ============================================================================
@@ -765,7 +786,7 @@ def fig3_nav_success(results):
     ax1.set_title("Goal Reachability Matrix (green=reachable)", color="white")
     for xi in range(mat.shape[1]):
         for yi in range(mat.shape[0]):
-            symbol = "✓" if mat[yi, xi] else "✗"
+            symbol = "+" if mat[yi, xi] else "-"
             color = "#34D399" if mat[yi, xi] else "#F87171"
             ax1.text(xi, yi, symbol, ha="center", va="center", color=color, fontsize=8)
 
@@ -787,11 +808,17 @@ def fig3_nav_success(results):
     plt.close(fig)
 
 
-def fig4_temporal(grid, sessions_poses, sessions_obs, results, seeds, dyn_obs_blocks):
+def fig4_temporal(grid, sessions_poses, sessions_obs, results, dyn_obs_blocks):
     _init_style()
     true_world = grid.copy()
     for r0, c0, r1, c1 in dyn_obs_blocks:
         true_world[r0:r1, c0:c1] = 1
+
+    route = sessions_poses[0]
+    mid = len(route) // 2
+    start = (int(route[mid // 2][0]), int(route[mid // 2][1]))
+    goal = (int(route[min(mid + mid // 2, len(route) - 1)][0]),
+            int(route[min(mid + mid // 2, len(route) - 1)][1]))
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8), facecolor=BG_COLOR)
 
@@ -810,13 +837,13 @@ def fig4_temporal(grid, sessions_poses, sessions_obs, results, seeds, dyn_obs_bl
             rect = plt.Rectangle((c0, r0), c1 - c0, r1 - r0, facecolor="red", alpha=0.35)
             ax.add_patch(rect)
 
-        start, goal = seeds[0], seeds[1]
         ax.scatter(start[1], start[0], marker="^", color="#34D399", s=120, zorder=5, label="Start")
         ax.scatter(goal[1], goal[0], marker="*", color="yellow", s=120, zorder=5, label="Goal")
 
         inf_pg = inflate((merged == -1).astype(np.uint8))
-        inf_pg_blocked = inf_pg.copy()
-        path, _ = astar(inf_pg_blocked, start, goal)
+        inf_pg_mod = inf_pg.copy()
+        inf_pg_mod[start], inf_pg_mod[goal] = 0, 0
+        path, _ = astar(inf_pg_mod, start, goal)
         if path:
             rp = [p[0] for p in path]
             cp = [p[1] for p in path]
@@ -1048,17 +1075,20 @@ def main():
     # --- Step 6: Dynamic obstacles ---
     dyn_obs_blocks = []
     route_s1_cells = [(p[0], p[1]) for p in sessions_poses[0]]
-    obs1 = place_dynamic_obstacle(route_s1_cells, base_grid, block_h=24, block_w=48, offset=60)
-    obs2 = place_dynamic_obstacle(route_s1_cells, base_grid, block_h=24, block_w=48, offset=-40)
-    for obs in [obs1, obs2]:
+    obs_candidates = []
+    for off in range(-60, 61, 20):
+        obs = place_dynamic_obstacle(route_s1_cells, base_grid, block_h=50, block_w=100, offset=off)
         test_grid = base_grid.copy()
         test_grid[obs[0]:obs[2], obs[1]:obs[3]] = 1
         if _check_connectivity(test_grid, seeds):
-            dyn_obs_blocks.append(obs)
+            obs_candidates.append(obs)
+        if len(obs_candidates) >= 2:
+            break
+    dyn_obs_blocks = obs_candidates
     print(f"  Dynamic obstacles: {len(dyn_obs_blocks)} placed (non-disconnecting).")
 
     # --- Step 7: Goal pairs ---
-    goals = sample_goals(base_grid, seeds)
+    goals = sample_goals(base_grid, merged_all[-1], seeds)
     print(f"  Goal pairs: {len(goals)}")
 
     # --- Step 8: Run experiments ---
@@ -1068,7 +1098,6 @@ def main():
         dyn_obs_blocks, goals,
     )
     results["merged_all"] = merged_all
-    results["inflate_base"] = inflate(base_grid)
     print(f"  A1 reachable_ratios: {[f'{r*100:.0f}%' for r in results['reachable_ratios']]}")
 
     # --- Step 9: Output figures ---
@@ -1081,7 +1110,7 @@ def main():
     print("  fig2_cumulative_maps.png")
     fig3_nav_success(results)
     print("  fig3_nav_success.png")
-    fig4_temporal(base_grid, sessions_poses, sessions_obs, results, seeds, dyn_obs_blocks)
+    fig4_temporal(base_grid, sessions_poses, sessions_obs, results, dyn_obs_blocks)
     print("  fig4_temporal_adaptability.png")
     fig5_growth_charts(results)
     print("  fig5_growth_charts.png")
