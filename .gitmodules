@@ -1,9 +1,9 @@
 [submodule "third_party/vismatch"]
 	path = third_party/vismatch
-	url = /tmp/opencode/vismatch
+	url = git@github.com:gogojjh/vismatch.git
 [submodule "third_party/pose_estimation_models"]
 	path = third_party/pose_estimation_models
-	url = /tmp/opencode/pose_estimation_models
+	url = git@github.com:gogojjh/pose_estimation_models.git
 [submodule "third_party/VPR-methods-evaluation"]
 	path = third_party/VPR-methods-evaluation
-	url = /tmp/opencode/VPR-methods-evaluation
+	url = git@github.com:gogojjh/VPR-methods-evaluation.git

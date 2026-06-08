@@ -21,6 +21,8 @@ dataset/
 paper*
 tmp/
 
+cache/
+
 # Multi-session mapping benchmark generated outputs
 python/benchmark_mms/output/
 python/benchmark_mms/*.npy
