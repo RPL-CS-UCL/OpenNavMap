@@ -330,7 +330,18 @@ The submodule must be pinned to a specific commit, not rely on floating branch s
    cp -r $ONAV/python/test               $LVLOC/python/
    cp -r $ONAV/python/config             $LVLOC/python/  # if present
    cp -r $ONAV/launch                    $LVLOC/
-   cp -r $ONAV/scripts                   $LVLOC/  # only LiteVLoc-owned scripts
+   cp -r $ONAV/scripts                   $LVLOC/
+
+   # Remove OpenNavMap-owned scripts from LiteVLoc copy:
+   rm $LVLOC/scripts/run_map_merging.sh
+   rm $LVLOC/scripts/run_map_merging_ablation_studies.sh
+   rm $LVLOC/scripts/run_benchmark_vpr_submission.sh
+   rm $LVLOC/scripts/run_benchmark_vpr_evaluation.sh
+   rm $LVLOC/scripts/run_benchmark_kf_selection.sh
+   rm $LVLOC/scripts/run_benchmark_kf_submission.sh
+   rm $LVLOC/scripts/run_benchmark_kf_evaluation.sh
+   rm $LVLOC/scripts/run_batch_gendata.sh
+   rm $LVLOC/scripts/run_batch_gendata_vpr.sh
 
    # Then REMOVE utils files that belong to OpenNavMap only:
    rm $LVLOC/python/utils/utils_map_merging.py
