@@ -3,7 +3,8 @@
 	url = git@github.com:gogojjh/vismatch.git
 [submodule "third_party/pose_estimation_models"]
 	path = third_party/pose_estimation_models
-	url = git@github.com:gogojjh/pose_estimation_models.git
+	url = https://github.com/gogojjh/dust3r.git
+	branch = lora_finetune
 [submodule "third_party/VPR-methods-evaluation"]
 	path = third_party/VPR-methods-evaluation
 	url = git@github.com:gogojjh/VPR-methods-evaluation.git
