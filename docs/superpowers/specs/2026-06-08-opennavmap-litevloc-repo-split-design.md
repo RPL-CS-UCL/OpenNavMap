@@ -147,7 +147,7 @@ python/point_node.py
 **Benchmarks**
 ```
 python/benchmark_map_free/
-python/benchmark_rpe/
+python/benchmark_rpe/               # also retained in OpenNavMap; benchmark_kf_selection depends on rpe_default
 ```
 
 **Utilities**
@@ -577,7 +577,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    **Batch 2 — benchmark dirs:**
    ```bash
    # Reference scan
-   rg "benchmark_map_free|benchmark_rpe" \
+   rg "benchmark_map_free" \
      "$OPENNAVMAP_ROOT/python/map_merge_pipeline.py" \
      "$OPENNAVMAP_ROOT/python/map_manager.py" \
      "$OPENNAVMAP_ROOT/python/benchmark_mms" \
@@ -585,7 +585,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
      "$OPENNAVMAP_ROOT/python/benchmark_kf_selection" || true
 
    rm -rf "$OPENNAVMAP_ROOT/python/benchmark_map_free"
-   rm -rf "$OPENNAVMAP_ROOT/python/benchmark_rpe"
+   # benchmark_rpe stays in OpenNavMap — benchmark_kf_selection imports rpe_default.cfg
 
    # Re-run validation after batch 2
    PYTHONPATH="$OPENNAVMAP_ROOT/python" \
