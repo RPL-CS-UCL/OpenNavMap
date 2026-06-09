@@ -4,7 +4,7 @@
 
 **Goal:** Split the current monolithic `litevloc_private` repo into two repositories — `opennavmap` (main system) and `litevloc_code` (visual localization submodule) — with a clean one-way dependency and validated file boundaries.
 
-**Architecture:** OpenNavMap retains map merging, map-level benchmarks, paper experiments, and three shared utilities (`gtsam_pose_graph.py`, `utils_geom.py`, `utils_image.py`). LiteVLoc retains all localization runtime, navigation runtime, pose fusion, and localization benchmarks. OpenNavMap references LiteVLoc as a pinned git submodule at `third_party/litevloc_code`.
+**Architecture:** OpenNavMap retains map merging, map-level benchmarks, paper experiments, and the shared graph/utility stack required by map merging (`image_graph.py`, `point_graph.py`, `image_node.py`, `point_node.py`, `gtsam_pose_graph.py`, `utils_geom.py`, `utils_image.py`, `utils_shortest_path.py`, `base_graph.py`, `base_node.py`). LiteVLoc retains all localization runtime, navigation runtime, pose fusion, and localization benchmarks. OpenNavMap references LiteVLoc as a pinned git submodule at `third_party/litevloc_code`.
 
 **Tech Stack:** Python 3.8, ROS (catkin), git submodules, pytest, ripgrep (`rg`), bash
 
@@ -498,11 +498,15 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
   opennavmap_root = pathlib.Path(os.environ["OPENNAVMAP_ROOT"]).resolve()
 
   core_modules = ["map_merge_pipeline", "map_manager"]
+  graph_modules = ["image_graph", "point_graph", "image_node", "point_node"]
   benchmark_spot = ["benchmark_vpr.evaluation", "benchmark_kf_selection.keyframe_selection"]
-  shared_utils = ["utils.gtsam_pose_graph", "utils.utils_geom", "utils.utils_image"]
+  shared_utils = [
+      "utils.gtsam_pose_graph", "utils.utils_geom", "utils.utils_image",
+      "utils.utils_shortest_path", "utils.base_graph", "utils.base_node",
+  ]
 
   failed = []
-  for name in core_modules + benchmark_spot + shared_utils:
+  for name in core_modules + graph_modules + benchmark_spot + shared_utils:
       try:
           mod = importlib.import_module(name)
           mod_file = pathlib.Path(mod.__file__).resolve()
@@ -549,7 +553,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
 - [ ] **Step 1: Reference scan before deletion**
 
   ```bash
-  rg "loc_pipeline|global_planner|pose_fusion|depth_registration|camera_keyframe_select|image_graph|point_graph|image_node|point_node" \
+  rg "loc_pipeline|global_planner|pose_fusion|depth_registration|camera_keyframe_select" \
     "$OPENNAVMAP_ROOT/python/map_merge_pipeline.py" \
     "$OPENNAVMAP_ROOT/python/map_manager.py" \
     "$OPENNAVMAP_ROOT/python/benchmark_mms" \
@@ -576,10 +580,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
   rm -f "$OPENNAVMAP_ROOT/python/ros_publish_goal_image.py"
   rm -f "$OPENNAVMAP_ROOT/python/depth_registration.py"
   rm -f "$OPENNAVMAP_ROOT/python/camera_keyframe_select.py"
-  rm -f "$OPENNAVMAP_ROOT/python/image_graph.py"
-  rm -f "$OPENNAVMAP_ROOT/python/point_graph.py"
-  rm -f "$OPENNAVMAP_ROOT/python/image_node.py"
-  rm -f "$OPENNAVMAP_ROOT/python/point_node.py"
+  # DO NOT remove image_graph.py, point_graph.py, image_node.py, point_node.py — OpenNavMap map merging depends on them.
   ```
 
 - [ ] **Step 3: Re-run OpenNavMap validation**
@@ -650,7 +651,7 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
 - [ ] **Step 1: Reference scan before deletion**
 
   ```bash
-  rg "utils_vpr_method|utils_image_matching_method|pose_solver|utils_pipeline|utils_shortest_path|utils_ros|utils/benchmark" \
+  rg "utils_vpr_method|utils_image_matching_method|pose_solver|utils_pipeline|utils_ros|utils/benchmark" \
     "$OPENNAVMAP_ROOT/python/map_merge_pipeline.py" \
     "$OPENNAVMAP_ROOT/python/map_manager.py" \
     "$OPENNAVMAP_ROOT/python/benchmark_mms" \
@@ -667,12 +668,11 @@ export LITEVLOC_WORKDIR=/tmp/litevloc_code
   rm -f "$OPENNAVMAP_ROOT/python/utils/pose_solver.py"
   rm -f "$OPENNAVMAP_ROOT/python/utils/pose_solver_default.py"
   rm -f "$OPENNAVMAP_ROOT/python/utils/utils_pipeline.py"
-  rm -f "$OPENNAVMAP_ROOT/python/utils/utils_shortest_path.py"
   rm -rf "$OPENNAVMAP_ROOT/python/utils/utils_ros"
   rm -rf "$OPENNAVMAP_ROOT/python/utils/benchmark"
   rm -rf "$OPENNAVMAP_ROOT/python/test"
   ```
-  **Do NOT remove:** `gtsam_pose_graph.py`, `utils_geom.py`, `utils_image.py` (shared, spec §6)
+  **Do NOT remove:** `gtsam_pose_graph.py`, `utils_geom.py`, `utils_image.py`, `utils_shortest_path.py`, `base_graph.py`, `base_node.py` (shared, spec §6)
   **Do NOT remove:** `utils_map_merging.py`, `gen_covis_trav_edges.py` (OpenNavMap-owned)
 
 - [ ] **Step 3: Re-run OpenNavMap validation**

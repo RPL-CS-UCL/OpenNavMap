@@ -91,6 +91,13 @@ python/utils/utils_map_merging.py
 python/utils/gtsam_pose_graph.py          # kept here intentionally; see §6
 python/utils/utils_geom.py                # kept here intentionally; see §6
 python/utils/utils_image.py               # kept here intentionally; see §6
+python/utils/utils_shortest_path.py       # kept here intentionally; point_graph dependency
+python/utils/base_graph.py                # kept here intentionally; graph dependency
+python/utils/base_node.py                 # kept here intentionally; node dependency
+python/image_graph.py                     # kept here intentionally; map_merge_pipeline dependency
+python/point_graph.py                     # kept here intentionally; map_manager dependency
+python/image_node.py                      # kept here intentionally; image_graph dependency
+python/point_node.py                      # kept here intentionally; point_graph dependency
 python/utils/gen_covis_trav_edges.py
 scripts/run_map_merging.sh
 scripts/run_map_merging_ablation_studies.sh
@@ -224,24 +231,32 @@ The three shared utils (`gtsam_pose_graph.py`, `utils_geom.py`, `utils_image.py`
 
 ## 6. Shared Utility Duplication Rule
 
-The following utility files are intentionally duplicated across both repositories:
+The following shared graph/utility files are intentionally duplicated across both repositories:
 
 ```
+python/image_graph.py
+python/point_graph.py
+python/image_node.py
+python/point_node.py
 python/utils/gtsam_pose_graph.py
 python/utils/utils_geom.py
 python/utils/utils_image.py
+python/utils/utils_shortest_path.py
+python/utils/base_graph.py
+python/utils/base_node.py
 ```
 
-This duplication is limited to these three files only and must not be generalised to other utilities.
+This duplication is limited to these files only and must not be generalised to other utilities.
 
 **OpenNavMap** retains its own copies because:
-- `map_merge_pipeline.py` imports `utils.gtsam_pose_graph.PoseGraph`, `utils.utils_geom`, and `utils.utils_image`
-- `map_manager.py` imports `utils.utils_geom`
+- `map_merge_pipeline.py` imports `image_graph`, `image_node`, `utils.gtsam_pose_graph.PoseGraph`, `utils.utils_geom`, and `utils.utils_image`
+- `map_manager.py` imports `image_graph`, `point_graph`, and `utils.utils_geom`
+- `image_graph.py`, `point_graph.py`, `image_node.py`, and `point_node.py` require `base_graph.py`, `base_node.py`, and `utils_shortest_path.py`
 - OpenNavMap map merging core must not depend on the LiteVLoc submodule
 
 **LiteVLoc** retains its own copies because:
 - `pose_fusion.py` imports `utils.gtsam_pose_graph.PoseGraph`
-- `loc_pipeline.py`, `ros_loc_pipeline.py`, `image_graph.py`, `point_graph.py` import `utils.utils_geom` and/or `utils.utils_image`
+- `loc_pipeline.py`, `ros_loc_pipeline.py`, `image_graph.py`, `point_graph.py` import the same graph and utility stack
 - LiteVLoc must be independently runnable without any dependency on OpenNavMap
 
 The duplication is intentional and acceptable. These are low-level geometry/image/GTSAM utilities, not core research logic. If divergence becomes significant in the future, extracting a common package can be reconsidered at that point.
@@ -491,11 +506,15 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    # Verify core OpenNavMap modules import cleanly
    core_modules = [
        "map_merge_pipeline", "map_manager",
+       "image_graph", "point_graph", "image_node", "point_node",
        "benchmark_mms",                    # import top-level __init__ or a submodule
    ]
    # Spot-check benchmark dirs that must not import from third_party
    benchmark_spot = ["benchmark_vpr.evaluation", "benchmark_kf_selection.keyframe_selection"]
-   shared_utils = ["utils.gtsam_pose_graph", "utils.utils_geom", "utils.utils_image"]
+   shared_utils = [
+       "utils.gtsam_pose_graph", "utils.utils_geom", "utils.utils_image",
+       "utils.utils_shortest_path", "utils.base_graph", "utils.base_node",
+   ]
 
    for name in core_modules + benchmark_spot + shared_utils:
        mod = importlib.import_module(name)
@@ -547,10 +566,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    rm -f "$OPENNAVMAP_ROOT/python/ros_publish_goal_image.py"
    rm -f "$OPENNAVMAP_ROOT/python/depth_registration.py"
    rm -f "$OPENNAVMAP_ROOT/python/camera_keyframe_select.py"
-   rm -f "$OPENNAVMAP_ROOT/python/image_graph.py"
-   rm -f "$OPENNAVMAP_ROOT/python/point_graph.py"
-   rm -f "$OPENNAVMAP_ROOT/python/image_node.py"
-   rm -f "$OPENNAVMAP_ROOT/python/point_node.py"
+   # DO NOT remove image_graph.py, point_graph.py, image_node.py, point_node.py — see §6
 
    # Re-run validation after batch 1
    PYTHONPATH="$OPENNAVMAP_ROOT/python" \
@@ -580,7 +596,7 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    **Batch 3 — LiteVLoc-only utils (excluding the three shared utils):**
    ```bash
    # Reference scan
-   rg "utils_vpr_method|utils_image_matching_method|pose_solver|utils_pipeline|utils_shortest_path|utils_ros" \
+   rg "utils_vpr_method|utils_image_matching_method|pose_solver|utils_pipeline|utils_ros" \
      "$OPENNAVMAP_ROOT/python/map_merge_pipeline.py" \
      "$OPENNAVMAP_ROOT/python/map_manager.py" \
      "$OPENNAVMAP_ROOT/python/benchmark_mms" \
@@ -592,12 +608,11 @@ export OPENNAVMAP_ROOT=$(git rev-parse --show-toplevel)
    rm -f "$OPENNAVMAP_ROOT/python/utils/pose_solver.py"
    rm -f "$OPENNAVMAP_ROOT/python/utils/pose_solver_default.py"
    rm -f "$OPENNAVMAP_ROOT/python/utils/utils_pipeline.py"
-   rm -f "$OPENNAVMAP_ROOT/python/utils/utils_shortest_path.py"
    rm -rf "$OPENNAVMAP_ROOT/python/utils/utils_ros"
    rm -rf "$OPENNAVMAP_ROOT/python/utils/benchmark"
    rm -rf "$OPENNAVMAP_ROOT/python/test"
 
-   # DO NOT remove: gtsam_pose_graph.py, utils_geom.py, utils_image.py — see §6
+   # DO NOT remove: gtsam_pose_graph.py, utils_geom.py, utils_image.py, utils_shortest_path.py, base_graph.py, base_node.py — see §6
    # DO NOT remove: utils_map_merging.py, gen_covis_trav_edges.py — OpenNavMap-owned
 
    # Re-run validation after batch 3
