@@ -1,10 +1,6 @@
 [submodule "third_party/vismatch"]
 	path = third_party/vismatch
 	url = git@github.com:gogojjh/vismatch.git
-[submodule "third_party/pose_estimation_models"]
-	path = third_party/pose_estimation_models
-	url = https://github.com/gogojjh/dust3r.git
-	branch = lora_finetune
 [submodule "third_party/VPR-methods-evaluation"]
 	path = third_party/VPR-methods-evaluation
 	url = git@github.com:gogojjh/VPR-methods-evaluation.git
@@ -12,3 +8,7 @@
 	path = third_party/litevloc_code
 	url = git@github.com:RPL-CS-UCL/litevloc_code.git
 	branch = opennavmap-integration
+[submodule "third_party/pose_estimation_models"]
+	path = third_party/pose_estimation_models
+	url = https://github.com/gogojjh/pose_estimation_models.git
+	branch = develop_tro2025
