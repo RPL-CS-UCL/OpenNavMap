@@ -845,8 +845,9 @@ def _check_connectivity(grid_with_obs, seeds):
 def sample_goals(base_grid, n_pairs: int = N_SESSIONS, seed: int = 42):
     """Sample n_pairs independent (start, goal) pairs from base_grid free space.
 
-    Each pair validated GT-reachable on inflate(base_grid).
-    start != goal; minimum Euclidean distance >= 30 cells.
+    Safety: start and goal must lie on both base_grid==0 AND inflate(base_grid)==0.
+    If a sampled goal fails these checks or is unreachable, re-sample goal.
+    If too many goal attempts fail, re-sample start.
     """
     inf_grid = inflate(base_grid)
     free_cells = np.argwhere(inf_grid == 0)
@@ -855,27 +856,53 @@ def sample_goals(base_grid, n_pairs: int = N_SESSIONS, seed: int = 42):
 
     rng = np.random.default_rng(seed)
     goals: list = []
+    used_pairs = set()
 
-    def _valid_pair(s, g):
-        if s == g:
-            return False
-        if np.hypot(s[0] - g[0], s[1] - g[1]) < 30:
-            return False
-        p, _ = astar(inf_grid, s, g)
-        return p is not None
+    def _is_safe_cell(rc):
+        r, c = rc
+        return base_grid[r, c] == 0 and inf_grid[r, c] == 0
 
-    for _ in range(max(500, 50 * n_pairs)):
+    for _ in range(max(500, 200 * n_pairs)):
         if len(goals) >= n_pairs:
             break
         si = rng.integers(0, len(free_cells))
-        gi = rng.integers(0, len(free_cells))
-        s = (int(free_cells[si][0]), int(free_cells[si][1]))
-        g = (int(free_cells[gi][0]), int(free_cells[gi][1]))
-        if _valid_pair(s, g):
-            goals.append((s, g))
+        start = (int(free_cells[si][0]), int(free_cells[si][1]))
+        if not _is_safe_cell(start):
+            continue
+
+        for _ in range(200):
+            gi = rng.integers(0, len(free_cells))
+            goal = (int(free_cells[gi][0]), int(free_cells[gi][1]))
+            if not _is_safe_cell(goal):
+                continue
+            if start == goal:
+                continue
+            if np.hypot(start[0] - goal[0], start[1] - goal[1]) < 30:
+                continue
+            p, _ = astar(inf_grid, start, goal)
+            if p is None:
+                continue
+            pair_key = (start, goal) if start < goal else (goal, start)
+            if pair_key in used_pairs:
+                continue
+            used_pairs.add(pair_key)
+            goals.append((start, goal))
+            break
 
     print(f"  Sampled {len(goals)} goal pairs from inflate(base_grid) free space.")
     return goals[:n_pairs]
+
+
+def _plan_on_merged_obs(merged_obs, start, goal, res_m):
+    """Plan A* path on a merged-observation grid.
+
+    Only observed-free cells (-1) are traversable.
+    Unknown (0) and observed-obstacle (1) are treated as obstacles.
+    start and goal are forced free before inflation.
+    """
+    pg = 1 - (merged_obs == -1).astype(np.uint8)
+    pg[start], pg[goal] = 0, 0
+    return astar(inflate(pg), start, goal, res=res_m)
 
 
 # ============================================================================
@@ -971,6 +998,23 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
 
         node_counts.append(topo.number_of_nodes())
 
+    # Fixed pair (first pair) evaluated across all incremental merged maps
+    fixed_pair = goals[0] if goals else ((0, 0), (0, 0))
+    fixed_start, fixed_goal = fixed_pair
+    fixed_pair_paths = [None] * N_SESSIONS
+    fixed_pair_lens = [float("inf")] * N_SESSIONS
+    fixed_pair_success = [False] * N_SESSIONS
+    fixed_pair_ratios = [float("nan")] * N_SESSIONS
+    fixed_gt_len = gt_lens[0] if gt_lens[0] is not None else None
+    for k in range(N_SESSIONS):
+        path, length = _plan_on_merged_obs(merged_obs_all[k], fixed_start, fixed_goal, res_m)
+        if path is not None:
+            fixed_pair_paths[k] = path
+            fixed_pair_lens[k] = length
+            fixed_pair_success[k] = True
+            if fixed_gt_len is not None and fixed_gt_len > 0:
+                fixed_pair_ratios[k] = length / fixed_gt_len
+
     stale_len, updated_len, stale_collides, updated_collides = _eval_b4(
         base_grid, sessions_obs, sessions_poses, dyn_obs_blocks
     )
@@ -997,6 +1041,11 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         "gt_reachable_ratio": gt_reachable_ratio,
         "dyn_obs_blocks": dyn_obs_blocks,
         "merged_topos": merged_topos_all,
+        "fixed_pair": fixed_pair,
+        "fixed_pair_paths": fixed_pair_paths,
+        "fixed_pair_lens": fixed_pair_lens,
+        "fixed_pair_success": fixed_pair_success,
+        "fixed_pair_ratios": fixed_pair_ratios,
     }
 
 
@@ -1468,6 +1517,13 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
         "goal_success_per_session": [bool(v) for v in results["goal_success_mat"]],
         "est_lens": [float(v) if not np.isnan(v) else 0.0 for v in results["est_lens"]],
         "gt_lens": [float(v) if v is not None else 0.0 for v in results["gt_lens"]],
+        "fixed_pair": [[int(results["fixed_pair"][0][0]), int(results["fixed_pair"][0][1]),
+                        int(results["fixed_pair"][1][0]), int(results["fixed_pair"][1][1])]]
+                       if results.get("fixed_pair") else [],
+        "fixed_pair_success": [bool(v) for v in results.get("fixed_pair_success", [])],
+        "fixed_pair_lens": [float(v) for v in results.get("fixed_pair_lens", [])],
+        "fixed_pair_ratios": [float(v) if not np.isnan(v) else 0.0
+                              for v in results.get("fixed_pair_ratios", [])],
     }
     with open(data_dir / "metrics.json", "w") as f:
         json.dump(metrics, f)
@@ -1477,27 +1533,120 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
 
 
 # ============================================================================
-# Path-search + topometric map visualization
+# Figure 1 — Single-session search (k=1) with topometric map
 # ============================================================================
-def fig_path_search_topomap(grid, results):
-    """Show per-session path search results overlaid on built topological map.
+def fig_single_session_search(grid, results):
+    """Single-session path search overlaid on the k=1 built topological map.
 
-    Each subplot shows:
-      - partial observed map (free/obstacle/unknown)
-      - topological graph edges (semi-transparent) and nodes (large dots)
-      - A* shortest path (thick green line)
-      - start (green circle) / goal (red X) markers
+    Shows:
+      - partial observed map at k=1 (free / obstacle / unknown)
+      - topological graph nodes (large blue dots) and edges (transparent lines)
+      - fixed start (green circle) / goal (red X)
+      - A* estimated shortest path (thick green line)
+      - GT shortest path on full map (orange dashed)
     """
     _init_style()
     gh, gw = grid.shape
     goals = results["goals"]
+    s, g = goals[0]
+    merged_all = results["merged_all"]
+    merged_topos = results["merged_topos"]
     est_paths = results["est_paths"]
     gt_paths = results["gt_paths"]
-    merged_topos = results["merged_topos"]
-    metric_ratios = results["metric_ratios"]
     est_lens = results["est_lens"]
     gt_lens = results["gt_lens"]
+    metric_ratios = results["metric_ratios"]
+
+    fig, ax = plt.subplots(figsize=(12, 12), facecolor=BG_COLOR)
+    ax.set_facecolor(BG_COLOR)
+
+    merged = merged_all[0]
+    rgb = np.zeros((gh, gw, 3))
+    rgb[(merged == -1)] = STYLE_FREE * 0.6
+    rgb[(merged == 1)] = STYLE_OBS * 0.4
+    rgb[(merged == 0)] = STYLE_UNK * 0.3
+    ax.imshow(rgb, origin="upper")
+
+    # Topological graph at k=1
+    topo = merged_topos[0]
+    if topo is not None:
+        for u, v in topo.edges:
+            xu, yu = topo.nodes[u]["x"], topo.nodes[u]["y"]
+            xv, yv = topo.nodes[v]["x"], topo.nodes[v]["y"]
+            rc_u = (int(yu / RES), int(xu / RES))
+            rc_v = (int(yv / RES), int(xv / RES))
+            ax.plot([rc_u[1], rc_v[1]], [rc_u[0], rc_v[0]],
+                    "-", color="white", linewidth=0.5, alpha=0.25)
+        node_rcs = [(int(d["y"] / RES), int(d["x"] / RES))
+                    for _, d in topo.nodes(data=True)]
+        if node_rcs:
+            nrs, ncs = zip(*node_rcs)
+            ax.scatter(ncs, nrs, marker="o", color=PALETTE[3],
+                       s=80, edgecolors="white", linewidths=0.5, zorder=3)
+
+    # Start / goal
+    ax.scatter(s[1], s[0], marker="o", color="#34D399", s=180,
+               edgecolors="white", linewidths=2, zorder=5, label="start")
+    ax.scatter(g[1], g[0], marker="X", color="#F87171", s=180,
+               edgecolors="white", linewidths=2, zorder=5, label="goal")
+
+    # A* path at k=1
+    path = est_paths[0]
+    if path is not None:
+        r_arr = [p[0] for p in path]
+        c_arr = [p[1] for p in path]
+        ax.plot(c_arr, r_arr, "-", color="#34D399", linewidth=3, zorder=4, label="A* est path")
+
+    # GT path
+    gt_path = gt_paths[0]
+    if gt_path is not None:
+        r_gt = [p[0] for p in gt_path]
+        c_gt = [p[1] for p in gt_path]
+        ax.plot(c_gt, r_gt, "--", color="#F59E0B", linewidth=1.5, alpha=0.8,
+                zorder=2, label="GT path")
+
+    reachable = "YES" if path is not None else "NO"
+    mr_str = f"{metric_ratios[0]:.3f}" if not np.isnan(metric_ratios[0]) else "N/A"
+    est_str = f"{est_lens[0]:.1f}m" if path is not None else "N/A"
+    gt_str = f"{gt_lens[0]:.1f}m" if gt_lens[0] is not None else "N/A"
+    ax.set_title(
+        f"Single-Session Search (k=1)  reachable={reachable}  "
+        f"est={est_str}  GT={gt_str}  ratio={mr_str}",
+        color="white", fontsize=14,
+    )
+    ax.legend(loc="lower right", facecolor=BG_COLOR, edgecolor="white",
+              labelcolor="white", fontsize=11)
+    ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "fig_single_session_search.png", dpi=150, facecolor=BG_COLOR)
+    plt.close(fig)
+
+
+# ============================================================================
+# Figure 2 — Fixed pair across incremental merged submaps
+# ============================================================================
+def fig_fixed_pair_incremental_merge(grid, results):
+    """Fixed start/goal pair evaluated across incremental merged maps k=1..N.
+
+    Each column shows:
+      - progressive merged submap (observed-free / obstacle / unknown)
+      - topological graph (nodes = large blue dots, edges = transparent)
+      - same fixed start (green circle) and goal (red X) in every panel
+      - A* path found on the current merged map (green thick line if reachable)
+      - GT path on full map (orange dashed reference)
+    """
+    _init_style()
+    gh, gw = grid.shape
+    fixed_start, fixed_goal = results["fixed_pair"]
     merged_all = results["merged_all"]
+    merged_topos = results["merged_topos"]
+    fixed_pair_paths = results["fixed_pair_paths"]
+    fixed_pair_lens = results["fixed_pair_lens"]
+    fixed_pair_success = results["fixed_pair_success"]
+    fixed_pair_ratios = results["fixed_pair_ratios"]
+    gt_lens = results["gt_lens"]
+    gt_paths = results["gt_paths"]
+    gt_path_ref = gt_paths[0]
 
     n_cols, n_rows = 5, 2
     fig, axes = plt.subplots(
@@ -1522,104 +1671,45 @@ def fig_path_search_topomap(grid, results):
                 rc_u = (int(yu / RES), int(xu / RES))
                 rc_v = (int(yv / RES), int(xv / RES))
                 ax.plot([rc_u[1], rc_v[1]], [rc_u[0], rc_v[0]],
-                        "-", color="white", linewidth=0.5, alpha=0.25)
+                        "-", color="white", linewidth=0.5, alpha=0.20)
             node_rcs = [(int(d["y"] / RES), int(d["x"] / RES))
                         for _, d in topo.nodes(data=True)]
             if node_rcs:
                 nrs, ncs = zip(*node_rcs)
                 ax.scatter(ncs, nrs, marker="o", color=PALETTE[3],
-                           s=65, edgecolors="white", linewidths=0.5, zorder=3)
+                           s=55, edgecolors="white", linewidths=0.3, zorder=3)
 
-        # Goal pair
-        s, g = goals[k]
-        ax.scatter(s[1], s[0], marker="o", color="#34D399", s=120,
-                   edgecolors="white", linewidths=1.5, zorder=5)
-        ax.scatter(g[1], g[0], marker="X", color="#F87171", s=120,
-                   edgecolors="white", linewidths=1.5, zorder=5)
+        # Fixed start / goal
+        ax.scatter(fixed_start[1], fixed_start[0], marker="o", color="#34D399",
+                   s=100, edgecolors="white", linewidths=1, zorder=5)
+        ax.scatter(fixed_goal[1], fixed_goal[0], marker="X", color="#F87171",
+                   s=100, edgecolors="white", linewidths=1, zorder=5)
 
-        # A* path
-        path = est_paths[k]
+        # A* path on current merged map
+        path = fixed_pair_paths[k]
         if path is not None:
             r_arr = [p[0] for p in path]
             c_arr = [p[1] for p in path]
             ax.plot(c_arr, r_arr, "-", color="#34D399", linewidth=2.5, zorder=4)
 
         # GT path (dashed reference)
-        gt_path = gt_paths[k]
-        if gt_path is not None and path is not None:
-            r_gt = [p[0] for p in gt_path]
-            c_gt = [p[1] for p in gt_path]
-            ax.plot(c_gt, r_gt, "--", color="#F59E0B", linewidth=1.0, alpha=0.7, zorder=2)
+        if gt_path_ref is not None and path is not None:
+            r_gt = [p[0] for p in gt_path_ref]
+            c_gt = [p[1] for p in gt_path_ref]
+            ax.plot(c_gt, r_gt, "--", color="#F59E0B", linewidth=1.0, alpha=0.6, zorder=2)
 
-        reachable = "YES" if path is not None else "NO"
-        mr_str = f"{metric_ratios[k]:.3f}" if not np.isnan(metric_ratios[k]) else "N/A"
-        est_str = f"{est_lens[k]:.1f}m" if path is not None else "N/A"
-        gt_str = f"{gt_lens[k]:.1f}m" if gt_lens[k] is not None else "N/A"
+        reachable = "YES" if fixed_pair_success[k] else "NO"
+        mr_str = f"{fixed_pair_ratios[k]:.2f}" if not np.isnan(fixed_pair_ratios[k]) else "N/A"
+        len_str = f"{fixed_pair_lens[k]:.1f}m" if fixed_pair_success[k] else "N/A"
+        gt_str = f"{gt_lens[0]:.1f}m" if gt_lens[0] is not None else "N/A"
         ax.set_title(
-            f"k={k+1}  reachable={reachable}  est={est_str}  GT={gt_str}  ratio={mr_str}",
+            f"k={k+1}  reachable={reachable}  est={len_str}  GT={gt_str}  ratio={mr_str}",
             color="white", fontsize=10,
         )
         ax.axis("off")
     fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "fig_path_search_topomap.png", dpi=150, facecolor=BG_COLOR)
-    plt.close(fig)
-
-
-# ============================================================================
-# Reachability + optimality two-panel figure
-# ============================================================================
-def fig_reachability_optimality(results):
-    _init_style()
-    mr = np.array(results["metric_ratios"])
-    ks = np.arange(1, N_SESSIONS + 1)
-    goal_success_mat = results["goal_success_mat"]
-    gt_ratio = results.get("gt_reachable_ratio", 0.0)
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 12), facecolor=BG_COLOR)
-
-    # --- Panel A: Reachability ---
-    ax1.set_facecolor(BG_COLOR)
-    reach_pct = [r * 100 for r in results["reachable_ratios"]]
-    ax1.plot(ks, reach_pct, "-o", color=PALETTE[0], linewidth=2.5, markersize=9,
-             markerfacecolor=PALETTE[0], markeredgecolor="white",
-             label="Cumulative reachability")
-    ax1.axhline(y=gt_ratio * 100, color=PALETTE[4], linestyle=":", linewidth=2,
-                label=f"GT ceiling ({gt_ratio*100:.0f}%)")
-    for i, ok in enumerate(goal_success_mat):
-        c = "#34D399" if ok else "#F87171"
-        ax1.axvline(x=i + 1, color=c, alpha=0.15, linewidth=8)
-    ax1.set_xlabel("Cumulative sessions k", color="white", fontsize=13)
-    ax1.set_ylabel("Reachable Ratio (%)", color="white", fontsize=13)
-    ax1.set_title("Reachability Growth", color="white", fontsize=15)
-    ax1.legend(facecolor=BG_COLOR, edgecolor="white", labelcolor="white", fontsize=11)
-    ax1.tick_params(colors="white", labelsize=11)
-    ax1.set_xlim(0.5, N_SESSIONS + 0.5)
-    ax1.set_ylim(-5, 105)
-    ax1.grid(ls="--", alpha=0.25, color="white")
-
-    # --- Panel B: Optimality ---
-    ax2.set_facecolor(BG_COLOR)
-    valid = ~np.isnan(mr)
-    ax2.plot(ks[valid], mr[valid], "-s", color=PALETTE[3], linewidth=2.5, markersize=9,
-             markerfacecolor=PALETTE[3], markeredgecolor="white",
-             label="metric_ratio (grid A*)")
-    ax2.axhline(y=1.0, color="white", linestyle="--", alpha=0.5, linewidth=1.5,
-                label="GT optimal (=1.0)")
-    valid_t = ~np.isnan(results["topo_ratios"])
-    ax2.plot(ks[valid_t], np.array(results["topo_ratios"])[valid_t],
-             "-^", color=PALETTE[2], linewidth=2.0, markersize=7,
-             markerfacecolor=PALETTE[2], markeredgecolor="white",
-             label="topological_ratio", alpha=0.8)
-    ax2.set_xlabel("Cumulative sessions k", color="white", fontsize=13)
-    ax2.set_ylabel("ratio = est / GT  (lower is better)", color="white", fontsize=13)
-    ax2.set_title("Path Optimality", color="white", fontsize=15)
-    ax2.legend(facecolor=BG_COLOR, edgecolor="white", labelcolor="white", fontsize=11)
-    ax2.tick_params(colors="white", labelsize=11)
-    ax2.set_xlim(0.5, N_SESSIONS + 0.5)
-    ax2.grid(ls="--", alpha=0.25, color="white")
-
-    fig.tight_layout()
-    fig.savefig(OUTPUT_DIR / "fig_reachability_optimality.png", dpi=150, facecolor=BG_COLOR)
+    fig.savefig(OUTPUT_DIR / "fig_fixed_pair_incremental_merge.png",
+                dpi=150, facecolor=BG_COLOR)
     plt.close(fig)
 
 
@@ -1692,13 +1782,13 @@ def main(map_mode: str = "osm", lat: float = CENTER_LAT, lon: float = CENTER_LON
         _print_experiment_summary(results, loc_name, goals)
 
         print("\n[4/5] Generating output figures ...")
-        fig0_base_map(base_grid, loc_name, obs_ratio);              print("  fig0 (base map)")
-        fig_path_search_topomap(base_grid, results);                print("  fig_path_search_topomap")
-        fig_reachability_optimality(results);                       print("  fig_reachability_optimality")
+        fig0_base_map(base_grid, loc_name, obs_ratio);                  print("  fig0 (base map)")
+        fig_single_session_search(base_grid, results);                  print("  fig_single_session_search")
+        fig_fixed_pair_incremental_merge(base_grid, results);           print("  fig_fixed_pair_incremental_merge")
         fig4_temporal(base_grid, sessions_poses, sessions_obs, results, dyn_obs_blocks); print("  fig4_temporal")
-        fig6_summary(results, loc_name, obs_ratio);                  print("  fig6_summary")
+        fig6_summary(results, loc_name, obs_ratio);                      print("  fig6_summary")
         print("  Generating map_growth.gif ...")
-        create_gif(results["merged_all"], sessions_poses, results); print("  map_growth.gif")
+        create_gif(results["merged_all"], sessions_poses, results);     print("  map_growth.gif")
 
         save_snapshots(OUTPUT_DIR / "data", sessions_poses, sessions_obs,
                        merged_obs, results)
