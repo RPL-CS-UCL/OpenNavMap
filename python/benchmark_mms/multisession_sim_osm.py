@@ -38,12 +38,6 @@ import numpy as np
 import networkx as nx
 import matplotlib
 
-# Fix GLIBCXX issue with rerun-sdk on older systems
-if "CONDA_PREFIX" in os.environ:
-    lib_dir = os.path.join(os.environ["CONDA_PREFIX"], "lib")
-    if lib_dir not in os.environ.get("LD_LIBRARY_PATH", ""):
-        os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("LD_LIBRARY_PATH", "")
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -1093,7 +1087,8 @@ def fig0_base_map(grid, location_name, obs_ratio):
     _init_style()
     fig, ax = plt.subplots(figsize=(10, 10), facecolor=BG_COLOR)
     ax.set_facecolor(BG_COLOR)
-    rgb = np.zeros((GRID_H, GRID_W, 3))
+    gh, gw = grid.shape
+    rgb = np.zeros((gh, gw, 3))
     rgb[grid == 0] = STYLE_FREE
     rgb[grid == 1] = STYLE_OBS
     ax.imshow(rgb, origin="upper")
@@ -1102,7 +1097,7 @@ def fig0_base_map(grid, location_name, obs_ratio):
     ax.set_title(title, color="white")
     ax.text(
         0.02, 0.98,
-        f"Total: {GRID_W*GRID_H*RES*RES:.0f} m$^2$  |  Obstacle: {obs_ratio*100:.1f}%  |  Free: {free_ratio*100:.1f}%",
+        f"Total: {gw*gh*RES*RES:.0f} m$^2$  |  Obstacle: {obs_ratio*100:.1f}%  |  Free: {free_ratio*100:.1f}%",
         transform=ax.transAxes, color="white", va="top", fontsize=12,
     )
     ax.axis("off")
@@ -1113,6 +1108,7 @@ def fig0_base_map(grid, location_name, obs_ratio):
 
 def fig1_session_routes(grid, sessions_poses, seeds):
     _init_style()
+    gh, gw = grid.shape
     n_cols, n_rows = 5, 2
     fig, axes = plt.subplots(
         n_rows, n_cols, figsize=(n_cols * 5, n_rows * 5), facecolor=BG_COLOR
@@ -1120,7 +1116,7 @@ def fig1_session_routes(grid, sessions_poses, seeds):
     for k in range(N_SESSIONS):
         ax = axes[k // n_cols][k % n_cols]
         ax.set_facecolor(BG_COLOR)
-        rgb = np.zeros((GRID_H, GRID_W, 3))
+        rgb = np.zeros((gh, gw, 3))
         rgb[grid == 0] = STYLE_FREE * 0.5
         rgb[grid == 1] = STYLE_OBS * 0.5
         ax.imshow(rgb, origin="upper")
@@ -1149,11 +1145,12 @@ def fig2_cumulative_maps(grid, merged_all, seeds, results):
     n_cols = 3
     n_rows = 2
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 5, n_rows * 5), facecolor=BG_COLOR)
+    gh, gw = grid.shape
     for idx, k in enumerate(ks):
         ax = axes[idx // n_cols][idx % n_cols]
         ax.set_facecolor(BG_COLOR)
         merged = merged_all[k]
-        rgb = np.zeros((GRID_H, GRID_W, 3))
+        rgb = np.zeros((gh, gw, 3))
         rgb[(merged == -1)] = STYLE_FREE
         rgb[(merged == 1)] = STYLE_OBS
         rgb[(merged == 0)] = STYLE_UNK
@@ -1168,7 +1165,7 @@ def fig2_cumulative_maps(grid, merged_all, seeds, results):
 
     gt_ax = axes[-1][-1]
     gt_ax.set_facecolor(BG_COLOR)
-    rgb_gt = np.zeros((GRID_H, GRID_W, 3))
+    rgb_gt = np.zeros((gh, gw, 3))
     rgb_gt[grid == 0] = STYLE_FREE
     rgb_gt[grid == 1] = STYLE_OBS
     gt_ax.imshow(rgb_gt, origin="upper")
@@ -1239,7 +1236,8 @@ def fig4_temporal(grid, sessions_poses, sessions_obs, results, dyn_obs_blocks):
         (ax2, "Updated Multi-Session Map", sessions_obs[-1], results["updated_collides"], results["updated_len"]),
     ]:
         ax.set_facecolor(BG_COLOR)
-        rgb = np.zeros((GRID_H, GRID_W, 3))
+        gh, gw = grid.shape
+        rgb = np.zeros((gh, gw, 3))
         rgb[(merged == -1)] = STYLE_FREE * 0.5
         rgb[(merged == 1)] = STYLE_OBS * 0.5
         rgb[(merged == 0)] = STYLE_UNK * 0.5
@@ -1403,13 +1401,14 @@ def fig6_summary(results, location_name, obs_ratio):
 def create_gif(merged_all, sessions_poses, results):
     import imageio
 
+    gh, gw = merged_all[0].shape
     frames = []
     for k in range(N_SESSIONS):
         _init_style()
         fig, ax = plt.subplots(figsize=(8, 8), facecolor=BG_COLOR)
         ax.set_facecolor(BG_COLOR)
         merged = merged_all[k]
-        rgb = np.zeros((GRID_H, GRID_W, 3))
+        rgb = np.zeros((gh, gw, 3))
         rgb[(merged == -1)] = STYLE_FREE
         rgb[(merged == 1)] = STYLE_OBS
         rgb[(merged == 0)] = STYLE_UNK
@@ -1477,71 +1476,6 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
     with open(data_dir / "goals.json", "w") as f:
         json.dump(goals_data, f)
 
-
-def export_rerun(rrd_path, sessions_poses, merged_obs, merged_topos, results):
-    try:
-        import rerun as rr
-    except ImportError:
-        print("  [SKIP] rerun-sdk not installed")
-        return
-
-    rr.init("mms-funnel", spawn=False)
-
-    timeline = "session_frame"
-    frame_id = 0
-    FRAME_DECIMATE = 3
-
-    for k in range(N_SESSIONS):
-        for i in range(0, len(sessions_poses[k]), FRAME_DECIMATE):
-            rr.set_time_sequence(timeline, frame_id)
-            frame_id += 1
-            r, c, yaw = sessions_poses[k][i]
-            rr.log("world/robot", rr.Transform3D(
-                translation=[c * RES, r * RES, 0.0],
-                rotation=rr.RotationAxisAngle(axis=[0, 0, 1], radians=yaw),
-            ))
-            angles = np.linspace(yaw - FOV_HALF_RAD, yaw + FOV_HALF_RAD, 12)
-            fov_pts = [[c * RES + np.cos(a) * FOV_RANGE_M, r * RES + np.sin(a) * FOV_RANGE_M] for a in angles]
-            fov_pts.append([c * RES, r * RES])
-            fov_pts.append(fov_pts[0])
-            rr.log("world/fov", rr.LineStrips2D([fov_pts]))
-            if i % 50 == 0:
-                rgb = np.zeros((GRID_H, GRID_W, 3), dtype=np.uint8)
-                rgb[merged_obs[k] == -1] = (STYLE_FREE * 255).astype(np.uint8)
-                rgb[merged_obs[k] == 1] = (STYLE_OBS * 255).astype(np.uint8)
-                rgb[merged_obs[k] == 0] = (STYLE_UNK * 255).astype(np.uint8)
-                rr.log("world/occupancy", rr.Image(rgb))
-
-    for k in range(N_SESSIONS):
-        frame_id += 1
-        rr.set_time_sequence(timeline, frame_id)
-        G = merged_topos[k] if k < len(merged_topos) else None
-        if G is not None and G.number_of_nodes() > 0:
-            for n, d in G.nodes(data=True):
-                rr.log(
-                    f"world/topo/session_{k+1:02d}/node_{n}",
-                    rr.Transform3D(
-                        translation=[d.get("x", 0), d.get("y", 0), 0.05],
-                        rotation=rr.RotationAxisAngle(axis=[0, 0, 1], radians=d.get("yaw", 0)),
-                    ),
-                )
-                rr.log(
-                    f"world/topo/session_{k+1:02d}/node_{n}",
-                    rr.Pinhole(fov_y=FOV_HALF_RAD * 2, width=100, height=100,
-                               camera_xyz=rr.ViewCoordinates.FRD),
-                )
-            edge_lines = [[
-                [G.nodes[u]["x"], G.nodes[u]["y"]],
-                [G.nodes[v]["x"], G.nodes[v]["y"]],
-            ] for u, v in G.edges]
-            if edge_lines:
-                rr.log(f"world/topo_edges/session_{k+1:02d}", rr.LineStrips2D(edge_lines))
-        rr.log("metrics/reachable_ratio", rr.Scalar(float(results["reachable_ratios"][k])))
-        if not np.isnan(results["metric_ratios"][k]):
-            rr.log("metrics/metric_ratio", rr.Scalar(float(results["metric_ratios"][k])))
-
-    rr.save(str(rrd_path))
-    print(f"  Rerun .rrd saved to {rrd_path} ({frame_id} frames)")
 
 # ============================================================================
 # Main
@@ -1623,8 +1557,6 @@ def main(map_mode="osm"):
         save_snapshots(OUTPUT_DIR / "data", sessions_poses, sessions_obs,
                        merged_obs, results)
         print(f"  Snapshots saved to {OUTPUT_DIR / 'data'}")
-        export_rerun(OUTPUT_DIR / "replay.rrd", sessions_poses, merged_obs,
-                     results.get("merged_topos", []), results)
 
     total_time = time.time() - t0
     print(f"\nTotal elapsed: {total_time:.1f}s ({total_time/60:.1f} min)")
@@ -1650,7 +1582,7 @@ def _print_experiment_summary(results, loc_name, goals):
     print("\n[5/5] Quantitative Summary")
     print("=" * 80)
     print(f"MAP SOURCE: {loc_name}")
-    print(f"GRID: {GRID_W}x{GRID_H} cells, {RES} m/cell -> {GRID_W*RES}x{GRID_H*RES} m")
+    print(f"  res={RES} m/cell (default)")
     print(f"SESSIONS: {N_SESSIONS} | GOALS: {len(goals)} | PLANNER: A* | FOV: {FOV_HALF_DEG*2}deg/{FOV_RANGE_M}m")
     print("=" * 80)
     hdr = f"{'k':<4} {'Config':<15} {'Cov(m2)':<10} {'Free(m2)':<10} {'Free%':<8} {'Reach%':<8} {'MetricR':<9} {'TopoR':<9} {'Nodes':<7}"

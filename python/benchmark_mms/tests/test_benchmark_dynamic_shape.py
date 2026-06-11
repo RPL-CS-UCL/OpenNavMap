@@ -56,3 +56,18 @@ def test_rasterize_buildings_returns_correct_shape():
     grid, bbox = sim.rasterize_buildings(fake_gdf, res_m=1.0, grid_w=200, grid_h=150)
     assert grid.shape == (150, 200), f"Expected (150, 200), got {grid.shape}"
     assert grid.dtype == np.uint8
+
+
+# ---------------------------------------------------------------------------
+# Task 3: fig0_base_map with non-square grid
+# ---------------------------------------------------------------------------
+
+def test_fig0_base_map_does_not_crash_with_non_square_grid(tmp_path, monkeypatch):
+    """fig0_base_map must work with any grid shape, not just 1000x1000."""
+    import matplotlib
+    matplotlib.use("Agg")
+    monkeypatch.setattr(sim, "OUTPUT_DIR", tmp_path)
+
+    grid = _make_square_free_grid(150, 200)
+    sim.fig0_base_map(grid, location_name="Test", obs_ratio=0.3)
+    assert (tmp_path / "fig0_osm_base_map.png").exists()
