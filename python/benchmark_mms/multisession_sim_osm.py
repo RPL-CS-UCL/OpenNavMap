@@ -532,21 +532,22 @@ def find_zones(grid, n_zones=N_SESSIONS):
 
     if len(seeds) < n_zones:
         print(f"  Only {len(seeds)} seeds found; fallback to grid subdivision ...")
+        gh, gw = grid.shape
         g_rows, g_cols = 4, 3
         for r_idx in range(g_rows):
             for c_idx in range(g_cols):
                 if len(seeds) >= n_zones:
                     break
                 sub = grid[
-                    r_idx * GRID_H // g_rows : (r_idx + 1) * GRID_H // g_rows,
-                    c_idx * GRID_W // g_cols : (c_idx + 1) * GRID_W // g_cols,
+                    r_idx * gh // g_rows : (r_idx + 1) * gh // g_rows,
+                    c_idx * gw // g_cols : (c_idx + 1) * gw // g_cols,
                 ]
                 if (sub == 0).sum() == 0:
                     continue
                 sd = distance_transform_edt(sub == 0)
                 best_r, best_c = np.unravel_index(sd.argmax(), sd.shape)
-                best_r += r_idx * GRID_H // g_rows
-                best_c += c_idx * GRID_W // g_cols
+                best_r += r_idx * gh // g_rows
+                best_c += c_idx * gw // g_cols
                 candidate = (best_r, best_c)
                 if grid[candidate] == 0 and candidate not in seeds:
                     seeds.append(candidate)
@@ -620,8 +621,9 @@ def make_session_route(seed, grid, sess_id):
     for k in range(n_points):
         angle = 2 * np.pi * k / n_points + rng.uniform(-0.4, 0.4)
         rad_k = radius * rng.uniform(0.6, 1.2)
-        tr = int(np.clip(seed[0] + rad_k * np.sin(angle), 5, GRID_H - 5))
-        tc = int(np.clip(seed[1] + rad_k * np.cos(angle), 5, GRID_W - 5))
+        gh, gw = grid.shape
+        tr = int(np.clip(seed[0] + rad_k * np.sin(angle), 5, gh - 5))
+        tc = int(np.clip(seed[1] + rad_k * np.cos(angle), 5, gw - 5))
         d = np.abs(free_cells[:, 0] - tr) + np.abs(free_cells[:, 1] - tc)
         wps.append(tuple(free_cells[np.argmin(d)]))
     wps.append(tuple(seed))

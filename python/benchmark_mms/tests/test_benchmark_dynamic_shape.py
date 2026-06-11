@@ -71,3 +71,54 @@ def test_fig0_base_map_does_not_crash_with_non_square_grid(tmp_path, monkeypatch
     grid = _make_square_free_grid(150, 200)
     sim.fig0_base_map(grid, location_name="Test", obs_ratio=0.3)
     assert (tmp_path / "fig0_osm_base_map.png").exists()
+
+
+# ---------------------------------------------------------------------------
+# Task 4: find_zones() and make_session_route() use grid.shape not GRID_H/W
+# ---------------------------------------------------------------------------
+
+def test_find_zones_fallback_uses_grid_shape_not_global():
+    """find_zones fallback must use grid.shape, not GRID_H/W.
+
+    Uses a 60x80 grid with a small free region (max dist == 5) so the initial
+    distance_transform search finds zero candidates, forcing the fallback path.
+    """
+    grid = np.ones((60, 80), dtype=np.uint8)
+    grid[10:20, 30:50] = 0
+
+    orig_h, orig_w = sim.GRID_H, sim.GRID_W
+    sim.GRID_H = 1
+    sim.GRID_W = 1
+    try:
+        seeds = sim.find_zones(grid, n_zones=3)
+        assert len(seeds) > 0, "fallback should find seeds even with wrong GRID_H/W"
+        for r, c in seeds:
+            assert 0 <= r < 60, f"row {r} out of bounds for height 60"
+            assert 0 <= c < 80, f"col {c} out of bounds for width 80"
+    finally:
+        sim.GRID_H = orig_h
+        sim.GRID_W = orig_w
+
+
+def test_make_session_route_independent_of_global_constants():
+    """make_session_route must produce identical output regardless of GRID_H/W.
+
+    The function receives the grid and should derive clip bounds from its shape,
+    not from module-level constants that may disagree with the actual grid.
+    """
+    grid = np.zeros((100, 100), dtype=np.uint8)
+    seed = (50, 50)
+
+    orig_h, orig_w = sim.GRID_H, sim.GRID_W
+
+    sim.GRID_H, sim.GRID_W = 100, 100
+    poses_with_correct_bounds = sim.make_session_route(seed, grid, sess_id=42)
+
+    sim.GRID_H, sim.GRID_W = 20, 20
+    poses_with_wrong_bounds = sim.make_session_route(seed, grid, sess_id=42)
+
+    sim.GRID_H, sim.GRID_W = orig_h, orig_w
+
+    assert poses_with_correct_bounds == poses_with_wrong_bounds, (
+        "make_session_route must use grid.shape for clip, not GRID_H/W"
+    )
