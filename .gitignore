@@ -29,4 +29,5 @@ python/benchmark_mms/*.npy
 python/benchmark_mms/*.png
 python/benchmark_mms/*.gif
 python/benchmark_mms/*.log
+python/benchmark_mms/*.rrd
 python/benchmark_mms/__pycache__/

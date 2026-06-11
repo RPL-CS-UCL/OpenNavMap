@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>litevloc</name>
+  <name>opennavmap</name>
   <version>0.0.0</version>
-  <description>visual localization project</description>
+  <description>Multi-session topometric mapping and scalable image-goal navigation</description>
 
   <maintainer email="jiaojh1994@gmail.com">Jianhao Jiao</maintainer>
   <author email="jiaojh1994@gmail.com">Jianhao Jiao</author>

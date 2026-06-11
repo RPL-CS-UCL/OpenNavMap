@@ -23,7 +23,7 @@ pip install -r requirements.txt
 python test_torch_install.py
 
 # 构建 ROS 包（可选）
-catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
+catkin build opennavmap -DPYTHON_EXECUTABLE=$(which python)
 
 # OpenNavMap 核心 import 验证（不依赖 LiteVLoc submodule）
 PYTHONPATH=$(pwd)/python python python/map_merge_pipeline.py --help
