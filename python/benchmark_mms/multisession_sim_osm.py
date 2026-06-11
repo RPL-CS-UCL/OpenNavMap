@@ -1821,6 +1821,31 @@ def _print_experiment_summary(results, loc_name, goals):
     u = "COLLISION" if results['updated_collides'] else "SAFE"
     print(f"B4: path_before={results['stale_len']:.1f}m, path_after={results['updated_len']:.1f}m, "
           f"new_reachable={results['new_reachable']}, stale={c}, updated={u}")
+    print()
+
+    # Optimality detail table: per-session pair + fixed pair across k
+    fixed_ratios = results.get("fixed_pair_ratios", [float("nan")] * N_SESSIONS)
+    fixed_success = results.get("fixed_pair_success", [False] * N_SESSIONS)
+    fixed_good = [k for k in range(N_SESSIONS) if fixed_success[k]]
+    if fixed_good:
+        f_first = fixed_good[0]
+        f_last = fixed_good[-1]
+        print(f"Optimality — Fixed Pair (start={results['fixed_pair'][0]}, goal={results['fixed_pair'][1]}):")
+        print(f"  traverse first k={f_first+1}")
+        print(f"  k={f_first+1} ratio={fixed_ratios[f_first]:.2f}  →  k={f_last+1} ratio={fixed_ratios[f_last]:.2f}")
+    print()
+    opt_hdr = f"{'k':<4} {'pair-reach':<12} {'per-pair ratio':<16} {'fixed-pair ratio':<18} {'fixed-pair reach':<17}"
+    print(opt_hdr)
+    print("-" * 70)
+    for k in range(N_SESSIONS):
+        mr = results["metric_ratios"][k]
+        mr_str = f"{mr:.2f}" if not np.isnan(mr) else "N/A"
+        fr = fixed_ratios[k]
+        fr_str = f"{fr:.2f}" if not np.isnan(fr) else "N/A"
+        ps = "YES" if results["goal_success_mat"][k] else "no"
+        fs = "YES" if fixed_success[k] else "no"
+        print(f"{k+1:<4} {ps:<12} {mr_str:<16} {fr_str:<18} {fs:<17}")
+    print("-" * 70)
     print("=" * 80)
 
 
