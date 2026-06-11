@@ -197,6 +197,8 @@ def reindex_dict(
     for local_name, value in data.items():
         if local_name in local_to_global:
             result[local_to_global[local_name]] = value
+        else:
+            logger.warning("reindex_dict: %s not in images_ordered, dropped", local_name)
     return result
 
 
