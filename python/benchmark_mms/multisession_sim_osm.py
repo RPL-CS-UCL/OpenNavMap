@@ -912,9 +912,13 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
 
     inflate_base = inflate(base_grid)
     gt_cache = {}
+    n_gt_reachable = 0
     for s, g in goals:
-        _, gt_len = astar(inflate_base, s, g)
-        gt_cache[(s, g)] = gt_len
+        path, gt_len = astar(inflate_base, s, g)
+        gt_cache[(s, g)] = gt_len if path is not None else None
+        if path is not None:
+            n_gt_reachable += 1
+    gt_reachable_ratio = n_gt_reachable / len(goals) if len(goals) > 0 else 0.0
 
     reachable_ratios = []
     metric_ratios = []
@@ -1014,6 +1018,7 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         "stale_collides": stale_collides,
         "updated_collides": updated_collides,
         "new_reachable": new_reachable,
+        "gt_reachable_ratio": gt_reachable_ratio,
         "dyn_obs_blocks": dyn_obs_blocks,
         "merged_topos": merged_topos_all,
     }
@@ -1129,7 +1134,12 @@ def fig1_session_routes(grid, sessions_poses, seeds):
         ax.scatter(
             seeds[k][1], seeds[k][0],
             marker="*", color="yellow", s=80, edgecolors="black", linewidths=0.5,
+            label="seed",
         )
+        ax.scatter(c_arr[0], r_arr[0], marker="o", color="#34D399", s=60,
+                   edgecolors="black", linewidths=0.5, label="start", zorder=5)
+        ax.scatter(c_arr[-1], r_arr[-1], marker="X", color="#F87171", s=60,
+                   edgecolors="black", linewidths=0.5, label="goal", zorder=5)
         ax.set_title(
             f"Session {k+1} — Zone {k+1} (len={len(sessions_poses[k])} cells)",
             color="white", fontsize=11,
@@ -1142,11 +1152,11 @@ def fig1_session_routes(grid, sessions_poses, seeds):
 
 def fig2_cumulative_maps(grid, merged_all, seeds, results):
     _init_style()
-    ks = [0, 2, 4, 6, 9]  # k=1,3,5,7,10
-    titles_k = [f"k={k+1}" for k in ks]
-    n_cols = 3
-    n_rows = 2
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 5, n_rows * 5), facecolor=BG_COLOR)
+    ks = list(range(N_SESSIONS))  # k=0..9 = sessions 1..10
+    n_cols, n_rows = 4, 3
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(n_cols * 5, n_rows * 5), facecolor=BG_COLOR,
+    )
     gh, gw = grid.shape
     for idx, k in enumerate(ks):
         ax = axes[idx // n_cols][idx % n_cols]
@@ -1159,10 +1169,8 @@ def fig2_cumulative_maps(grid, merged_all, seeds, results):
         ax.imshow(rgb, origin="upper")
         rr = results.get("reachable_ratios", [0]*N_SESSIONS)[k] * 100
         cov = results.get("cov_free_m2", [0]*N_SESSIONS)[k]
-        total_cov = results.get("cov_area_m2", [0]*N_SESSIONS)[k]
-        ax.set_title(f"After {titles_k[idx]}  |  Reach: {rr:.0f}%", color="white", fontsize=11)
-        ax.text(0.02, 0.98, f"Free: {cov:.0f} m$^2$  |  Cov: {total_cov:.0f} m$^2$",
-                transform=ax.transAxes, color="white", va="top", fontsize=9)
+        ax.set_title(f"After k={k+1}  |  Reach: {rr:.0f}%  Free: {cov:.0f} m$^2$",
+                     color="white", fontsize=10)
         ax.axis("off")
 
     gt_ax = axes[-1][-1]
@@ -1173,6 +1181,9 @@ def fig2_cumulative_maps(grid, merged_all, seeds, results):
     gt_ax.imshow(rgb_gt, origin="upper")
     gt_ax.set_title("Ground Truth", color="white", fontsize=11)
     gt_ax.axis("off")
+    for idx in range(len(ks), n_rows * n_cols - 1):
+        ax = axes[idx // n_cols][idx % n_cols]
+        ax.set_axis_off()
     fig.tight_layout()
     fig.savefig(OUTPUT_DIR / "fig2_cumulative_maps.png", dpi=150, facecolor=BG_COLOR)
     plt.close(fig)
@@ -1204,7 +1215,11 @@ def fig3_nav_success(results):
     ax2.set_facecolor(BG_COLOR)
     ks = list(range(1, N_SESSIONS + 1))
     ax2.plot(ks, [r * 100 for r in ratios], "-o", color=PALETTE[0], linewidth=2.5, markersize=8, label="Multi-session")
-    ax2.axhline(y=ratios[0] * 100, color=PALETTE[1], linestyle="--", label=f"Single-session baseline ({ratios[0]*100:.0f}%)")
+    gt_ratio = results.get("gt_reachable_ratio", 0.0)
+    ax2.axhline(y=gt_ratio * 100, color=PALETTE[2], linestyle=":", linewidth=2,
+                label=f"GT ceiling ({gt_ratio*100:.0f}%)")
+    ax2.axhline(y=ratios[0] * 100, color=PALETTE[1], linestyle="--",
+                label=f"Single-session ({ratios[0]*100:.0f}%)")
     ax2.set_xlabel("Cumulative sessions k", color="white")
     ax2.set_ylabel("Reachable Ratio (%)", color="white")
     ax2.set_title("Reachability Growth", color="white")
@@ -1294,7 +1309,9 @@ def fig5_growth_charts(results):
 
     ax2.set_facecolor(BG_COLOR)
     ax2.plot(ks, [r * 100 for r in results["reachable_ratios"]], "-s", color=PALETTE[2], linewidth=2.5, markersize=7, label="Multi-session")
-    ax2.axhline(y=results["reachable_ratios"][0] * 100, color=PALETTE[1], linestyle="--", label="Single-session baseline")
+    gt_r = results.get("gt_reachable_ratio", 0.0) * 100
+    ax2.axhline(y=gt_r, color=PALETTE[4], linestyle=":", linewidth=2, label=f"GT ceiling ({gt_r:.0f}%)")
+    ax2.axhline(y=results["reachable_ratios"][0] * 100, color=PALETTE[1], linestyle="--", label="Single-session")
     ax2.set_xlabel("Cumulative sessions k", color="white")
     ax2.set_ylabel("Reachable Ratio (%)", color="white")
     ax2.set_title("Reachability Growth", color="white")
@@ -1337,7 +1354,7 @@ def fig6_summary(results, location_name, obs_ratio):
     ax_top.set_facecolor(BG_COLOR)
     ax_top.axis("off")
     cards = [
-        ("Reachability", f"{results['reachable_ratios'][0]*100:.0f}% → {results['reachable_ratios'][-1]*100:.0f}%", PALETTE[0]),
+        ("Reachability", f"{results['reachable_ratios'][0]*100:.0f}%→{results['reachable_ratios'][-1]*100:.0f}%  (GT max: {results.get('gt_reachable_ratio', 0)*100:.0f}%)", PALETTE[0]),
         ("Coverage (Free)", f"{results['cov_free_m2'][0]:.0f} → {results['cov_free_m2'][-1]:.0f} m$^2$", PALETTE[2]),
         ("Optimality (metric)", f"{results['metric_ratios'][0]:.2f} → {results['metric_ratios'][-1]:.2f}", PALETTE[3]),
         ("Temporal", f"{'COLLISION' if results['stale_collides'] else 'SAFE'} → {'SAFE' if not results['updated_collides'] else 'COLLISION'}", PALETTE[1]),
@@ -1471,6 +1488,7 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
         "updated_len": float(results["updated_len"]),
         "stale_collides": bool(results["stale_collides"]),
         "updated_collides": bool(results["updated_collides"]),
+        "gt_reachable_ratio": float(results.get("gt_reachable_ratio", 0.0)),
     }
     with open(data_dir / "metrics.json", "w") as f:
         json.dump(metrics, f)
