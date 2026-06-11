@@ -1,9 +1,11 @@
 [submodule "third_party/vismatch"]
 	path = third_party/vismatch
 	url = git@github.com:gogojjh/vismatch.git
+	branch = opennavmap-py38
 [submodule "third_party/VPR-methods-evaluation"]
 	path = third_party/VPR-methods-evaluation
 	url = git@github.com:gogojjh/VPR-methods-evaluation.git
+	branch = opennavmap-py38
 [submodule "third_party/litevloc_code"]
 	path = third_party/litevloc_code
 	url = git@github.com:RPL-CS-UCL/litevloc_code.git
@@ -11,4 +13,4 @@
 [submodule "third_party/pose_estimation_models"]
 	path = third_party/pose_estimation_models
 	url = https://github.com/gogojjh/pose_estimation_models.git
-	branch = develop_tro2025
+	branch = main
