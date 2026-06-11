@@ -32,7 +32,6 @@ from benchmark_map_merge.merge_writer import (
     read_poses, read_timestamps, estimate_umeyama,
     apply_transform, merge_poses, write_poses_txt, write_timestamps_txt,
     write_summary_json, create_merge_dir, create_finalmap_symlink,
-    copy_ref_data,
     reindex_dict, read_intrinsics, read_gps, read_edges_odom,
     write_intrinsics_txt, write_gps_txt, write_edges_odom_txt,
     merge_edges_with_offset,
@@ -104,22 +103,28 @@ def run_order(
 
     global_offset = 0
 
-    _ref_poses_raw, _ref_gt_raw, _ref_ts_raw = copy_ref_data(ref_dir, merge_dir, ref_images)
-    merged_poses = reindex_dict(_ref_poses_raw, ref_images, global_offset)
-    merged_gt    = reindex_dict(_ref_gt_raw,    ref_images, global_offset)
-    merged_ts    = reindex_dict(_ref_ts_raw,    ref_images, global_offset)
+    ref_poses = read_poses(str(ref_dir / "poses.txt"))
+    ref_gt    = read_poses(str(ref_dir / "poses_abs_gt.txt"))
+    ref_ts    = read_timestamps(str(ref_dir / "timestamps.txt"))
+    ref_poses_local = {img: ref_poses[img] for img in ref_images if img in ref_poses}
+    ref_gt_local    = {img: ref_gt[img]    for img in ref_images if img in ref_gt}
+    ref_ts_local    = {img: ref_ts[img]    for img in ref_images if img in ref_ts}
+
+    merged_poses = reindex_dict(ref_poses_local, ref_images, global_offset)
+    merged_gt    = reindex_dict(ref_gt_local,    ref_images, global_offset)
+    merged_ts    = reindex_dict(ref_ts_local,    ref_images, global_offset)
 
     write_poses_txt(merged_poses, merge_dir / "poses.txt")
     write_poses_txt(merged_gt,    merge_dir / "poses_abs_gt.txt")
     write_timestamps_txt(merged_ts, merge_dir / "timestamps.txt")
 
-    _ref_intr   = read_intrinsics(str(ref_dir / "intrinsics.txt"))
-    _ref_gps    = read_gps(str(ref_dir / "gps_data.txt"))
-    _ref_edges  = read_edges_odom(str(ref_dir / "edges_odom.txt"))
+    ref_intr  = read_intrinsics(str(ref_dir / "intrinsics.txt"))
+    ref_gps   = read_gps(str(ref_dir / "gps_data.txt"))
+    ref_edges = read_edges_odom(str(ref_dir / "edges_odom.txt"))
 
-    merged_intrinsics = reindex_dict(_ref_intr,  ref_images, global_offset)
-    merged_gps        = reindex_dict(_ref_gps,   ref_images, global_offset)
-    merged_edges      = [(a, b, d) for a, b, d in _ref_edges]
+    merged_intrinsics = reindex_dict(ref_intr, ref_images, global_offset)
+    merged_gps        = reindex_dict(ref_gps,  ref_images, global_offset)
+    merged_edges      = list(ref_edges)
 
     write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
     write_gps_txt(merged_gps,              merge_dir / "gps_data.txt")
@@ -176,23 +181,23 @@ def run_order(
             })
             continue
 
-        incoming_vio_raw = {img: inc_poses_dict[img] for img in incoming_images
-                            if img in inc_poses_dict}
-        transformed_local = apply_transform(incoming_vio_raw, T_ref_incoming)
+        inc_poses_local = {img: inc_poses_dict[img] for img in incoming_images
+                           if img in inc_poses_dict}
+        transformed_local = apply_transform(inc_poses_local, T_ref_incoming)
         transformed = reindex_dict(transformed_local, incoming_images, global_offset)
         merged_poses = merge_poses(merged_poses, transformed)
 
         inc_gt_dict = read_poses(str(sdir / "poses_abs_gt.txt"))
-        incoming_gt_local = {img: inc_gt_dict[img] for img in incoming_images
-                             if img in inc_gt_dict}
-        incoming_gt = reindex_dict(incoming_gt_local, incoming_images, global_offset)
-        merged_gt = merge_poses(merged_gt, incoming_gt)
+        inc_gt_local = {img: inc_gt_dict[img] for img in incoming_images
+                        if img in inc_gt_dict}
+        inc_gt = reindex_dict(inc_gt_local, incoming_images, global_offset)
+        merged_gt = merge_poses(merged_gt, inc_gt)
 
         inc_ts_dict = read_timestamps(str(sdir / "timestamps.txt"))
-        incoming_ts_local = {img: inc_ts_dict[img] for img in incoming_images
-                             if img in inc_ts_dict}
-        incoming_ts = reindex_dict(incoming_ts_local, incoming_images, global_offset)
-        merged_ts = merge_poses(merged_ts, incoming_ts)
+        inc_ts_local = {img: inc_ts_dict[img] for img in incoming_images
+                        if img in inc_ts_dict}
+        inc_ts = reindex_dict(inc_ts_local, incoming_images, global_offset)
+        merged_ts = merge_poses(merged_ts, inc_ts)
 
         inc_intr  = read_intrinsics(str(sdir / "intrinsics.txt"))
         inc_gps   = read_gps(str(sdir / "gps_data.txt"))
