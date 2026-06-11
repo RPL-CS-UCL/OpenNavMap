@@ -842,55 +842,47 @@ def _check_connectivity(grid_with_obs, seeds):
 # ============================================================================
 # Step 8: Goal pair sampling
 # ============================================================================
-def sample_goals(base_grid, obs_merged_k10, seeds, n_total=N_GOAL_PAIRS):
+def sample_goals(base_grid, n_pairs: int = N_SESSIONS, seed: int = 42):
+    """Sample n_pairs independent (start, goal) pairs from base_grid free space.
+
+    Each pair validated GT-reachable on inflate(base_grid).
+    start != goal; minimum Euclidean distance >= 30 cells.
+    """
     inf_grid = inflate(base_grid)
-    known_free = np.argwhere(obs_merged_k10 == -1)
-    if len(known_free) < 20:
+    free_cells = np.argwhere(inf_grid == 0)
+    if len(free_cells) < 2:
         return []
 
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     goals: list = []
 
-    def _valid_good_pair(s, g):
+    def _valid_pair(s, g):
+        if s == g:
+            return False
         if np.hypot(s[0] - g[0], s[1] - g[1]) < 30:
             return False
         p, _ = astar(inf_grid, s, g)
         return p is not None
 
-    def _unique(s, g):
-        return (s, g) not in goals and (g, s) not in goals
-
-    for _ in range(300):
-        if len(goals) >= n_total:
+    for _ in range(max(500, 50 * n_pairs)):
+        if len(goals) >= n_pairs:
             break
-        si = rng.integers(0, len(known_free))
-        gi = rng.integers(0, len(known_free))
-        s = (int(known_free[si][0]), int(known_free[si][1]))
-        g = (int(known_free[gi][0]), int(known_free[gi][1]))
-        if _valid_good_pair(s, g) and _unique(s, g):
+        si = rng.integers(0, len(free_cells))
+        gi = rng.integers(0, len(free_cells))
+        s = (int(free_cells[si][0]), int(free_cells[si][1]))
+        g = (int(free_cells[gi][0]), int(free_cells[gi][1]))
+        if _valid_pair(s, g):
             goals.append((s, g))
 
-    if len(goals) < 6:
-        free_all = np.argwhere(inf_grid == 0)
-        for _ in range(500):
-            if len(goals) >= n_total:
-                break
-            si = rng.integers(0, len(free_all))
-            gi = rng.integers(0, len(free_all))
-            s = (int(free_all[si][0]), int(free_all[si][1]))
-            g = (int(free_all[gi][0]), int(free_all[gi][1]))
-            if _valid_good_pair(s, g) and _unique(s, g):
-                goals.append((s, g))
-
-    print(f"  Sampled {len(goals)} goal pairs (min cross-distance >= 30 cells, GT-reachable).")
-    return goals[:n_total]
+    print(f"  Sampled {len(goals)} goal pairs from inflate(base_grid) free space.")
+    return goals[:n_pairs]
 
 
 # ============================================================================
 # Step 9: Experiment evaluation
 # ============================================================================
 def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
-                    dyn_obs_blocks, goals):
+                    dyn_obs_blocks, goals, res_m: float = RES):
     merged_obs_all = [sessions_obs[0].copy() for _ in range(N_SESSIONS)]
     for k in range(1, N_SESSIONS):
         merged_obs_all[k] = np.where(
@@ -911,98 +903,78 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         prev_merged = merged_topos_all[k]
 
     inflate_base = inflate(base_grid)
-    gt_cache = {}
+    gt_paths = []
+    gt_lens = []
     n_gt_reachable = 0
     for s, g in goals:
-        path, gt_len = astar(inflate_base, s, g)
-        gt_cache[(s, g)] = gt_len if path is not None else None
+        path, gt_len = astar(inflate_base, s, g, res=res_m)
+        gt_paths.append(path)
+        gt_lens.append(gt_len if path is not None else None)
         if path is not None:
             n_gt_reachable += 1
     gt_reachable_ratio = n_gt_reachable / len(goals) if len(goals) > 0 else 0.0
 
+    goal_success_mat = np.zeros(N_SESSIONS, dtype=bool)
+    est_paths = [None] * N_SESSIONS
+    est_lens = [float("nan")] * N_SESSIONS
     reachable_ratios = []
     metric_ratios = []
     topo_ratios = []
     node_counts = []
     cov_area_m2 = []
     cov_free_m2 = []
-    goal_success_mat = np.zeros((N_SESSIONS, len(goals)), dtype=bool)
-    path_len_cache = {}
 
     print(f"  Evaluating k=1..{N_SESSIONS} ...")
     for k in range(N_SESSIONS):
         pg = 1 - (merged_obs_all[k] == -1).astype(np.uint8)
-        inf_pg = inflate(pg)
-        n_reached = 0
-        for gi, (s, g) in enumerate(goals):
-            if k > 0 and goal_success_mat[k - 1, gi]:
-                goal_success_mat[k, gi] = True
-                n_reached += 1
-                continue
-            pg_mod = pg.copy()
-            pg_mod[s], pg_mod[g] = 0, 0
-            inf_mod = inflate(pg_mod)
-            path, est_len = astar(inf_mod, s, g)
-            if path is not None:
-                goal_success_mat[k, gi] = True
-                n_reached += 1
-                path_len_cache[(k, gi)] = est_len
-        reachable_ratios.append(n_reached / len(goals))
+        s, g = goals[k]
+        pg_mod = pg.copy()
+        pg_mod[s], pg_mod[g] = 0, 0
+        inf_mod = inflate(pg_mod)
+        path, est_len = astar(inf_mod, s, g, res=res_m)
+        reachable = path is not None
+        goal_success_mat[k] = reachable
+        est_paths[k] = path
+        if reachable:
+            est_lens[k] = est_len
+
+        # Cumulative reachable ratio: fraction of pairs 0..k that succeeded
+        reachable_ratios.append(goal_success_mat[: k + 1].mean())
 
         known = (merged_obs_all[k] != 0)
-        cov_area_m2.append(known.sum() * RES * RES)
-        cov_free_m2.append(((merged_obs_all[k] == -1) & known).sum() * RES * RES)
+        cov_area_m2.append(known.sum() * res_m * res_m)
+        cov_free_m2.append(((merged_obs_all[k] == -1) & known).sum() * res_m * res_m)
 
-        full_reachable_ids = np.where(goal_success_mat[k])[0]
-        if len(full_reachable_ids) >= 3:
-            mr_vals = []
-            tr_vals = []
-            for gi in full_reachable_ids:
-                s, g = goals[gi]
-                est_len = path_len_cache.get((k, gi))
-                if est_len is None:
-                    pg_mod = pg.copy()
-                    pg_mod[s], pg_mod[g] = 0, 0
-                    _, est_len = astar(inflate(pg_mod), s, g)
-                    path_len_cache[(k, gi)] = est_len
-                gt_len = gt_cache[(s, g)]
-                if gt_len > 0 and est_len < float("inf"):
-                    mr_vals.append(est_len / gt_len)
-            metric_ratios.append(np.mean(mr_vals) if mr_vals else float("nan"))
-
-            topo = merged_topos_all[k]
-            for gi in full_reachable_ids:
-                s, g = goals[gi]
-                sx, sy = s[1] * RES, s[0] * RES
-                gx, gy = g[1] * RES, g[0] * RES
-                s_nodes = [
-                    n for n, d in topo.nodes(data=True)
-                    if np.hypot(d["x"] - sx, d["y"] - sy) < 5.0
-                ]
-                g_nodes = [
-                    n for n, d in topo.nodes(data=True)
-                    if np.hypot(d["x"] - gx, d["y"] - gy) < 5.0
-                ]
-                if s_nodes and g_nodes:
-                    try:
-                        topo_len = nx.shortest_path_length(
-                            topo, s_nodes[0], g_nodes[0], weight="weight"
-                        )
-                        tr_vals.append(topo_len / gt_cache[(s, g)])
-                    except (nx.NetworkXNoPath, KeyError):
-                        pass
-            topo_ratios.append(np.mean(tr_vals) if tr_vals else float("nan"))
+        # Metric ratio: est_len / gt_len for this session's pair
+        gt_len = gt_lens[k]
+        if reachable and gt_len is not None and gt_len > 0 and est_len < float("inf"):
+            metric_ratios.append(est_len / gt_len)
         else:
             metric_ratios.append(float("nan"))
+
+        # Topological ratio: shortest path in merged topo graph / GT len
+        topo = merged_topos_all[k]
+        sx, sy = s[1] * res_m, s[0] * res_m
+        gx, gy = g[1] * res_m, g[0] * res_m
+        s_nodes = [n for n, d in topo.nodes(data=True)
+                   if np.hypot(d["x"] - sx, d["y"] - sy) < 5.0]
+        g_nodes = [n for n, d in topo.nodes(data=True)
+                   if np.hypot(d["x"] - gx, d["y"] - gy) < 5.0]
+        if s_nodes and g_nodes and gt_len is not None and gt_len > 0:
+            try:
+                topo_len = nx.shortest_path_length(topo, s_nodes[0], g_nodes[0], weight="weight")
+                topo_ratios.append(topo_len / gt_len)
+            except (nx.NetworkXNoPath, KeyError):
+                topo_ratios.append(float("nan"))
+        else:
             topo_ratios.append(float("nan"))
 
-        node_counts.append(merged_topos_all[k].number_of_nodes())
+        node_counts.append(topo.number_of_nodes())
 
     stale_len, updated_len, stale_collides, updated_collides = _eval_b4(
         base_grid, sessions_obs, sessions_poses, dyn_obs_blocks
     )
-    new_reachable = int(reachable_ratios[-1] * len(goals)) - int(reachable_ratios[0] * len(goals))
-    new_reachable = max(0, new_reachable)
+    new_reachable = int(goal_success_mat.sum())
 
     return {
         "reachable_ratios": reachable_ratios,
@@ -1013,6 +985,10 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         "cov_free_m2": cov_free_m2,
         "goal_success_mat": goal_success_mat,
         "goals": goals,
+        "est_paths": est_paths,
+        "gt_paths": gt_paths,
+        "est_lens": est_lens,
+        "gt_lens": gt_lens,
         "stale_len": stale_len,
         "updated_len": updated_len,
         "stale_collides": stale_collides,
@@ -1354,7 +1330,7 @@ def fig6_summary(results, location_name, obs_ratio):
     ax_top.set_facecolor(BG_COLOR)
     ax_top.axis("off")
     cards = [
-        ("Reachability", f"{results['reachable_ratios'][0]*100:.0f}%→{results['reachable_ratios'][-1]*100:.0f}%  (GT max: {results.get('gt_reachable_ratio', 0)*100:.0f}%)", PALETTE[0]),
+        ("Reachability", f"{results['goal_success_mat'].sum()}/{N_SESSIONS} sessions  |  {results['reachable_ratios'][-1]*100:.0f}% cumul  (GT max: {results.get('gt_reachable_ratio', 0)*100:.0f}%)", PALETTE[0]),
         ("Coverage (Free)", f"{results['cov_free_m2'][0]:.0f} → {results['cov_free_m2'][-1]:.0f} m$^2$", PALETTE[2]),
         ("Optimality (metric)", f"{results['metric_ratios'][0]:.2f} → {results['metric_ratios'][-1]:.2f}", PALETTE[3]),
         ("Temporal", f"{'COLLISION' if results['stale_collides'] else 'SAFE'} → {'SAFE' if not results['updated_collides'] else 'COLLISION'}", PALETTE[1]),
@@ -1489,12 +1465,162 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
         "stale_collides": bool(results["stale_collides"]),
         "updated_collides": bool(results["updated_collides"]),
         "gt_reachable_ratio": float(results.get("gt_reachable_ratio", 0.0)),
+        "goal_success_per_session": [bool(v) for v in results["goal_success_mat"]],
+        "est_lens": [float(v) if not np.isnan(v) else 0.0 for v in results["est_lens"]],
+        "gt_lens": [float(v) if v is not None else 0.0 for v in results["gt_lens"]],
     }
     with open(data_dir / "metrics.json", "w") as f:
         json.dump(metrics, f)
     goals_data = [[int(s[0]), int(s[1]), int(g[0]), int(g[1])] for s, g in results["goals"]]
     with open(data_dir / "goals.json", "w") as f:
         json.dump(goals_data, f)
+
+
+# ============================================================================
+# Path-search + topometric map visualization
+# ============================================================================
+def fig_path_search_topomap(grid, results):
+    """Show per-session path search results overlaid on built topological map.
+
+    Each subplot shows:
+      - partial observed map (free/obstacle/unknown)
+      - topological graph edges (semi-transparent) and nodes (large dots)
+      - A* shortest path (thick green line)
+      - start (green circle) / goal (red X) markers
+    """
+    _init_style()
+    gh, gw = grid.shape
+    goals = results["goals"]
+    est_paths = results["est_paths"]
+    gt_paths = results["gt_paths"]
+    merged_topos = results["merged_topos"]
+    metric_ratios = results["metric_ratios"]
+    est_lens = results["est_lens"]
+    gt_lens = results["gt_lens"]
+    merged_all = results["merged_all"]
+
+    n_cols, n_rows = 5, 2
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(n_cols * 6, n_rows * 6), facecolor=BG_COLOR,
+    )
+    for k in range(N_SESSIONS):
+        ax = axes[k // n_cols][k % n_cols]
+        ax.set_facecolor(BG_COLOR)
+        merged = merged_all[k]
+        rgb = np.zeros((gh, gw, 3))
+        rgb[(merged == -1)] = STYLE_FREE * 0.6
+        rgb[(merged == 1)] = STYLE_OBS * 0.4
+        rgb[(merged == 0)] = STYLE_UNK * 0.3
+        ax.imshow(rgb, origin="upper")
+
+        # Topological graph
+        topo = merged_topos[k]
+        if topo is not None:
+            for u, v in topo.edges:
+                xu, yu = topo.nodes[u]["x"], topo.nodes[u]["y"]
+                xv, yv = topo.nodes[v]["x"], topo.nodes[v]["y"]
+                rc_u = (int(yu / RES), int(xu / RES))
+                rc_v = (int(yv / RES), int(xv / RES))
+                ax.plot([rc_u[1], rc_v[1]], [rc_u[0], rc_v[0]],
+                        "-", color="white", linewidth=0.5, alpha=0.25)
+            node_rcs = [(int(d["y"] / RES), int(d["x"] / RES))
+                        for _, d in topo.nodes(data=True)]
+            if node_rcs:
+                nrs, ncs = zip(*node_rcs)
+                ax.scatter(ncs, nrs, marker="o", color=PALETTE[3],
+                           s=65, edgecolors="white", linewidths=0.5, zorder=3)
+
+        # Goal pair
+        s, g = goals[k]
+        ax.scatter(s[1], s[0], marker="o", color="#34D399", s=120,
+                   edgecolors="white", linewidths=1.5, zorder=5)
+        ax.scatter(g[1], g[0], marker="X", color="#F87171", s=120,
+                   edgecolors="white", linewidths=1.5, zorder=5)
+
+        # A* path
+        path = est_paths[k]
+        if path is not None:
+            r_arr = [p[0] for p in path]
+            c_arr = [p[1] for p in path]
+            ax.plot(c_arr, r_arr, "-", color="#34D399", linewidth=2.5, zorder=4)
+
+        # GT path (dashed reference)
+        gt_path = gt_paths[k]
+        if gt_path is not None and path is not None:
+            r_gt = [p[0] for p in gt_path]
+            c_gt = [p[1] for p in gt_path]
+            ax.plot(c_gt, r_gt, "--", color="#F59E0B", linewidth=1.0, alpha=0.7, zorder=2)
+
+        reachable = "YES" if path is not None else "NO"
+        mr_str = f"{metric_ratios[k]:.3f}" if not np.isnan(metric_ratios[k]) else "N/A"
+        est_str = f"{est_lens[k]:.1f}m" if path is not None else "N/A"
+        gt_str = f"{gt_lens[k]:.1f}m" if gt_lens[k] is not None else "N/A"
+        ax.set_title(
+            f"k={k+1}  reachable={reachable}  est={est_str}  GT={gt_str}  ratio={mr_str}",
+            color="white", fontsize=10,
+        )
+        ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "fig_path_search_topomap.png", dpi=150, facecolor=BG_COLOR)
+    plt.close(fig)
+
+
+# ============================================================================
+# Reachability + optimality two-panel figure
+# ============================================================================
+def fig_reachability_optimality(results):
+    _init_style()
+    mr = np.array(results["metric_ratios"])
+    ks = np.arange(1, N_SESSIONS + 1)
+    goal_success_mat = results["goal_success_mat"]
+    gt_ratio = results.get("gt_reachable_ratio", 0.0)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 12), facecolor=BG_COLOR)
+
+    # --- Panel A: Reachability ---
+    ax1.set_facecolor(BG_COLOR)
+    reach_pct = [r * 100 for r in results["reachable_ratios"]]
+    ax1.plot(ks, reach_pct, "-o", color=PALETTE[0], linewidth=2.5, markersize=9,
+             markerfacecolor=PALETTE[0], markeredgecolor="white",
+             label="Cumulative reachability")
+    ax1.axhline(y=gt_ratio * 100, color=PALETTE[4], linestyle=":", linewidth=2,
+                label=f"GT ceiling ({gt_ratio*100:.0f}%)")
+    for i, ok in enumerate(goal_success_mat):
+        c = "#34D399" if ok else "#F87171"
+        ax1.axvline(x=i + 1, color=c, alpha=0.15, linewidth=8)
+    ax1.set_xlabel("Cumulative sessions k", color="white", fontsize=13)
+    ax1.set_ylabel("Reachable Ratio (%)", color="white", fontsize=13)
+    ax1.set_title("Reachability Growth", color="white", fontsize=15)
+    ax1.legend(facecolor=BG_COLOR, edgecolor="white", labelcolor="white", fontsize=11)
+    ax1.tick_params(colors="white", labelsize=11)
+    ax1.set_xlim(0.5, N_SESSIONS + 0.5)
+    ax1.set_ylim(-5, 105)
+    ax1.grid(ls="--", alpha=0.25, color="white")
+
+    # --- Panel B: Optimality ---
+    ax2.set_facecolor(BG_COLOR)
+    valid = ~np.isnan(mr)
+    ax2.plot(ks[valid], mr[valid], "-s", color=PALETTE[3], linewidth=2.5, markersize=9,
+             markerfacecolor=PALETTE[3], markeredgecolor="white",
+             label="metric_ratio (grid A*)")
+    ax2.axhline(y=1.0, color="white", linestyle="--", alpha=0.5, linewidth=1.5,
+                label="GT optimal (=1.0)")
+    valid_t = ~np.isnan(results["topo_ratios"])
+    ax2.plot(ks[valid_t], np.array(results["topo_ratios"])[valid_t],
+             "-^", color=PALETTE[2], linewidth=2.0, markersize=7,
+             markerfacecolor=PALETTE[2], markeredgecolor="white",
+             label="topological_ratio", alpha=0.8)
+    ax2.set_xlabel("Cumulative sessions k", color="white", fontsize=13)
+    ax2.set_ylabel("ratio = est / GT  (lower is better)", color="white", fontsize=13)
+    ax2.set_title("Path Optimality", color="white", fontsize=15)
+    ax2.legend(facecolor=BG_COLOR, edgecolor="white", labelcolor="white", fontsize=11)
+    ax2.tick_params(colors="white", labelsize=11)
+    ax2.set_xlim(0.5, N_SESSIONS + 0.5)
+    ax2.grid(ls="--", alpha=0.25, color="white")
+
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "fig_reachability_optimality.png", dpi=150, facecolor=BG_COLOR)
+    plt.close(fig)
 
 
 # ============================================================================
@@ -1554,25 +1680,23 @@ def main(map_mode: str = "osm", lat: float = CENTER_LAT, lon: float = CENTER_LON
         dyn_obs_blocks = _place_obstacles(base_grid, sessions_poses, seeds)
         print(f"  Dynamic obstacles: {len(dyn_obs_blocks)} placed.")
 
-        goals = sample_goals(base_grid, merged_obs[-1], seeds)
+        goals = sample_goals(base_grid, n_pairs=N_SESSIONS, seed=42)
         print(f"  Goal pairs: {len(goals)}")
 
         print("\n[3/5] Running experiments A1+A2+B4 ...")
         results = run_experiments(
             base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
-            dyn_obs_blocks, goals,
+            dyn_obs_blocks, goals, res_m=res_m,
         )
         results["merged_all"] = merged_obs
         _print_experiment_summary(results, loc_name, goals)
 
         print("\n[4/5] Generating output figures ...")
-        fig0_base_map(base_grid, loc_name, obs_ratio);    print("  fig0")
-        fig1_session_routes(base_grid, sessions_poses, seeds); print("  fig1")
-        fig2_cumulative_maps(base_grid, results["merged_all"], seeds, results); print("  fig2")
-        fig3_nav_success(results);                         print("  fig3")
-        fig4_temporal(base_grid, sessions_poses, sessions_obs, results, dyn_obs_blocks); print("  fig4")
-        fig5_growth_charts(results);                       print("  fig5")
-        fig6_summary(results, loc_name, obs_ratio);        print("  fig6")
+        fig0_base_map(base_grid, loc_name, obs_ratio);              print("  fig0 (base map)")
+        fig_path_search_topomap(base_grid, results);                print("  fig_path_search_topomap")
+        fig_reachability_optimality(results);                       print("  fig_reachability_optimality")
+        fig4_temporal(base_grid, sessions_poses, sessions_obs, results, dyn_obs_blocks); print("  fig4_temporal")
+        fig6_summary(results, loc_name, obs_ratio);                  print("  fig6_summary")
         print("  Generating map_growth.gif ...")
         create_gif(results["merged_all"], sessions_poses, results); print("  map_growth.gif")
 
@@ -1600,20 +1724,24 @@ def _place_obstacles(base_grid, sessions_poses, seeds):
 
 
 def _print_experiment_summary(results, loc_name, goals):
-    print(f"  A1 reachable_ratios: {[f'{r*100:.0f}%' for r in results['reachable_ratios']]}")
+    reachable_flags = ["YES" if v else "no" for v in results["goal_success_mat"]]
+    print(f"  A1 reachable: {reachable_flags}")
+    print(f"  A1 cumulative: {[f'{r*100:.0f}%' for r in results['reachable_ratios']]}")
     print("\n[5/5] Quantitative Summary")
     print("=" * 80)
     print(f"MAP SOURCE: {loc_name}")
     print(f"  res={RES} m/cell (default)")
-    print(f"SESSIONS: {N_SESSIONS} | GOALS: {len(goals)} | PLANNER: A* | FOV: {FOV_HALF_DEG*2}deg/{FOV_RANGE_M}m")
+    print(f"SESSIONS: {N_SESSIONS} | GOALS: {len(goals)} (1 per session) | PLANNER: A* | FOV: {FOV_HALF_DEG*2}deg/{FOV_RANGE_M}m")
     print("=" * 80)
-    hdr = f"{'k':<4} {'Config':<15} {'Cov(m2)':<10} {'Free(m2)':<10} {'Free%':<8} {'Reach%':<8} {'MetricR':<9} {'TopoR':<9} {'Nodes':<7}"
+    hdr = f"{'k':<4} {'Config':<15} {'Cov(m2)':<10} {'Free(m2)':<10} {'Free%':<8} {'Reach':<8} {'Cumul%':<8} {'MetricR':<9} {'TopoR':<9} {'Nodes':<7}"
     print(hdr); print("-" * 80)
     for k in range(N_SESSIONS):
         cfg = f"+S{k+1}" if k > 0 else "S1 [single]"
         mr = results["metric_ratios"][k]; tr = results["topo_ratios"][k]
+        rs = "YES" if results["goal_success_mat"][k] else "no"
         print(f"{k+1:<4} {cfg:<15} {results['cov_area_m2'][k]:<10.0f} {results['cov_free_m2'][k]:<10.0f} "
-              f"{results['cov_free_m2'][k]/max(results['cov_area_m2'][k],1)*100:<8.1f} {results['reachable_ratios'][k]*100:<8.0f} "
+              f"{results['cov_free_m2'][k]/max(results['cov_area_m2'][k],1)*100:<8.1f} {rs:<8} "
+              f"{results['reachable_ratios'][k]*100:<8.0f} "
               f"{f'{mr:.2f}' if not np.isnan(mr) else 'N/A':<9} {f'{tr:.2f}' if not np.isnan(tr) else 'N/A':<9} "
               f"{results['node_counts'][k]:<7}")
     print("-" * 80)
