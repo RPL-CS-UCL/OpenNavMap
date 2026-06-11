@@ -693,7 +693,7 @@ def observe_batch_fov(poses, grid, res=RES):
     obs = np.zeros_like(grid, dtype=np.int8)
     mask = np.zeros_like(grid, dtype=bool)
     H, W = grid.shape
-    R = FOV_RANGE_CELLS
+    R = int(np.ceil(FOV_RANGE_M / res))
     dr_arr = np.arange(-R, R + 1)
     dc_arr = np.arange(-R, R + 1)
     dR, dC = np.meshgrid(dr_arr, dc_arr, indexing="ij")
@@ -1482,7 +1482,8 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
 # ============================================================================
 # Main
 # ============================================================================
-def main(map_mode="osm"):
+def main(map_mode: str = "osm", lat: float = CENTER_LAT, lon: float = CENTER_LON,
+         area_m: int = AREA_M, res_m: float = RES):
     t0 = time.time()
     modes = [map_mode] if map_mode != "both" else ["synthetic", "osm"]
 
@@ -1501,12 +1502,13 @@ def main(map_mode="osm"):
             np.save(OUTPUT_DIR / "base_map.npy", base_grid)
             print("  Synthetic funnel map generated.")
         else:
-            gdf, loc_name = download_osm_map(CENTER_LAT, CENTER_LON, AREA_M // 2)
-            base_grid, _ = rasterize_buildings(gdf)
-            base_grid = inject_funnel_walls(base_grid)
+            grid_side = int(area_m / res_m)
+            gdf, loc_name = download_osm_map(lat, lon, area_m // 2)
+            base_grid, _ = rasterize_buildings(gdf, res_m=res_m,
+                                               grid_w=grid_side, grid_h=grid_side)
             obs_ratio = validate_grid(base_grid)
             np.save(OUTPUT_DIR / "base_map.npy", base_grid)
-            print(f"  OSM rasterized + funnel injected. obstacle_ratio={obs_ratio:.3f}")
+            print(f"  OSM rasterized. obstacle_ratio={obs_ratio:.3f}, shape={base_grid.shape}")
             seeds = find_zones(base_grid, N_SESSIONS)
             print(f"  Zones: {len(seeds)} seeds found.")
 
@@ -1522,7 +1524,7 @@ def main(map_mode="osm"):
             rt = "channel" if (mode == "synthetic" and i < 3) else "random"
             print(f"  Session {i+1}: {len(poses)} poses ({rt}), seed=({seeds[i][0]},{seeds[i][1]})")
 
-        sessions_obs = [observe_batch_fov(poses, base_grid) for poses in sessions_poses]
+        sessions_obs = [observe_batch_fov(poses, base_grid, res=res_m) for poses in sessions_poses]
         merged_obs = [sessions_obs[0].copy() for _ in range(N_SESSIONS)]
         for k in range(1, N_SESSIONS):
             merged_obs[k] = np.where(sessions_obs[k] != 0, sessions_obs[k], merged_obs[k - 1])
@@ -1611,11 +1613,16 @@ if __name__ == "__main__":
                         choices=["benchmark", "map_only"])
     parser.add_argument("--map", type=str, default="osm",
                         choices=["osm", "synthetic", "both"])
-    parser.add_argument("--lat", type=float)
-    parser.add_argument("--lon", type=float)
+    parser.add_argument("--lat", type=float, default=None,
+                        help="Center latitude for benchmark osm mode (overrides CENTER_LAT)")
+    parser.add_argument("--lon", type=float, default=None,
+                        help="Center longitude for benchmark osm mode (overrides CENTER_LON)")
+    parser.add_argument("--area_m", type=int, default=None,
+                        help="Side length in meters for square OSM download area (overrides AREA_M)")
     parser.add_argument("--width_m", type=float)
     parser.add_argument("--length_m", type=float)
-    parser.add_argument("--res_m", type=float, default=0.5)
+    parser.add_argument("--res_m", type=float, default=None,
+                        help="Grid resolution m/cell (default 0.5 benchmark, 1.0 map_only)")
     parser.add_argument("--expand_cells", type=int, default=0)
     args = parser.parse_args()
 
@@ -1630,11 +1637,16 @@ if __name__ == "__main__":
             sys.exit("--width_m 需 ∈ [50, 5000]")
         if not (50 <= args.length_m <= 5000):
             sys.exit("--length_m 需 ∈ [50, 5000]")
-        if not (0.1 <= args.res_m <= 10.0):
+        res_m_final = args.res_m if args.res_m is not None else 1.0
+        if not (0.1 <= res_m_final <= 10.0):
             sys.exit("--res_m 需 ∈ [0.1, 10.0]")
         if not (0 <= args.expand_cells <= 20):
             sys.exit("--expand_cells 需 ∈ [0, 20]")
         run_map_only(args.lat, args.lon, args.width_m, args.length_m,
-                     res_m=args.res_m, expand_cells=args.expand_cells)
+                     res_m=res_m_final, expand_cells=args.expand_cells)
     else:
-        main(args.map)
+        bench_lat = args.lat if args.lat is not None else CENTER_LAT
+        bench_lon = args.lon if args.lon is not None else CENTER_LON
+        bench_area = args.area_m if args.area_m is not None else AREA_M
+        bench_res = args.res_m if args.res_m is not None else RES
+        main(args.map, lat=bench_lat, lon=bench_lon, area_m=bench_area, res_m=bench_res)
