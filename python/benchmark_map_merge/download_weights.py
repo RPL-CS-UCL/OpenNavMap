@@ -18,7 +18,12 @@ from lightglue import LightGlue
 
 def download_weights(features: str) -> None:
     print(f"Loading LightGlue weights for: {features} ...")
-    model = LightGlue(features=features).eval()
+    try:
+        model = LightGlue(features=features).eval()
+    except Exception as e:
+        print(f"  FAILED: {e}")
+        print(f"  Check network connection or pre-download weights manually.")
+        return
     print(f"  OK — weights cached.")
     del model
 

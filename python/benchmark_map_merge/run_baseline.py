@@ -170,8 +170,7 @@ def run_order(
             intr = (444.492708, 444.492708, 511.5, 287.5)
 
         T_ref_incoming = merger.estimate_submap_transform(
-            valid_pairs, ref_dir, sdir,
-            ref_poses_dict, inc_poses_dict, intr,
+            valid_pairs, ref_poses_dict, inc_poses_dict, intr,
         )
         if T_ref_incoming is None:
             _log(f"  FAILED: transform estimation failed", log_file)

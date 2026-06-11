@@ -9,6 +9,7 @@ This avoids COLMAP SfM reconstruction entirely (which crashes on this system).
 """
 
 import sys
+import copy
 import logging
 import numpy as np
 from pathlib import Path
@@ -29,7 +30,7 @@ if _LIGHTGLUE_DIR not in sys.path:
     sys.path.insert(0, _LIGHTGLUE_DIR)
 
 import pycolmap
-from hloc import extract_features, match_features, pairs_from_exhaustive
+from hloc import extract_features, match_features
 from hloc.utils.io import get_keypoints, get_matches
 
 pycolmap.logging.minloglevel = 100
@@ -37,9 +38,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def _build_disk_conf() -> dict:
-    import copy
-    from hloc import extract_features as _ef
-    conf = copy.deepcopy(_ef.confs["disk"])
+    conf = copy.deepcopy(extract_features.confs["disk"])
     conf["model"]["max_keypoints"] = 2048
     return conf
 
@@ -169,8 +168,6 @@ class HlocMapMerger:
     def estimate_submap_transform(
         self,
         valid_pairs: List[Tuple[str, str]],
-        ref_submap_dir: Path,
-        inc_submap_dir: Path,
         ref_poses: Dict[str, np.ndarray],
         inc_poses: Dict[str, np.ndarray],
         intrinsics: Tuple[float, float, float, float],
