@@ -1054,8 +1054,18 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
 
         node_counts.append(topo.number_of_nodes())
 
-    # Fixed pair: best candidate from session-1 observed region
-    fixed_pair = pick_best_fixed_pair(base_grid, sessions_obs, goals, res_m=res_m)
+    # Fixed pair: read from file if saved, else auto-pick
+    import json as _json
+    fp_file = OUTPUT_DIR / "fixed_pair.json"
+    if fp_file.exists():
+        fp_data = _json.loads(fp_file.read_text())
+        fixed_pair = (
+            (int(fp_data["start"][0]), int(fp_data["start"][1])),
+            (int(fp_data["goal"][0]), int(fp_data["goal"][1])),
+        )
+        print(f"  Fixed pair loaded from {fp_file}")
+    else:
+        fixed_pair = pick_best_fixed_pair(base_grid, sessions_obs, goals, res_m=res_m)
     fixed_start, fixed_goal = fixed_pair
     fixed_pair_paths = [None] * N_SESSIONS
     fixed_pair_lens = [float("inf")] * N_SESSIONS
