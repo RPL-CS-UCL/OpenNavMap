@@ -905,6 +905,62 @@ def _plan_on_merged_obs(merged_obs, start, goal, res_m):
     return astar(inflate(pg), start, goal, res=res_m)
 
 
+def pick_best_fixed_pair(base_grid, sessions_obs, goals, res_m: float = RES, n_candidates: int = 50):
+    """Find the best (start, goal) pair for fixed-pair optimality evaluation.
+
+    Samples candidates from session 1's observed-free region (so k=1 is reachable),
+    selects the pair with the largest optimality improvement:
+      score = (k1_ratio - 1.0) + (k1_ratio - k10_ratio)
+    Falls back to goals[0] if no good candidate found.
+    """
+    if len(goals) < 1:
+        return goals[0] if goals else ((0, 0), (0, 0))
+
+    rng = np.random.default_rng(42)
+    inf_base = inflate(base_grid)
+    session1_obs = sessions_obs[0]
+    observed_free = np.argwhere(session1_obs == -1)
+    if len(observed_free) < 2:
+        return goals[0]
+
+    merged_all = [session1_obs.copy() for _ in range(N_SESSIONS)]
+    for k in range(1, N_SESSIONS):
+        merged_all[k] = np.where(
+            sessions_obs[k] != 0, sessions_obs[k], merged_all[k - 1],
+        )
+
+    best_pair = goals[0]
+    best_score = -999.0
+
+    for _ in range(n_candidates):
+        si = rng.integers(0, len(observed_free))
+        gi = rng.integers(0, len(observed_free))
+        s = (int(observed_free[si][0]), int(observed_free[si][1]))
+        g = (int(observed_free[gi][0]), int(observed_free[gi][1]))
+        if s == g or np.hypot(s[0] - g[0], s[1] - g[1]) < 30:
+            continue
+        if base_grid[s] != 0 or base_grid[g] != 0:
+            continue
+
+        gt_path, gt_len = astar(inf_base, s, g, res=res_m)
+        if gt_path is None or gt_len <= 0:
+            continue
+
+        path1, len1 = _plan_on_merged_obs(merged_all[0], s, g, res_m)
+        if path1 is None:
+            continue
+
+        path10, len10 = _plan_on_merged_obs(merged_all[-1], s, g, res_m)
+        k1_ratio = len1 / gt_len
+        k10_ratio = len10 / gt_len if path10 is not None else float("inf")
+        score = (k1_ratio - 1.0) + (k1_ratio - min(k10_ratio, k1_ratio))
+        if k1_ratio > 1.0 and score > best_score:
+            best_score = score
+            best_pair = (s, g)
+
+    return best_pair
+
+
 # ============================================================================
 # Step 9: Experiment evaluation
 # ============================================================================
@@ -998,14 +1054,15 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
 
         node_counts.append(topo.number_of_nodes())
 
-    # Fixed pair (first pair) evaluated across all incremental merged maps
-    fixed_pair = goals[0] if goals else ((0, 0), (0, 0))
+    # Fixed pair: best candidate from session-1 observed region
+    fixed_pair = pick_best_fixed_pair(base_grid, sessions_obs, goals, res_m=res_m)
     fixed_start, fixed_goal = fixed_pair
     fixed_pair_paths = [None] * N_SESSIONS
     fixed_pair_lens = [float("inf")] * N_SESSIONS
     fixed_pair_success = [False] * N_SESSIONS
     fixed_pair_ratios = [float("nan")] * N_SESSIONS
-    fixed_gt_len = gt_lens[0] if gt_lens[0] is not None else None
+    _, fixed_gt_len = astar(inflate_base, fixed_start, fixed_goal, res=res_m)
+    fixed_gt_len = fixed_gt_len if fixed_gt_len is not None and fixed_gt_len < float("inf") else None
     for k in range(N_SESSIONS):
         path, length = _plan_on_merged_obs(merged_obs_all[k], fixed_start, fixed_goal, res_m)
         if path is not None:
