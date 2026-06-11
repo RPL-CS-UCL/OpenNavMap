@@ -9,6 +9,22 @@ into a 1000x1000 occupancy grid.
 Experiments:
   Exp1 (A1+A2) — Spatial Coverage + Path Optimality, k=1..10
   Exp2 (B4)   — Temporal Adaptability under dynamic obstacles
+
+Usage
+-----
+# Benchmark:
+python multisession_sim_osm.py [--map {synthetic,osm,both}]
+
+# Map-only:
+python multisession_sim_osm.py --mode map_only \\
+    --lat LAT --lon LON --width_m W --length_m L
+
+Outputs (map_only):
+  output/map_only/lat_<lat>_lon_<lon>_<W>x<L>m/
+    base_map.npy       occupancy grid (uint8, 0=free, 1=obstacle)
+    buildings.geojson  building footprints (WGS84)
+    map_viz.png        visualization with metadata panel
+    metadata.json      bbox / grid / stats
 """
 
 import os
@@ -21,6 +37,12 @@ from collections import deque
 import numpy as np
 import networkx as nx
 import matplotlib
+
+# Fix GLIBCXX issue with rerun-sdk on older systems
+if "CONDA_PREFIX" in os.environ:
+    lib_dir = os.path.join(os.environ["CONDA_PREFIX"], "lib")
+    if lib_dir not in os.environ.get("LD_LIBRARY_PATH", ""):
+        os.environ["LD_LIBRARY_PATH"] = lib_dir + ":" + os.environ.get("LD_LIBRARY_PATH", "")
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -59,6 +81,27 @@ CROSS_DIST_M = 10.0
 
 INFLATE_RADIUS = 3
 
+# Funnel map constants
+CHANNEL_WAYPOINTS = {
+    0: [(40, 0), (-30, 0), (40, 0), (-30, 0), (40, 0), (-30, 0), (40, 0), (-25, 0), (40, 0), (-25, 0), (40, 0)],
+    1: [(50, 0), (-35, 0), (50, 0), (-35, 0), (50, 0), (-30, 0), (50, 0)],
+    2: [(60, 0), (-40, 0), (60, 0), (-35, 0), (60, 0)],
+    3: [(80, 0), (-40, 0), (80, 0)],
+    4: [(100, 0), (-30, 0), (100, 0)],
+    5: [(120, 0), (-20, 0), (80, 0)],
+    6: [(80, 0), (-10, 0), (120, 0)],
+    7: [],
+}
+CHANNEL_CENTERS = [310, 338, 366, 394, 422, 450, 478, 506]
+CHANNEL_BOUNDS = [
+    (300, 320), (328, 348), (356, 376), (384, 404),
+    (412, 432), (440, 460), (468, 488), (496, 516),
+]
+N_CHANNELS = 8
+DILATION_RADIUS = 9
+S_PLAZA = (200, 400, 300, 700)
+G_PLAZA = (600, 800, 300, 700)
+
 # OSM download
 CENTER_LAT, CENTER_LON = 22.5076, 113.9437
 AREA_M = 1200
@@ -70,6 +113,13 @@ FALLBACKS = [
 
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+def _set_outdir(path):
+    global OUTPUT_DIR
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "data").mkdir(exist_ok=True)
+    OUTPUT_DIR = path
 
 # ============================================================================
 # Step 0: plot style
@@ -85,7 +135,97 @@ BG_COLOR = "#111827"
 
 
 def _init_style():
-    setting_font(fontsize=16, titlesize=18, legend_fontsize=14)
+    from matplotlib import rc, pylab
+    rc('font', **{'family': 'sans-serif', 'sans-serif': ['DejaVu Sans'], 'size': 14})
+    rc('text', usetex=False)
+    pylab.rcParams.update({'axes.titlesize': 16, 'legend.fontsize': 12})
+
+
+# ============================================================================
+# Synthetic funnel map generator
+# ============================================================================
+def _bresenham_line(r0, c0, r1, c1):
+    pts = []
+    dr, dc = abs(r1 - r0), abs(c1 - c0)
+    sr = 1 if r1 > r0 else -1
+    sc = 1 if c1 > c0 else -1
+    r, c = r0, c0
+    if dr > dc:
+        err = dr // 2
+        for _ in range(dr + 1):
+            pts.append((r, c))
+            err -= dc
+            if err < 0:
+                c += sc
+                err += dr
+            r += sr
+    else:
+        err = dc // 2
+        for _ in range(dc + 1):
+            pts.append((r, c))
+            err -= dr
+            if err < 0:
+                r += sr
+                err += dc
+            c += sc
+    return pts
+
+
+def _carve_channel(grid, start_row, center_col, waypoints, end_row):
+    r, c = start_row, center_col
+    path_cells = [(r, c)]
+    for dr, dc in waypoints:
+        r_end, c_end = r + dr, c + dc
+        path_cells.extend(_bresenham_line(r, c, r_end, c_end))
+        r, c = r_end, c_end
+    path_cells.extend(_bresenham_line(r, c, end_row, c))
+    for pr, pc in path_cells:
+        if 0 <= pr < GRID_H and 0 <= pc < GRID_W:
+            grid[pr, pc] = 0
+    obst = (grid == 0) | (grid == 1)
+    inflated = binary_dilation(
+        obst, np.ones((DILATION_RADIUS * 2 + 1, DILATION_RADIUS * 2 + 1), bool)
+    ).astype(np.uint8)
+    dilated_obs = inflated & ~obst
+    grid[dilated_obs > 0] = 1
+    return grid
+
+
+def generate_synthetic_map():
+    grid = np.zeros((GRID_H, GRID_W), dtype=np.uint8)
+    sr0, sr1, sc0, sc1 = S_PLAZA
+    gr0, gr1, gc0, gc1 = G_PLAZA
+    grid[sr0:sr1, sc0:sc1] = 0
+    grid[gr0:gr1, gc0:gc1] = 0
+    for ch_idx in range(N_CHANNELS):
+        wp = CHANNEL_WAYPOINTS[ch_idx]
+        center = CHANNEL_CENTERS[ch_idx]
+        grid = _carve_channel(grid, sr1, center, wp, gr0)
+    grid[sr1:gr0, CHANNEL_BOUNDS[-1][1]:gc1] = 1
+    for ch_idx in range(N_CHANNELS - 1):
+        wall_c0 = CHANNEL_BOUNDS[ch_idx][1]
+        wall_c1 = wall_c0 + 8
+        grid[sr1:gr0, wall_c0:wall_c1] = 1
+    grid[0:3, :] = 1
+    grid[-3:, :] = 1
+    grid[:, 0:3] = 1
+    grid[:, -3:] = 1
+    return grid
+
+
+def inject_funnel_walls(grid):
+    sr0, sr1, sc0, sc1 = S_PLAZA
+    gr0, gr1, gc0, gc1 = G_PLAZA
+    for ch_idx in range(N_CHANNELS):
+        wp = CHANNEL_WAYPOINTS[ch_idx]
+        center = CHANNEL_CENTERS[ch_idx]
+        grid = _carve_channel(grid, sr1, center, wp, gr0)
+    grid[sr1:gr0, CHANNEL_BOUNDS[-1][1]:gc1] = 1
+    for ch_idx in range(N_CHANNELS - 1):
+        wall_c0 = CHANNEL_BOUNDS[ch_idx][1]
+        wall_c1 = wall_c0 + 8
+        grid[sr1:gr0, wall_c0:wall_c1] = 1
+    return grid
 
 
 # ============================================================================
@@ -111,18 +251,19 @@ def download_osm_map(lat, lon, dist):
     raise RuntimeError("All OSM locations failed. Check internet.")
 
 
-def rasterize_buildings(gdf_buildings):
+def rasterize_buildings(gdf_buildings, res_m: float = RES,
+                        grid_w: int = GRID_W, grid_h: int = GRID_H):
     gdf_proj = gdf_buildings.to_crs(gdf_buildings.estimate_utm_crs())
-    cx, cy = gdf_proj.geometry.union_all().centroid.x, gdf_proj.geometry.union_all().centroid.y
-    x_min = cx - (GRID_W * RES) / 2
-    y_max = cy + (GRID_H * RES) / 2
-    print(f"[2/5] Rasterizing {GRID_W}×{GRID_H} grid, res={RES} m/cell ...")
+    cx = gdf_proj.geometry.unary_union.centroid.x
+    cy = gdf_proj.geometry.unary_union.centroid.y
+    x_min = cx - (grid_w * res_m) / 2
+    y_max = cy + (grid_h * res_m) / 2
+    print(f"[2/5] Rasterizing {grid_w}×{grid_h} grid, res={res_m} m/cell ...")
 
-    grid = np.zeros((GRID_H, GRID_W), dtype=np.uint8)
-
-    cells_x = x_min + (np.arange(GRID_W) + 0.5) * RES
-    cells_y = y_max - (np.arange(GRID_H) + 0.5) * RES
-    xx, yy = np.meshgrid(cells_x, cells_y)  # shape (H, W)
+    grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
+    cells_x = x_min + (np.arange(grid_w) + 0.5) * res_m
+    cells_y = y_max - (np.arange(grid_h) + 0.5) * res_m
+    xx, yy = np.meshgrid(cells_x, cells_y)
 
     from shapely.vectorized import contains
 
@@ -138,8 +279,15 @@ def rasterize_buildings(gdf_buildings):
     grid[-2:, :] = 1
     grid[:, 0:2] = 1
     grid[:, -2:] = 1
+
+    utm_bbox = {
+        "xmin": float(x_min),
+        "ymin": float(y_max - grid_h * res_m),
+        "xmax": float(x_min + grid_w * res_m),
+        "ymax": float(y_max),
+    }
     print(f"\n  Done. obstacle ratio={grid.mean():.3f}")
-    return grid
+    return grid, utm_bbox
 
 
 def validate_grid(grid):
@@ -148,6 +296,226 @@ def validate_grid(grid):
         f"Grid obstacle ratio {obs_ratio:.2f} out of range. Try different location."
     )
     return obs_ratio
+
+
+# ============================================================================
+# Map-only mode: OSM download + rasterize with user-defined bbox
+# ============================================================================
+def _latlon_delta(length_m, width_m, lat_rad):
+    dlat = length_m / 2.0 / 111320.0
+    dlon = width_m / 2.0 / (111320.0 * np.cos(lat_rad))
+    return dlat, dlon
+
+
+ROAD_BUFFER_M = 3.0
+
+
+def download_osm_map_rect(lat, lon, width_m, length_m):
+    import osmnx as ox
+
+    def _try_download(flat, flon):
+        dlat, dlon = _latlon_delta(length_m, width_m, np.radians(flat))
+        gdf = ox.features_from_bbox(
+            north=flat + dlat, south=flat - dlat,
+            east=flon + dlon, west=flon - dlon,
+            tags={"highway": True},
+        )
+        gdf = gdf[gdf.geometry.type.isin({"LineString", "MultiLineString"})]
+        return gdf
+
+    for flat, flon, fname in (
+        [(lat, lon, f"({lat:.4f}, {lon:.4f})")] +
+        [f for f in FALLBACKS]
+    ):
+        try:
+            gdf = _try_download(flat, flon)
+            if len(gdf) < 3:
+                raise ValueError("Too few roads")
+            print(f"[1/4] Downloaded OSM — {len(gdf)} roads, location: {fname}")
+            return gdf, fname
+        except Exception as e:
+            print(f"  {fname} failed ({e}), trying next ...")
+    raise RuntimeError("All OSM locations failed. Check internet.")
+
+
+def rasterize_roads_rect(gdf_roads, width_m, length_m, res_m=RES, expand_cells=0):
+    grid_w = int(round(width_m / res_m))
+    grid_h = int(round(length_m / res_m))
+    gdf_proj = gdf_roads.to_crs(gdf_roads.estimate_utm_crs())
+    cx = gdf_proj.geometry.unary_union.centroid.x
+    cy = gdf_proj.geometry.unary_union.centroid.y
+    x_min = cx - (grid_w * res_m) / 2
+    y_max = cy + (grid_h * res_m) / 2
+    print(f"[2/4] Rasterizing {grid_w}x{grid_h} grid, res={res_m} m/cell ...")
+
+    grid = np.ones((grid_h, grid_w), dtype=np.uint8)
+    cells_x = x_min + (np.arange(grid_w) + 0.5) * res_m
+    cells_y = y_max - (np.arange(grid_h) + 0.5) * res_m
+    xx, yy = np.meshgrid(cells_x, cells_y)
+
+    from shapely.vectorized import contains
+
+    buffered = gdf_proj.geometry.buffer(ROAD_BUFFER_M)
+    for idx, geom in enumerate(buffered):
+        if geom is None or geom.is_empty:
+            continue
+        if idx % 100 == 0:
+            print(f"  road {idx}/{len(buffered)} ...", end="\r")
+        mask = contains(geom, xx, yy)
+        grid[mask] = 0
+
+    if expand_cells > 0:
+        free_mask = (grid == 0)
+        dilated = binary_dilation(free_mask, np.ones((2 * expand_cells + 1, 2 * expand_cells + 1), bool))
+        grid[dilated] = 0
+        print(f"  Expanded free space by {expand_cells} cells")
+
+    grid[0:2, :] = 1
+    grid[-2:, :] = 1
+    grid[:, 0:2] = 1
+    grid[:, -2:] = 1
+
+    utm_bbox = {
+        "xmin": float(x_min),
+        "ymin": float(y_max - grid_h * res_m),
+        "xmax": float(x_min + grid_w * res_m),
+        "ymax": float(y_max),
+    }
+    free_pct = (1.0 - grid.mean()) * 100
+    print(f"\n  Done. free ratio={free_pct:.1f}%, UTM bbox={utm_bbox}")
+    return grid, utm_bbox
+
+
+def save_osm_assets(gdf, outdir):
+    gdf_wgs = gdf.to_crs("EPSG:4326")
+    gdf_wgs.to_file(str(outdir / "roads.geojson"), driver="GeoJSON")
+    print(f"  Saved roads.geojson ({len(gdf_wgs)} roads)")
+
+
+def _validate_map_only(grid):
+    obs_ratio = grid.mean()
+    ok = 0.30 <= obs_ratio <= 0.99
+    if not ok:
+        print(f"  WARNING: obstacle ratio {obs_ratio:.3f} out of [0.30, 0.99], continuing ...")
+    return {"obstacle_ratio": obs_ratio, "passed": ok}
+
+
+def build_metadata(lat, lon, width_m, length_m, grid, utm_bbox, n_roads, loc_name, obs_ratio):
+    return {
+        "center_lat": lat,
+        "center_lon": lon,
+        "width_m": width_m,
+        "length_m": length_m,
+        "res_m_per_cell": RES,
+        "grid_shape": list(grid.shape),
+        "utm_bbox": utm_bbox,
+        "obstacle_ratio": float(obs_ratio),
+        "free_ratio": float(1.0 - obs_ratio),
+        "n_roads": n_roads,
+        "osm_location": loc_name,
+    }
+
+
+def save_map_metadata(metadata, outdir):
+    import json
+    with open(outdir / "metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+    print("  Saved metadata.json")
+
+
+def fig_map_only(grid, metadata, outdir):
+    _init_style()
+    fig, (ax_map, ax_info) = plt.subplots(1, 2, figsize=(14, 7),
+                                          gridspec_kw={"width_ratios": [2.5, 1]},
+                                          facecolor=BG_COLOR)
+    ax_map.set_facecolor(BG_COLOR)
+    rgb = np.zeros((*grid.shape, 3))
+    rgb[grid == 0] = STYLE_FREE
+    rgb[grid == 1] = STYLE_OBS
+    ax_map.imshow(rgb, origin="upper")
+    ax_map.set_title(
+        f"OSM Map — ({metadata['center_lat']:.4f} N, {metadata['center_lon']:.4f} E) — "
+        f"{int(metadata['width_m'])}x{int(metadata['length_m'])} m",
+        color="white"
+    )
+    grid_h, grid_w = metadata["grid_shape"]
+    w_m = metadata["width_m"]
+    l_m = metadata["length_m"]
+    ax_map.set_xlabel(f"Width (m) | {grid_w} cells", color="white")
+    ax_map.set_ylabel(f"Length (m) | {grid_h} cells", color="white")
+    ax_map.tick_params(colors="white")
+    xticks = np.linspace(0, grid_w - 1, 5)
+    ax_map.set_xticks(xticks)
+    ax_map.set_xticklabels([f"{v:.0f}" for v in np.linspace(0, w_m, 5)])
+    yticks = np.linspace(0, grid_h - 1, 5)
+    ax_map.set_yticks(yticks)
+    ax_map.set_yticklabels([f"{v:.0f}" for v in np.linspace(l_m, 0, 5)])
+
+    ax_info.set_facecolor(BG_COLOR)
+    ax_info.axis("off")
+    info_lines = [
+        f"Center GPS : {metadata['center_lat']:.4f} N, {metadata['center_lon']:.4f} E",
+        f"Width      : {int(metadata['width_m'])} m",
+        f"Length     : {int(metadata['length_m'])} m",
+        f"Resolution : {metadata['res_m_per_cell']} m/cell",
+        f"Grid shape : {grid_h} x {grid_w} cells",
+        f"Free %     : {(1 - metadata['obstacle_ratio'])*100:.1f} %",
+        f"Obstacle % : {metadata['obstacle_ratio']*100:.1f} %",
+        f"Roads      : {metadata['n_roads']}",
+        "",
+        f"Location   : {metadata['osm_location']}",
+    ]
+    if metadata.get("utm_bbox"):
+        ub = metadata["utm_bbox"]
+        info_lines += [
+            "",
+            "UTM bbox:",
+            f"  x: [{ub['xmin']:.0f}, {ub['xmax']:.0f}]",
+            f"  y: [{ub['ymin']:.0f}, {ub['ymax']:.0f}]",
+        ]
+    for i, line in enumerate(info_lines):
+        ax_info.text(0.05, 0.95 - i * 0.045, line, transform=ax_info.transAxes,
+                     color="white", fontsize=11, fontfamily="monospace",
+                     va="top", ha="left")
+    fig.tight_layout(pad=2)
+    fig.savefig(outdir / "map_viz.png", dpi=150, facecolor=BG_COLOR)
+    plt.close(fig)
+    print("  Saved map_viz.png")
+
+
+def run_map_only(lat, lon, width_m, length_m, res_m=RES, expand_cells=0):
+    t0 = time.time()
+    outdir = Path(__file__).resolve().parent / "output" / "map_only" / \
+             f"lat_{lat}_lon_{lon}_{int(width_m)}x{int(length_m)}m"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 70)
+    print(f"OSM Map-Only (roads as free) — ({lat:.4f}, {lon:.4f}) — {int(width_m)}x{int(length_m)} m, res={res_m}m/cell, expand={expand_cells}cell")
+    print("=" * 70)
+
+    gdf, loc_name = download_osm_map_rect(lat, lon, width_m, length_m)
+    grid, utm_bbox = rasterize_roads_rect(gdf, width_m, length_m, res_m, expand_cells)
+    v = _validate_map_only(grid)
+
+    np.save(outdir / "base_map.npy", grid)
+    print(f"  Saved base_map.npy ({grid.shape})")
+
+    save_osm_assets(gdf, outdir)
+    metadata = build_metadata(lat, lon, width_m, length_m, grid, utm_bbox,
+                              len(gdf), loc_name, v["obstacle_ratio"])
+    metadata["res_m_per_cell"] = res_m
+    save_map_metadata(metadata, outdir)
+    fig_map_only(grid, metadata, outdir)
+
+    total = time.time() - t0
+    print(f"\n{'='*70}")
+    print(f"Done — {total:.1f}s")
+    print(f"Output dir: {outdir}")
+    print(f"  base_map.npy   : {grid.shape} ({(1 - v['obstacle_ratio'])*100:.1f}% free, {v['obstacle_ratio']*100:.1f}% obstacle)")
+    print(f"  roads.geojson  : {len(gdf)} roads")
+    print(f"  map_viz.png    : {grid.shape[1]}x{grid.shape[0]} road occupancy")
+    print(f"  metadata.json  : GPS/UTM bbox / stats")
+    print("=" * 70)
 
 
 # ============================================================================
@@ -277,6 +645,49 @@ def make_session_route(seed, grid, sess_id):
         yaw = np.arctan2(nxt[0] - r, nxt[1] - c)
         poses.append((r, c, float(yaw)))
     return poses
+
+
+def make_channel_route(seed, grid, sess_id, bounds):
+    rng = np.random.default_rng(sess_id)
+    inf_grid = inflate(grid)
+    free_cells = np.argwhere(inf_grid == 0)
+    ch_free = free_cells[
+        (free_cells[:, 0] >= bounds[0])
+        & (free_cells[:, 1] >= bounds[2])
+        & (free_cells[:, 1] <= bounds[3])
+    ]
+    if len(ch_free) < 10:
+        ch_free = free_cells
+    n_points = int(rng.integers(4, 9))
+    radius = int(rng.integers(40, 120))
+    wps = [tuple(seed)]
+    for k in range(n_points):
+        angle = 2 * np.pi * k / n_points + rng.uniform(-0.3, 0.3)
+        rad_k = radius * rng.uniform(0.5, 1.0)
+        tr = int(np.clip(seed[0] + rad_k * np.sin(angle), bounds[0] + 5, min(bounds[1] - 5, GRID_H - 5)))
+        tc = int(np.clip(seed[1] + rad_k * np.cos(angle), bounds[2] + 3, bounds[3] - 3))
+        d = np.abs(ch_free[:, 0] - tr) + np.abs(ch_free[:, 1] - tc)
+        wps.append(tuple(ch_free[np.argmin(d)]))
+    wps.append(tuple(seed))
+    route = []
+    for a, b in zip(wps[:-1], wps[1:]):
+        seg, _ = astar(inf_grid, a, b)
+        if seg is None:
+            continue
+        route.extend(seg if not route else seg[1:])
+    poses = []
+    for j, (r, c) in enumerate(route):
+        nxt = route[min(j + 1, len(route) - 1)]
+        yaw = np.arctan2(nxt[0] - r, nxt[1] - c)
+        poses.append((r, c, float(yaw)))
+    return poses
+
+
+SYNTHETIC_SEEDS = [
+    (410, 310), (410, 338), (410, 366), (300, 500),
+    (300, 400), (700, 500), (700, 350), (300, 600),
+    (500, 500), (700, 650),
+]
 
 
 # ============================================================================
@@ -608,6 +1019,7 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         "updated_collides": updated_collides,
         "new_reachable": new_reachable,
         "dyn_obs_blocks": dyn_obs_blocks,
+        "merged_topos": merged_topos_all,
     }
 
 
@@ -1025,54 +1437,200 @@ def create_gif(merged_all, sessions_poses, results):
     imageio.mimsave(OUTPUT_DIR / "map_growth.gif", frames, fps=3, loop=0)
 
 
+def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
+    import json
+    src_base = OUTPUT_DIR / "base_map.npy"
+    if src_base.exists():
+        np.save(data_dir / "base_map.npy", np.load(src_base))
+    for k in range(N_SESSIONS):
+        np.save(data_dir / f"session_{k+1:02d}_poses.npy",
+                np.array(sessions_poses[k], dtype=np.float32))
+        np.save(data_dir / f"session_{k+1:02d}_obs.npy",
+                sessions_obs[k].astype(np.int8))
+        np.save(data_dir / f"merged_obs_k{k+1:02d}.npy",
+                merged_obs[k].astype(np.int8))
+    merged_topos = results.get("merged_topos")
+    if merged_topos is not None:
+        for k in range(N_SESSIONS):
+            G = merged_topos[k]
+            nodes = [[int(n), {"x": float(d.get("x", 0)), "y": float(d.get("y", 0)),
+                     "yaw": float(d.get("yaw", 0))}] for n, d in G.nodes(data=True)]
+            edges = [[int(u), int(v), {"weight": float(G.edges[u, v].get("weight", 0))}]
+                     for u, v in G.edges]
+            with open(data_dir / f"topo_graph_k{k+1:02d}.json", "w") as f:
+                json.dump({"nodes": nodes, "edges": edges}, f)
+    metrics = {
+        "reachable_ratios": results["reachable_ratios"],
+        "metric_ratios": [float(r) if not np.isnan(r) else 0.0 for r in results["metric_ratios"]],
+        "topo_ratios": [float(r) if not np.isnan(r) else 0.0 for r in results["topo_ratios"]],
+        "node_counts": [int(n) for n in results["node_counts"]],
+        "cov_area_m2": [float(v) for v in results["cov_area_m2"]],
+        "cov_free_m2": [float(v) for v in results["cov_free_m2"]],
+        "stale_len": float(results["stale_len"]),
+        "updated_len": float(results["updated_len"]),
+        "stale_collides": bool(results["stale_collides"]),
+        "updated_collides": bool(results["updated_collides"]),
+    }
+    with open(data_dir / "metrics.json", "w") as f:
+        json.dump(metrics, f)
+    goals_data = [[int(s[0]), int(s[1]), int(g[0]), int(g[1])] for s, g in results["goals"]]
+    with open(data_dir / "goals.json", "w") as f:
+        json.dump(goals_data, f)
+
+
+def export_rerun(rrd_path, sessions_poses, merged_obs, merged_topos, results):
+    try:
+        import rerun as rr
+    except ImportError:
+        print("  [SKIP] rerun-sdk not installed")
+        return
+
+    rr.init("mms-funnel", spawn=False)
+
+    timeline = "session_frame"
+    frame_id = 0
+    FRAME_DECIMATE = 3
+
+    for k in range(N_SESSIONS):
+        for i in range(0, len(sessions_poses[k]), FRAME_DECIMATE):
+            rr.set_time_sequence(timeline, frame_id)
+            frame_id += 1
+            r, c, yaw = sessions_poses[k][i]
+            rr.log("world/robot", rr.Transform3D(
+                translation=[c * RES, r * RES, 0.0],
+                rotation=rr.RotationAxisAngle(axis=[0, 0, 1], radians=yaw),
+            ))
+            angles = np.linspace(yaw - FOV_HALF_RAD, yaw + FOV_HALF_RAD, 12)
+            fov_pts = [[c * RES + np.cos(a) * FOV_RANGE_M, r * RES + np.sin(a) * FOV_RANGE_M] for a in angles]
+            fov_pts.append([c * RES, r * RES])
+            fov_pts.append(fov_pts[0])
+            rr.log("world/fov", rr.LineStrips2D([fov_pts]))
+            if i % 50 == 0:
+                rgb = np.zeros((GRID_H, GRID_W, 3), dtype=np.uint8)
+                rgb[merged_obs[k] == -1] = (STYLE_FREE * 255).astype(np.uint8)
+                rgb[merged_obs[k] == 1] = (STYLE_OBS * 255).astype(np.uint8)
+                rgb[merged_obs[k] == 0] = (STYLE_UNK * 255).astype(np.uint8)
+                rr.log("world/occupancy", rr.Image(rgb))
+
+    for k in range(N_SESSIONS):
+        frame_id += 1
+        rr.set_time_sequence(timeline, frame_id)
+        G = merged_topos[k] if k < len(merged_topos) else None
+        if G is not None and G.number_of_nodes() > 0:
+            for n, d in G.nodes(data=True):
+                rr.log(
+                    f"world/topo/session_{k+1:02d}/node_{n}",
+                    rr.Transform3D(
+                        translation=[d.get("x", 0), d.get("y", 0), 0.05],
+                        rotation=rr.RotationAxisAngle(axis=[0, 0, 1], radians=d.get("yaw", 0)),
+                    ),
+                )
+                rr.log(
+                    f"world/topo/session_{k+1:02d}/node_{n}",
+                    rr.Pinhole(fov_y=FOV_HALF_RAD * 2, width=100, height=100,
+                               camera_xyz=rr.ViewCoordinates.FRD),
+                )
+            edge_lines = [[
+                [G.nodes[u]["x"], G.nodes[u]["y"]],
+                [G.nodes[v]["x"], G.nodes[v]["y"]],
+            ] for u, v in G.edges]
+            if edge_lines:
+                rr.log(f"world/topo_edges/session_{k+1:02d}", rr.LineStrips2D(edge_lines))
+        rr.log("metrics/reachable_ratio", rr.Scalar(float(results["reachable_ratios"][k])))
+        if not np.isnan(results["metric_ratios"][k]):
+            rr.log("metrics/metric_ratio", rr.Scalar(float(results["metric_ratios"][k])))
+
+    rr.save(str(rrd_path))
+    print(f"  Rerun .rrd saved to {rrd_path} ({frame_id} frames)")
+
 # ============================================================================
 # Main
 # ============================================================================
-def main():
+def main(map_mode="osm"):
     t0 = time.time()
-    print("=" * 70)
-    print("Multi-Session Mapping Simulation — OSM + 10 Sessions + A* + FOV")
-    print("=" * 70)
+    modes = [map_mode] if map_mode != "both" else ["synthetic", "osm"]
 
-    # --- Step 1: OSM download & rasterize ---
-    gdf, loc_name = download_osm_map(CENTER_LAT, CENTER_LON, AREA_M // 2)
-    t_dl = time.time()
-    print(f"  Download done in {t_dl - t0:.1f}s")
+    for mode in modes:
+        _dir = "real" if mode == "osm" else mode
+        _set_outdir(Path(__file__).resolve().parent / "output" / _dir)
+        print("=" * 70)
+        print(f"Multi-Session Simulation — {mode.upper()} MAP — 10 Sessions + A* + FOV")
+        print("=" * 70)
 
-    base_grid = rasterize_buildings(gdf)
-    obs_ratio = validate_grid(base_grid)
-    np.save(OUTPUT_DIR / "base_map.npy", base_grid)
-    print(f"  Rasterization done. obstacle_ratio={obs_ratio:.3f}")
+        if mode == "synthetic":
+            base_grid = generate_synthetic_map()
+            loc_name = "Synthetic Funnel Map (8 channels)"
+            obs_ratio = base_grid.mean()
+            seeds = list(SYNTHETIC_SEEDS)
+            np.save(OUTPUT_DIR / "base_map.npy", base_grid)
+            print("  Synthetic funnel map generated.")
+        else:
+            gdf, loc_name = download_osm_map(CENTER_LAT, CENTER_LON, AREA_M // 2)
+            base_grid, _ = rasterize_buildings(gdf)
+            base_grid = inject_funnel_walls(base_grid)
+            obs_ratio = validate_grid(base_grid)
+            np.save(OUTPUT_DIR / "base_map.npy", base_grid)
+            print(f"  OSM rasterized + funnel injected. obstacle_ratio={obs_ratio:.3f}")
+            seeds = find_zones(base_grid, N_SESSIONS)
+            print(f"  Zones: {len(seeds)} seeds found.")
 
-    # --- Step 2: 10 zones ---
-    seeds = find_zones(base_grid, N_SESSIONS)
-    print(f"  Zones: {len(seeds)} seeds found.")
+        sessions_poses = []
+        for i in range(N_SESSIONS):
+            if mode == "synthetic" and i < 3:
+                ch = CHANNEL_BOUNDS[i]
+                bounds = (S_PLAZA[0], G_PLAZA[1], ch[0], ch[1])
+                poses = make_channel_route(seeds[i], base_grid, sess_id=1000 + i, bounds=bounds)
+            else:
+                poses = make_session_route(seeds[i], base_grid, sess_id=1000 + i)
+            sessions_poses.append(poses)
+            rt = "channel" if (mode == "synthetic" and i < 3) else "random"
+            print(f"  Session {i+1}: {len(poses)} poses ({rt}), seed=({seeds[i][0]},{seeds[i][1]})")
 
-    # --- Step 3: Session routes (random, variable length) ---
-    sessions_poses = []
-    for i in range(N_SESSIONS):
-        poses = make_session_route(seeds[i], base_grid, sess_id=1000 + i)
-        sessions_poses.append(poses)
-        print(f"  Session {i+1}: {len(poses)} poses, seed=({seeds[i][0]},{seeds[i][1]})")
+        sessions_obs = [observe_batch_fov(poses, base_grid) for poses in sessions_poses]
+        merged_obs = [sessions_obs[0].copy() for _ in range(N_SESSIONS)]
+        for k in range(1, N_SESSIONS):
+            merged_obs[k] = np.where(sessions_obs[k] != 0, sessions_obs[k], merged_obs[k - 1])
 
-    # --- Step 4: FOV coverage ---
-    sessions_obs = []
-    for i, poses in enumerate(sessions_poses):
-        obs = observe_batch_fov(poses, base_grid)
-        sessions_obs.append(obs)
+        subgraphs = [build_topometric_subgraph(poses) for poses in sessions_poses]
+        for i, g in enumerate(subgraphs):
+            print(f"  Topometric subgraph {i+1}: {g.number_of_nodes()} nodes, {g.number_of_edges()} edges")
 
-    merged_all = [sessions_obs[0].copy() for _ in range(N_SESSIONS)]
-    for k in range(1, N_SESSIONS):
-        merged_all[k] = np.where(
-            sessions_obs[k] != 0, sessions_obs[k], merged_all[k - 1]
+        dyn_obs_blocks = _place_obstacles(base_grid, sessions_poses, seeds)
+        print(f"  Dynamic obstacles: {len(dyn_obs_blocks)} placed.")
+
+        goals = sample_goals(base_grid, merged_obs[-1], seeds)
+        print(f"  Goal pairs: {len(goals)}")
+
+        print("\n[3/5] Running experiments A1+A2+B4 ...")
+        results = run_experiments(
+            base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
+            dyn_obs_blocks, goals,
         )
+        results["merged_all"] = merged_obs
+        _print_experiment_summary(results, loc_name, goals)
 
-    # --- Step 5: Topometric subgraphs ---
-    subgraphs = [build_topometric_subgraph(poses) for poses in sessions_poses]
-    for i, g in enumerate(subgraphs):
-        print(f"  Topometric subgraph {i+1}: {g.number_of_nodes()} nodes, {g.number_of_edges()} edges")
+        print("\n[4/5] Generating output figures ...")
+        fig0_base_map(base_grid, loc_name, obs_ratio);    print("  fig0")
+        fig1_session_routes(base_grid, sessions_poses, seeds); print("  fig1")
+        fig2_cumulative_maps(base_grid, results["merged_all"], seeds, results); print("  fig2")
+        fig3_nav_success(results);                         print("  fig3")
+        fig4_temporal(base_grid, sessions_poses, sessions_obs, results, dyn_obs_blocks); print("  fig4")
+        fig5_growth_charts(results);                       print("  fig5")
+        fig6_summary(results, loc_name, obs_ratio);        print("  fig6")
+        print("  Generating map_growth.gif ...")
+        create_gif(results["merged_all"], sessions_poses, results); print("  map_growth.gif")
 
-    # --- Step 6: Dynamic obstacles ---
+        save_snapshots(OUTPUT_DIR / "data", sessions_poses, sessions_obs,
+                       merged_obs, results)
+        print(f"  Snapshots saved to {OUTPUT_DIR / 'data'}")
+        export_rerun(OUTPUT_DIR / "replay.rrd", sessions_poses, merged_obs,
+                     results.get("merged_topos", []), results)
+
+    total_time = time.time() - t0
+    print(f"\nTotal elapsed: {total_time:.1f}s ({total_time/60:.1f} min)")
+
+
+def _place_obstacles(base_grid, sessions_poses, seeds):
     dyn_obs_blocks = []
     route_s1_cells = [(p[0], p[1]) for p in sessions_poses[0]]
     obs_candidates = []
@@ -1084,75 +1642,65 @@ def main():
             obs_candidates.append(obs)
         if len(obs_candidates) >= 2:
             break
-    dyn_obs_blocks = obs_candidates
-    print(f"  Dynamic obstacles: {len(dyn_obs_blocks)} placed (non-disconnecting).")
+    return obs_candidates
 
-    # --- Step 7: Goal pairs ---
-    goals = sample_goals(base_grid, merged_all[-1], seeds)
-    print(f"  Goal pairs: {len(goals)}")
 
-    # --- Step 8: Run experiments ---
-    print("\n[3/5] Running experiments A1+A2+B4 ...")
-    results = run_experiments(
-        base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
-        dyn_obs_blocks, goals,
-    )
-    results["merged_all"] = merged_all
+def _print_experiment_summary(results, loc_name, goals):
     print(f"  A1 reachable_ratios: {[f'{r*100:.0f}%' for r in results['reachable_ratios']]}")
-
-    # --- Step 9: Output figures ---
-    print("\n[4/5] Generating output figures ...")
-    fig0_base_map(base_grid, loc_name, obs_ratio)
-    print("  fig0_osm_base_map.png")
-    fig1_session_routes(base_grid, sessions_poses, seeds)
-    print("  fig1_session_routes.png")
-    fig2_cumulative_maps(base_grid, results["merged_all"], seeds, results)
-    print("  fig2_cumulative_maps.png")
-    fig3_nav_success(results)
-    print("  fig3_nav_success.png")
-    fig4_temporal(base_grid, sessions_poses, sessions_obs, results, dyn_obs_blocks)
-    print("  fig4_temporal_adaptability.png")
-    fig5_growth_charts(results)
-    print("  fig5_growth_charts.png")
-    fig6_summary(results, loc_name, obs_ratio)
-    print("  fig6_summary_table.png")
-    print("  Generating map_growth.gif ...")
-    create_gif(results["merged_all"], sessions_poses, results)
-    print("  map_growth.gif")
-
-    # --- Step 10: Print summary ---
     print("\n[5/5] Quantitative Summary")
     print("=" * 80)
-    print(f"MAP SOURCE: OSM — {loc_name}")
-    print(f"GRID: {GRID_W}×{GRID_H} cells, {RES} m/cell → {GRID_W*RES}×{GRID_H*RES} m real world")
-    print(f"SESSIONS: {N_SESSIONS} | GOALS: {len(goals)} pairs | PLANNER: A* | FOV: {FOV_HALF_DEG*2}°/{FOV_RANGE_M}m")
-    print(f"GT: geodesic A* on full base_map")
+    print(f"MAP SOURCE: {loc_name}")
+    print(f"GRID: {GRID_W}x{GRID_H} cells, {RES} m/cell -> {GRID_W*RES}x{GRID_H*RES} m")
+    print(f"SESSIONS: {N_SESSIONS} | GOALS: {len(goals)} | PLANNER: A* | FOV: {FOV_HALF_DEG*2}deg/{FOV_RANGE_M}m")
     print("=" * 80)
-    print(f"{'k':<4} {'Config':<15} {'Cov(m²)':<10} {'Free(m²)':<10} {'Free%':<8} {'Reach%':<8} {'MetricR':<9} {'TopoR':<9} {'Nodes':<7}")
-    print("-" * 80)
+    hdr = f"{'k':<4} {'Config':<15} {'Cov(m2)':<10} {'Free(m2)':<10} {'Free%':<8} {'Reach%':<8} {'MetricR':<9} {'TopoR':<9} {'Nodes':<7}"
+    print(hdr); print("-" * 80)
     for k in range(N_SESSIONS):
         cfg = f"+S{k+1}" if k > 0 else "S1 [single]"
-        mr = results["metric_ratios"][k]
-        tr = results["topo_ratios"][k]
-        print(
-            f"{k+1:<4} {cfg:<15} "
-            f"{results['cov_area_m2'][k]:<10.0f} "
-            f"{results['cov_free_m2'][k]:<10.0f} "
-            f"{results['cov_free_m2'][k]/max(results['cov_area_m2'][k],1)*100:<8.1f} "
-            f"{results['reachable_ratios'][k]*100:<8.0f} "
-            f"{f'{mr:.2f}' if not np.isnan(mr) else 'N/A':<9} "
-            f"{f'{tr:.2f}' if not np.isnan(tr) else 'N/A':<9} "
-            f"{results['node_counts'][k]:<7}"
-        )
+        mr = results["metric_ratios"][k]; tr = results["topo_ratios"][k]
+        print(f"{k+1:<4} {cfg:<15} {results['cov_area_m2'][k]:<10.0f} {results['cov_free_m2'][k]:<10.0f} "
+              f"{results['cov_free_m2'][k]/max(results['cov_area_m2'][k],1)*100:<8.1f} {results['reachable_ratios'][k]*100:<8.0f} "
+              f"{f'{mr:.2f}' if not np.isnan(mr) else 'N/A':<9} {f'{tr:.2f}' if not np.isnan(tr) else 'N/A':<9} "
+              f"{results['node_counts'][k]:<7}")
     print("-" * 80)
-    b4_status = f"stale={'COLLISION' if results['stale_collides'] else 'SAFE'}, updated={'COLLISION' if results['updated_collides'] else 'SAFE'}"
-    print(f"B4 (temporal): path_before={results['stale_len']:.1f} m, path_after={results['updated_len']:.1f} m, "
-          f"new_reachable={results['new_reachable']}, {b4_status}")
+    c = "COLLISION" if results['stale_collides'] else "SAFE"
+    u = "COLLISION" if results['updated_collides'] else "SAFE"
+    print(f"B4: path_before={results['stale_len']:.1f}m, path_after={results['updated_len']:.1f}m, "
+          f"new_reachable={results['new_reachable']}, stale={c}, updated={u}")
     print("=" * 80)
-
-    total_time = time.time() - t0
-    print(f"\nTotal elapsed: {total_time:.1f}s ({total_time/60:.1f} min)")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="MMS Benchmark / OSM Map Generator")
+    parser.add_argument("--mode", type=str, default="benchmark",
+                        choices=["benchmark", "map_only"])
+    parser.add_argument("--map", type=str, default="osm",
+                        choices=["osm", "synthetic", "both"])
+    parser.add_argument("--lat", type=float)
+    parser.add_argument("--lon", type=float)
+    parser.add_argument("--width_m", type=float)
+    parser.add_argument("--length_m", type=float)
+    parser.add_argument("--res_m", type=float, default=0.5)
+    parser.add_argument("--expand_cells", type=int, default=0)
+    args = parser.parse_args()
+
+    if args.mode == "map_only":
+        if None in (args.lat, args.lon, args.width_m, args.length_m):
+            sys.exit("map_only 需要 --lat --lon --width_m --length_m")
+        if not (-90 <= args.lat <= 90):
+            sys.exit("--lat 需 ∈ [-90, 90]")
+        if not (-180 <= args.lon <= 180):
+            sys.exit("--lon 需 ∈ [-180, 180]")
+        if not (50 <= args.width_m <= 5000):
+            sys.exit("--width_m 需 ∈ [50, 5000]")
+        if not (50 <= args.length_m <= 5000):
+            sys.exit("--length_m 需 ∈ [50, 5000]")
+        if not (0.1 <= args.res_m <= 10.0):
+            sys.exit("--res_m 需 ∈ [0.1, 10.0]")
+        if not (0 <= args.expand_cells <= 20):
+            sys.exit("--expand_cells 需 ∈ [0, 20]")
+        run_map_only(args.lat, args.lon, args.width_m, args.length_m,
+                     res_m=args.res_m, expand_cells=args.expand_cells)
+    else:
+        main(args.map)
