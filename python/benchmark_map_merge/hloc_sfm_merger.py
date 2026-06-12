@@ -254,7 +254,7 @@ class HlocSfmMapMerger:
                 n_failed += 1
                 continue
 
-            if not ret.get("success", False) or ret.get("num_inliers", 0) < 3:
+            if ret is None or not ret.get("success", False) or ret.get("num_inliers", 0) < 3:
                 n_failed += 1
                 continue
 
