@@ -898,10 +898,14 @@ def _plan_on_merged_obs(merged_obs, start, goal, res_m):
 
     Only observed-free cells (-1) are traversable.
     Unknown (0) and observed-obstacle (1) are treated as obstacles.
-    start and goal are forced free before inflation.
+    A neighbourhood of radius INFLATE_RADIUS around start and goal is forced
+    free so that inflate() cannot bury the endpoints under obstacle cells.
     """
+    gh, gw = merged_obs.shape
     pg = 1 - (merged_obs == -1).astype(np.uint8)
-    pg[start], pg[goal] = 0, 0
+    r = INFLATE_RADIUS
+    for pr, pc in [start, goal]:
+        pg[max(0, pr - r):pr + r + 1, max(0, pc - r):pc + r + 1] = 0
     return astar(inflate(pg), start, goal, res=res_m)
 
 
@@ -1012,7 +1016,9 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         pg = 1 - (merged_obs_all[k] == -1).astype(np.uint8)
         s, g = goals[k]
         pg_mod = pg.copy()
-        pg_mod[s], pg_mod[g] = 0, 0
+        _r = INFLATE_RADIUS
+        for pr, pc in [s, g]:
+            pg_mod[max(0, pr - _r):pr + _r + 1, max(0, pc - _r):pc + _r + 1] = 0
         inf_mod = inflate(pg_mod)
         path, est_len = astar(inf_mod, s, g, res=res_m)
         reachable = path is not None
@@ -1656,6 +1662,15 @@ def fig1_per_session_paths(grid, results):
         ax.scatter(g[1], g[0], marker="X", color="#F87171", s=100,
                    edgecolors="white", linewidths=1, zorder=5)
 
+        # GT path (orange dashed — always visible as reference)
+        gt_path = gt_paths[k]
+        if gt_path is not None:
+            r_gt = [p[0] for p in gt_path]
+            c_gt = [p[1] for p in gt_path]
+            ax.plot(c_gt, r_gt, "--", color="#F59E0B", linewidth=1.0,
+                    alpha=0.7, zorder=2)
+
+        # Estimated A* path (thick green — only when reachable)
         path = est_paths[k]
         if path is not None:
             r_arr = [p[0] for p in path]
