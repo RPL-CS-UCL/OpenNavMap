@@ -34,7 +34,7 @@ _FEATURE_CONF   = extract_features.confs["superpoint_max"]
 _RETRIEVAL_CONF = extract_features.confs["netvlad"]
 _MATCHER_CONF   = match_features.confs["superpoint+lightglue"]
 _LOC_CONF = {
-    "estimation": {"abs_pose_min_num_inliers": 3},
+    "estimation": {},   # use pycolmap defaults; abs_pose_min_num_inliers not in 0.6.0
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
 }
 _NUM_RETRIEVAL = 20
