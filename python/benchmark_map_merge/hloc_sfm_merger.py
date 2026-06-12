@@ -122,6 +122,9 @@ class HlocSfmMapMerger:
     ) -> Dict[str, np.ndarray]:
         """Localize incoming submap images against the SfM map via NetVLAD + PnP.
 
+        Inc images are extracted with an 'inc_' prefix to avoid h5 key collisions
+        with reference images that share the same local seq/XXXXXX naming.
+
         Args:
             model: pycolmap.Reconstruction from build_ref_map()
             ref_dir: reference submap directory
@@ -144,23 +147,42 @@ class HlocSfmMapMerger:
         loc_matches      = loc_dir / "matches-loc.h5"
         loc_dir.mkdir(parents=True, exist_ok=True)
 
+        # Use 'inc_' prefix to avoid key collision with ref images in merged h5.
+        # Both ref and inc use seq/XXXXXX.color.jpg locally; the prefix makes
+        # them distinguishable when stored in the same h5 file.
+        inc_prefixed = [f"inc_{img}" for img in inc_images]
+        orig_to_prefixed = dict(zip(inc_images, inc_prefixed))
+        prefixed_to_orig = dict(zip(inc_prefixed, inc_images))
+
+        # Copy inc images to a temp dir with prefixed names so hloc can read them
+        tmp_inc_dir = loc_dir / "_tmp_inc"
+        tmp_inc_dir.mkdir(parents=True, exist_ok=True)
+        for img, prefixed in orig_to_prefixed.items():
+            src = inc_dir / img
+            dst = tmp_inc_dir / prefixed
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if not dst.exists():
+                shutil.copy2(src, dst)
+
         extract_features.main(
-            _FEATURE_CONF, inc_dir, image_list=inc_images,
+            _FEATURE_CONF, tmp_inc_dir, image_list=inc_prefixed,
             feature_path=feats_inc, overwrite=True,
         )
         extract_features.main(
-            _RETRIEVAL_CONF, inc_dir, image_list=inc_images,
+            _RETRIEVAL_CONF, tmp_inc_dir, image_list=inc_prefixed,
             feature_path=global_feats_inc, overwrite=True,
         )
 
+        # Retrieval: query = inc_prefixed names, db = ref names
         k = min(_NUM_RETRIEVAL, len(ref_images))
         pairs_from_retrieval.main(
             global_feats_inc, loc_pairs, k,
-            query_list=inc_images,
+            query_list=inc_prefixed,
             db_list=ref_images,
             db_descriptors=global_feats,
         )
 
+        # Merge features: ref h5 + inc h5 (no key collision since inc uses 'inc_' prefix)
         feats_merged.unlink(missing_ok=True)
         shutil.copy(self.out_dir / "feats-ref.h5", feats_merged)
         with h5py.File(feats_inc, "r") as src, h5py.File(feats_merged, "a") as dst:
@@ -172,19 +194,28 @@ class HlocSfmMapMerger:
             _MATCHER_CONF, loc_pairs,
             features=feats_merged, matches=loc_matches, overwrite=True,
         )
-        return self._run_pnp(model, inc_images, loc_pairs, feats_merged, loc_matches,
-                             intrinsics)
+        return self._run_pnp(model, inc_prefixed, prefixed_to_orig,
+                             loc_pairs, feats_merged, loc_matches, intrinsics)
 
     def _run_pnp(
         self,
         model: pycolmap.Reconstruction,
-        inc_images: List[str],
+        inc_prefixed: List[str],
+        prefixed_to_orig: Dict[str, str],
         loc_pairs: Path,
         features: Path,
         matches: Path,
         intrinsics: Tuple[float, float, float, float, int, int],
     ) -> Dict[str, np.ndarray]:
-        """Run PnP for each incoming image; return {img_name: 4x4 C2W} in W0."""
+        """Run PnP for each incoming image using prefixed names.
+
+        Args:
+            inc_prefixed: list of 'inc_seq/XXXXXX.color.jpg' names
+            prefixed_to_orig: mapping from prefixed name to original local name
+
+        Returns:
+            {original_inc_img_name: 4x4 C2W} in W0 frame.
+        """
         if not loc_pairs.exists() or loc_pairs.stat().st_size == 0:
             logger.warning("No retrieval pairs found for PnP, returning empty results")
             return {}
@@ -197,7 +228,7 @@ class HlocSfmMapMerger:
         localizer = QueryLocalizer(model, _LOC_CONF)
         name_to_id = {img.name: img_id for img_id, img in model.images.items()}
 
-        query_to_dbs: Dict[str, List[int]] = {img: [] for img in inc_images}
+        query_to_dbs: Dict[str, List[int]] = {img: [] for img in inc_prefixed}
         with open(loc_pairs) as f:
             for line in f:
                 parts = line.strip().split()
@@ -207,17 +238,18 @@ class HlocSfmMapMerger:
 
         results: Dict[str, np.ndarray] = {}
         n_failed = 0
-        for img in inc_images:
-            db_ids = query_to_dbs.get(img, [])
+        for prefixed in inc_prefixed:
+            orig_name = prefixed_to_orig[prefixed]
+            db_ids = query_to_dbs.get(prefixed, [])
             if not db_ids:
                 n_failed += 1
                 continue
             try:
                 ret, _ = pose_from_cluster(
-                    localizer, img, query_cam, db_ids, features, matches,
+                    localizer, prefixed, query_cam, db_ids, features, matches,
                 )
             except Exception as e:
-                logger.debug(f"PnP exception for {img}: {e}")
+                logger.debug(f"PnP exception for {prefixed}: {e}")
                 n_failed += 1
                 continue
 
@@ -226,7 +258,7 @@ class HlocSfmMapMerger:
                 continue
 
             w2c = np.vstack([ret["cam_from_world"].matrix(), [0.0, 0.0, 0.0, 1.0]])
-            results[img] = np.linalg.inv(w2c)
+            results[orig_name] = np.linalg.inv(w2c)
 
-        logger.info(f"PnP: {len(results)}/{len(inc_images)} localized, {n_failed} failed")
+        logger.info(f"PnP: {len(results)}/{len(inc_prefixed)} localized, {n_failed} failed")
         return results
