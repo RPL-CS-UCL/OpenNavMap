@@ -254,7 +254,8 @@ class HlocSfmMapMerger:
                 n_failed += 1
                 continue
 
-            if ret is None or not ret.get("success", False) or ret.get("num_inliers", 0) < 3:
+            # pycolmap 0.6 returns no 'success' key; treat num_inliers > 0 as success
+            if ret is None or ret.get("num_inliers", 0) < 3:
                 n_failed += 1
                 continue
 
