@@ -72,6 +72,8 @@ class HlocSfmMapMerger:
         sfm_pairs    = self.out_dir / "pairs-sfm.txt"
         sfm_matches  = self.out_dir / "matches-sfm.h5"
         global_feats = self.out_dir / "global-feats-netvlad.h5"
+        if sfm_dir.exists():
+            shutil.rmtree(sfm_dir)
         sfm_dir.mkdir(parents=True, exist_ok=True)
 
         extract_features.main(
@@ -133,12 +135,13 @@ class HlocSfmMapMerger:
             {inc_img_name: 4x4 camera-to-world numpy float64} in W0 frame.
             Failed images are absent.
         """
-        loc_dir      = self.out_dir / f"loc_sub{submap_idx}"
-        feats_inc    = loc_dir / "feats-inc.h5"
-        global_feats = self.out_dir / "global-feats-netvlad.h5"
-        loc_pairs    = loc_dir / "pairs-loc.txt"
-        feats_merged = loc_dir / "feats-merged.h5"
-        loc_matches  = loc_dir / "matches-loc.h5"
+        loc_dir          = self.out_dir / f"loc_sub{submap_idx}"
+        feats_inc        = loc_dir / "feats-inc.h5"
+        global_feats     = self.out_dir / "global-feats-netvlad.h5"
+        global_feats_inc = loc_dir / "global-feats-netvlad-inc.h5"
+        loc_pairs        = loc_dir / "pairs-loc.txt"
+        feats_merged     = loc_dir / "feats-merged.h5"
+        loc_matches      = loc_dir / "matches-loc.h5"
         loc_dir.mkdir(parents=True, exist_ok=True)
 
         extract_features.main(
@@ -147,16 +150,18 @@ class HlocSfmMapMerger:
         )
         extract_features.main(
             _RETRIEVAL_CONF, inc_dir, image_list=inc_images,
-            feature_path=global_feats, overwrite=False,
+            feature_path=global_feats_inc, overwrite=True,
         )
 
         k = min(_NUM_RETRIEVAL, len(ref_images))
         pairs_from_retrieval.main(
-            global_feats, loc_pairs, k,
+            global_feats_inc, loc_pairs, k,
             query_list=inc_images,
             db_list=ref_images,
+            db_descriptors=global_feats,
         )
 
+        feats_merged.unlink(missing_ok=True)
         shutil.copy(self.out_dir / "feats-ref.h5", feats_merged)
         with h5py.File(feats_inc, "r") as src, h5py.File(feats_merged, "a") as dst:
             for key in src.keys():
@@ -180,6 +185,10 @@ class HlocSfmMapMerger:
         intrinsics: Tuple[float, float, float, float, int, int],
     ) -> Dict[str, np.ndarray]:
         """Run PnP for each incoming image; return {img_name: 4x4 C2W} in W0."""
+        if not loc_pairs.exists() or loc_pairs.stat().st_size == 0:
+            logger.warning("No retrieval pairs found for PnP, returning empty results")
+            return {}
+
         fx, fy, cx, cy, w, h = intrinsics
         query_cam = pycolmap.Camera(
             model="PINHOLE", width=int(w), height=int(h),
