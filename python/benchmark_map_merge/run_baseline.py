@@ -28,6 +28,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark_map_merge.hloc_merger import HlocMapMerger, _get_image_list
+from benchmark_map_merge.hloc_sfm_merger import HlocSfmMapMerger
+from benchmark_map_merge.pose_graph_optimizer import PoseGraphOptimizer, _vec_to_T, _T_to_vec
 from benchmark_map_merge.merge_writer import (
     read_poses, read_timestamps, estimate_umeyama,
     apply_transform, merge_poses, write_poses_txt, write_timestamps_txt,
@@ -90,7 +92,13 @@ def run_order(
 
     work_dir = result_root / "_work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    merger = HlocMapMerger(method, work_dir)
+    _SFM_METHODS = {"hloc_sfm_netvlad_splg"}
+    if method in _SFM_METHODS:
+        sfm_merger = HlocSfmMapMerger(work_dir)
+        merger = None
+    else:
+        sfm_merger = None
+        merger = HlocMapMerger(method, work_dir)
 
     merge_ids = [submap_ids[0]]
     merge_name = f"merge_{'_'.join(merge_ids)}"
@@ -133,6 +141,31 @@ def run_order(
     global_offset += len(ref_images)
     _log(f"  reference submap: {len(ref_images)} images", log_file)
 
+    # ---- SfM path: build reference map and init pose graph ----
+    if method in _SFM_METHODS:
+        try:
+            with open(ref_dir / "intrinsics.txt") as _f:
+                _tok = _f.readline().strip().split()
+            intr_tuple = (float(_tok[1]), float(_tok[2]),
+                          float(_tok[3]), float(_tok[4]),
+                          int(_tok[5]),   int(_tok[6]))
+        except Exception:
+            intr_tuple = (444.492708, 444.492708, 511.5, 287.5, 1024, 576)
+
+        _log(f"  building SfM map from submap 0...", log_file)
+        sfm_model = sfm_merger.build_ref_map(ref_dir, ref_images, intr_tuple)
+        if sfm_model is None:
+            _log("  ERROR: SfM failed for reference submap, aborting.", log_file)
+            return
+
+        optimizer = PoseGraphOptimizer()
+        _sfm_all_frames: list = []
+        ref_vio = read_poses(str(ref_dir / "poses.txt"))
+        ref_offset = optimizer.add_submap(ref_vio, ref_images, is_reference=True)
+        _sfm_all_frames += [(ref_offset + j, img) for j, img in enumerate(ref_images)]
+        _log(f"  SfM model: {len(sfm_model.images)} images, "
+             f"{len(sfm_model.points3D)} 3D points", log_file)
+
     failures = []
     total_start = time.time()
 
@@ -143,6 +176,80 @@ def run_order(
 
         _log(f"\n--- Merging submap {i}: {sid} ({len(incoming_images)} images) ---", log_file)
         t_start = time.time()
+
+        # ---- SfM path ----
+        if method in _SFM_METHODS:
+            pnp_poses = sfm_merger.localize_submap(
+                sfm_model, ref_dir, ref_images,
+                sdir, incoming_images, intr_tuple, submap_idx=i,
+            )
+            _log(f"  PnP: {len(pnp_poses)}/{len(incoming_images)} localized", log_file)
+
+            if len(pnp_poses) < 5:
+                _log(f"  FAILED: too few PnP successes ({len(pnp_poses)} < 5)", log_file)
+                failures.append({"submap": sid, "stage": "pnp",
+                                  "error": f"only {len(pnp_poses)} PnP successes"})
+                global_offset += len(incoming_images)
+                continue
+
+            inc_vio = read_poses(str(sdir / "poses.txt"))
+            inc_offset = optimizer.add_submap(
+                inc_vio, incoming_images, abs_poses_w0=pnp_poses,
+            )
+            _sfm_all_frames += [(inc_offset + j, img)
+                                 for j, img in enumerate(incoming_images)]
+
+            optimized = optimizer.optimize(_sfm_all_frames)
+
+            # Update merged_poses with optimized global-key poses
+            for j, img in enumerate(ref_images):
+                gk = ref_offset + j
+                gname = f"seq/{j:06d}.color.jpg"
+                if gk in optimized:
+                    merged_poses[gname] = optimized[gk]
+
+            for j, img in enumerate(incoming_images):
+                gk = inc_offset + j
+                gname = f"seq/{(global_offset + j):06d}.color.jpg"
+                if gk in optimized:
+                    merged_poses[gname] = optimized[gk]
+                elif img in pnp_poses:
+                    merged_poses[gname] = _T_to_vec(pnp_poses[img])
+
+            # GT / timestamps / intrinsics / gps / edges (same as v1 path)
+            inc_gt_dict = read_poses(str(sdir / "poses_abs_gt.txt"))
+            inc_gt_local = {img: inc_gt_dict[img] for img in incoming_images
+                            if img in inc_gt_dict}
+            merged_gt.update(reindex_dict(inc_gt_local, incoming_images, global_offset))
+
+            inc_ts_dict = read_timestamps(str(sdir / "timestamps.txt"))
+            inc_ts_local = {img: inc_ts_dict[img] for img in incoming_images
+                            if img in inc_ts_dict}
+            merged_ts.update(reindex_dict(inc_ts_local, incoming_images, global_offset))
+
+            inc_intr  = read_intrinsics(str(sdir / "intrinsics.txt"))
+            inc_gps   = read_gps(str(sdir / "gps_data.txt"))
+            inc_edges = read_edges_odom(str(sdir / "edges_odom.txt"))
+            merged_intrinsics.update(reindex_dict(inc_intr, incoming_images, global_offset))
+            merged_gps.update(reindex_dict(inc_gps, incoming_images, global_offset))
+            merged_edges = merge_edges_with_offset(merged_edges, inc_edges, offset=global_offset)
+
+            global_offset += len(incoming_images)
+
+            merge_ids.append(sid)
+            merge_name = f"merge_{'_'.join(merge_ids)}"
+            merge_dir = create_merge_dir(result_root, merge_name)
+            create_finalmap_symlink(result_root, merge_name)
+            write_poses_txt(merged_poses,           merge_dir / "poses.txt")
+            write_poses_txt(merged_gt,              merge_dir / "poses_abs_gt.txt")
+            write_timestamps_txt(merged_ts,         merge_dir / "timestamps.txt")
+            write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
+            write_gps_txt(merged_gps,               merge_dir / "gps_data.txt")
+            write_edges_odom_txt(merged_edges,      merge_dir / "edges_odom.txt")
+
+            elapsed = time.time() - t_start
+            _log(f"  merged in {elapsed:.0f}s, total {len(merged_poses)} poses", log_file)
+            continue   # skip the existing v1 path below
 
         ref_poses_dict = read_poses(str(ref_dir / "poses.txt"))
         inc_poses_dict = read_poses(str(sdir / "poses.txt"))
@@ -289,7 +396,8 @@ if __name__ == "__main__":
     p.add_argument("--dataset-root", type=Path, required=True,
                    help="Path to dataset root, e.g. .../ucl_campus_aria")
     p.add_argument("--method", type=str, required=True,
-                   choices=["hloc_superpoint_splg", "hloc_disk_dilg"],
+                   choices=["hloc_superpoint_splg", "hloc_disk_dilg",
+                            "hloc_sfm_netvlad_splg"],
                    help="HLoc feature+matcher combination")
     p.add_argument("--order-index", type=int, required=True,
                    help="Order index in orders file (0=in, 1=r0, ...)")

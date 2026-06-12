@@ -28,7 +28,31 @@ def download_weights(features: str) -> None:
     del model
 
 
+def download_netvlad_weights() -> None:
+    """Pre-download NetVLAD (VGG16-NetVLAD-Pitts30K) weights for hloc_sfm_netvlad_splg."""
+    import sys
+    from pathlib import Path
+    _HLOC_DIR = str(
+        Path(__file__).resolve().parents[2]
+        / "third_party" / "pose_estimation_models" / "estimator"
+        / "third_party" / "Hierarchical-Localization"
+    )
+    if _HLOC_DIR not in sys.path:
+        sys.path.insert(0, _HLOC_DIR)
+
+    print("Loading NetVLAD weights (VGG16-NetVLAD-Pitts30K) ...")
+    try:
+        from hloc.extractors.netvlad import NetVLAD
+        model = NetVLAD({"model_name": "VGG16-NetVLAD-Pitts30K", "whiten": True}).eval()
+        print("  OK — NetVLAD weights cached.")
+        del model
+    except Exception as e:
+        print(f"  FAILED: {e}")
+        print("  Check network connection.")
+
+
 if __name__ == "__main__":
     for feat in ["superpoint", "disk"]:
         download_weights(feat)
+    download_netvlad_weights()
     print("Done.")
