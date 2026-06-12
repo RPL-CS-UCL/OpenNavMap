@@ -34,7 +34,7 @@ _FEATURE_CONF   = extract_features.confs["superpoint_max"]
 _RETRIEVAL_CONF = extract_features.confs["netvlad"]
 _MATCHER_CONF   = match_features.confs["superpoint+lightglue"]
 _LOC_CONF = {
-    "estimation": {"abs_pose_min_num_inliers": 6},
+    "estimation": {"abs_pose_min_num_inliers": 3},
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
 }
 _NUM_RETRIEVAL = 20
@@ -93,10 +93,11 @@ class HlocSfmMapMerger:
             image_list=ref_images,
             image_options={"camera_model": "PINHOLE",
                            "camera_params": f"{fx},{fy},{cx},{cy}"},
-            mapper_options={"min_num_matches": 10, "init_min_num_inliers": 10},
+            mapper_options={"min_num_matches": 5, "init_min_num_inliers": 5,
+                            "ba_local_num_images": 6},
         )
 
-        if model is None or len(model.points3D) < 50:
+        if model is None or len(model.points3D) < 20:
             n = 0 if model is None else len(model.points3D)
             logger.warning(f"SfM failed or too few 3D points ({n})")
             return None
@@ -253,7 +254,7 @@ class HlocSfmMapMerger:
                 n_failed += 1
                 continue
 
-            if not ret.get("success", False) or ret.get("num_inliers", 0) < 6:
+            if not ret.get("success", False) or ret.get("num_inliers", 0) < 3:
                 n_failed += 1
                 continue
 
