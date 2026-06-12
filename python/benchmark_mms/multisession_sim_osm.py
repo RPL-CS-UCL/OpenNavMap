@@ -1004,6 +1004,7 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
     goal_success_mat = np.zeros(N_SESSIONS, dtype=bool)
     est_paths = [None] * N_SESSIONS
     est_lens = [float("nan")] * N_SESSIONS
+    single_est_paths = [None] * N_SESSIONS   # per single-session path (for fig1)
     reachable_ratios = []
     metric_ratios = []
     topo_ratios = []
@@ -1026,6 +1027,9 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         est_paths[k] = path
         if reachable:
             est_lens[k] = est_len
+
+        # Single-session path: plan on only this session's observations
+        single_est_paths[k], _ = _plan_on_merged_obs(sessions_obs[k], s, g, res_m)
 
         # Cumulative reachable ratio: fraction of pairs 0..k that succeeded
         reachable_ratios.append(goal_success_mat[: k + 1].mean())
@@ -1103,9 +1107,12 @@ def run_experiments(base_grid, sessions_poses, sessions_obs, subgraphs, seeds,
         "goal_success_mat": goal_success_mat,
         "goals": goals,
         "est_paths": est_paths,
+        "single_est_paths": single_est_paths,
         "gt_paths": gt_paths,
         "est_lens": est_lens,
         "gt_lens": gt_lens,
+        "sessions_obs": sessions_obs,
+        "subgraphs": subgraphs,
         "stale_len": stale_len,
         "updated_len": updated_len,
         "stale_collides": stale_collides,
@@ -1609,22 +1616,22 @@ def save_snapshots(data_dir, sessions_poses, sessions_obs, merged_obs, results):
 # Figure 1 — All 10 per-session path searches (grid 5×2)
 # ============================================================================
 def fig1_per_session_paths(grid, results):
-    """Per-session path search results, 10 panels (5x2).
+    """Per-session single-session search, 10 panels (5x2).
 
-    Each panel shows the merged observation map at session k, the session's
-    dedicated (start, goal) pair, topological graph nodes/edges, and the A*
-    shortest path found (green line).
+    Each panel k shows ONLY what session k alone observed:
+      - background: sessions_obs[k] (-1=free, 1=obs-obstacle, 0=unvisited→obstacle)
+      - topo graph: subgraphs[k] (single-session keyframes only)
+      - path: A* on sessions_obs[k] planning grid (single-session)
+      - GT path (orange dashed) for reference
     """
     _init_style()
     gh, gw = grid.shape
     goals = results["goals"]
-    est_paths = results["est_paths"]
+    single_est_paths = results["single_est_paths"]
     gt_paths = results["gt_paths"]
-    merged_topos = results["merged_topos"]
-    metric_ratios = results["metric_ratios"]
-    est_lens = results["est_lens"]
+    subgraphs = results["subgraphs"]
     gt_lens = results["gt_lens"]
-    merged_all = results["merged_all"]
+    sessions_obs = results["sessions_obs"]
 
     n_cols, n_rows = 5, 2
     fig, axes = plt.subplots(
@@ -1633,28 +1640,32 @@ def fig1_per_session_paths(grid, results):
     for k in range(N_SESSIONS):
         ax = axes[k // n_cols][k % n_cols]
         ax.set_facecolor(BG_COLOR)
-        merged = merged_all[k]
+
+        # Background: only this session's observations
+        # unvisited (0) treated same as obstacle — dark background
+        obs = sessions_obs[k]
         rgb = np.zeros((gh, gw, 3))
-        rgb[(merged == -1)] = STYLE_FREE * 0.6
-        rgb[(merged == 1)] = STYLE_OBS * 0.4
-        rgb[(merged == 0)] = STYLE_UNK * 0.3
+        rgb[(obs == -1)] = STYLE_FREE * 0.6     # observed free
+        rgb[(obs == 1)] = STYLE_OBS * 0.4       # observed obstacle
+        # obs == 0 stays black (unvisited = obstacle for this session)
         ax.imshow(rgb, origin="upper")
 
-        topo = merged_topos[k]
-        if topo is not None:
+        # Topo graph: single-session subgraph only
+        topo = subgraphs[k]
+        if topo is not None and topo.number_of_nodes() > 0:
             for u, v in topo.edges:
                 xu, yu = topo.nodes[u]["x"], topo.nodes[u]["y"]
                 xv, yv = topo.nodes[v]["x"], topo.nodes[v]["y"]
                 rc_u = (int(yu / RES), int(xu / RES))
                 rc_v = (int(yv / RES), int(xv / RES))
                 ax.plot([rc_u[1], rc_v[1]], [rc_u[0], rc_v[0]],
-                        "-", color="white", linewidth=0.4, alpha=0.22, zorder=2)
+                        "-", color="white", linewidth=0.4, alpha=0.25, zorder=2)
             node_rcs = [(int(d["y"] / RES), int(d["x"] / RES))
                         for _, d in topo.nodes(data=True)]
             if node_rcs:
                 nrs, ncs = zip(*node_rcs)
                 ax.scatter(ncs, nrs, marker="o", color=PALETTE[3],
-                           s=50, edgecolors="white", linewidths=0.3, zorder=3)
+                           s=55, edgecolors="white", linewidths=0.4, zorder=3)
 
         s, g = goals[k]
         ax.scatter(s[1], s[0], marker="o", color="#34D399", s=100,
@@ -1662,7 +1673,7 @@ def fig1_per_session_paths(grid, results):
         ax.scatter(g[1], g[0], marker="X", color="#F87171", s=100,
                    edgecolors="white", linewidths=1, zorder=5)
 
-        # GT path (orange dashed — always visible as reference)
+        # GT path (orange dashed — reference)
         gt_path = gt_paths[k]
         if gt_path is not None:
             r_gt = [p[0] for p in gt_path]
@@ -1670,19 +1681,17 @@ def fig1_per_session_paths(grid, results):
             ax.plot(c_gt, r_gt, "--", color="#F59E0B", linewidth=1.0,
                     alpha=0.7, zorder=2)
 
-        # Estimated A* path (thick green — only when reachable)
-        path = est_paths[k]
+        # Single-session A* path (green — only when reachable on this session)
+        path = single_est_paths[k]
         if path is not None:
             r_arr = [p[0] for p in path]
             c_arr = [p[1] for p in path]
             ax.plot(c_arr, r_arr, "-", color="#34D399", linewidth=2.5, zorder=4)
 
         reachable = "YES" if path is not None else "NO"
-        mr_str = f"{metric_ratios[k]:.2f}" if not np.isnan(metric_ratios[k]) else "N/A"
-        est_str = f"{est_lens[k]:.1f}m" if path is not None else "N/A"
         gt_str = f"{gt_lens[k]:.1f}m" if gt_lens[k] is not None else "N/A"
         ax.set_title(
-            f"k={k+1}  reach={reachable}  est={est_str}  GT={gt_str}  ratio={mr_str}",
+            f"k={k+1}  single-sess reach={reachable}  GT={gt_str}",
             color="white", fontsize=10,
         )
         ax.axis("off")
