@@ -30,20 +30,13 @@ Create conda environment
 conda create --name opennavmap python=3.8
 conda activate opennavmap
 ```
-Install ```image-matching-methods```
-```bash
-git clone git@github.com:gogojjh/image-matching-models.git --recursive
-cd image-matching-models && python -m pip install -e .
-```
-Install  ```VPR-evaluation-methods```
-```bash
-git clone git@github.com:gogojjh/VPR-methods-evaluation.git
-```
-Clone with submodules and create conda environment (NVIDIA GeForce RTX 4090 and CUDA 11.8)
+Clone with submodules and set up environment (NVIDIA GeForce RTX 4090 and CUDA 11.8)
 ```bash
 git clone --recurse-submodules git@github.com:RPL-CS-UCL/OpenNavMap.git
+cd OpenNavMap
 conda install pytorch=2.0.1 torchvision=0.15.2 pytorch-cuda=11.8 numpy=1.24.3 -c pytorch -c nvidia # use the correct version of cuda for your system
 pip install -r requirements.txt
+pip install -e third_party/vismatch
 ```
 Enter this code to check whether torch-related packages are installed
 ```bash
