@@ -1,4 +1,4 @@
-name: litevloc
+name: opennavmap
 channels:
   - defaults
   - conda-forge

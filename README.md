@@ -6,32 +6,17 @@ LiteVLoc (https://github.com/RPL-CS-UCL/litevloc_code) is the visual localizatio
 
 ## Overview
 
-OpenNavMap builds, aligns, merges, and maintains multi-session topometric maps for large-scale navigation. The repository contains the OpenNavMap mapping pipeline, map-level benchmarks, and paper experiment code. LiteVLoc remains an independently runnable ROS/Python localization package in `third_party/litevloc_code`.
+OpenNavMap builds, aligns, merges, and maintains **multi-session topometric maps** for large-scale image-goal navigation. The system represents environments using three complementary graph structures:
 
-LiteVLoc was accepted by ICRA2025 as a hierarchical visual localization framework for efficient camera pose estimation using lightweight topometric maps.
+- **Covis Graph (`covis`)**: image keyframes with visual associations and descriptors
+- **Odometry Graph (`odom`)**: sequential pose chain from odometry
+- **Traversability Graph (`trav`)**: connectivity for path planning
 
-<div align="center">
-    <a href="">
-      <img src="docs/media/litevloc_overview.png" width="40%" 
-      alt="LiteVLoc overview">
-    </a>
-</div>
-<br>
+The repository consists of three main lines:
 
-The following figures and links summarize the original LiteVLoc localization and image-goal navigation demonstrations. They are retained here as background for the `third_party/litevloc_code` submodule. See the LiteVLoc [paper](https://arxiv.org/abs/2410.04419) and [website](https://rpl-cs-ucl.github.io/LiteVLoc/) for the localization module details.
-<div align="center">
-    <a href="">
-      <img src="docs/media/exp_real_world_map_meta.png" width="60%" 
-      alt="LiteVLoc real-world map metadata">
-    </a>
-</div>
-
-<div align="center">
-    <a href="">
-      <img src="docs/media/litevloc_real_world_result.png" width="60%" 
-      alt="LiteVLoc real-world result">
-    </a>
-</div>
+1. **Multi-Session Mapping & Merging** — `python/map_merge_pipeline.py`, `python/map_manager.py`
+2. **Visual Localization** — LiteVLoc submodule at `third_party/litevloc_code` ([github](https://github.com/RPL-CS-UCL/litevloc_code)), performing global VPR → local matching → pose solving on the built map
+3. **Navigation & System Integration** — global planning, pose fusion, and online ROS localization (within the LiteVLoc submodule)
 
 
 ### Requirements
@@ -64,17 +49,17 @@ Enter this code to check whether torch-related packages are installed
 ```bash
 python test_torch_install.py
 ```
-Build LiteVLoc as the ROS package (optional)
-```bash
-catkin build litevloc -DPYTHON_EXECUTABLE=$(which python)
-```
 
 ### Documentation
+
+**OpenNavMap:**
 1. [Instruction in Running Map Merging](docs/instruction_map_merging.md)
 2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
-3. [Instruction in Running LiteVLoc with Offline Data](docs/instruction_vloc_data.md)
-4. [Instruction in Running LiteVLoc with Simulated Matterport3d Environment](docs/instruction_vnav_simu_matterport3d.md)
-5. [Instruction in Performing Map-free Benchmarking](docs/instruction_map_free_benchmark.md)
+3. [Instruction in Performing Map-free Benchmarking](docs/instruction_map_free_benchmark.md)
+
+**LiteVLoc submodule (`third_party/litevloc_code`):**
+4. [Instruction in Running LiteVLoc with Offline Data](docs/instruction_vloc_data.md)
+5. [Instruction in Running LiteVLoc with Simulated Matterport3d Environment](docs/instruction_vnav_simu_matterport3d.md)
 
 ### Multi-Session Mapping Benchmark
 
@@ -128,12 +113,12 @@ from functools import lru_cache
 Issue: ```/lib/aarch64-linux-gnu/libp11-kit.so.0: undefined symbol: ffi_type_pointer, version LIBFFI_BASE_7.0``` using cv_bridge
 > Change the ```.so```. Complete tutorial is shown [here](https://blog.csdn.net/qq_38606680/article/details/129118491)
 ```bash
-rm /Rocket_ssd/miniconda3/envs/litevloc/lib/libffi.so.7
-ln -s /usr/lib/aarch64-linux-gnu/libffi.so.7 /Rocket_ssd/miniconda3/envs/litevloc/lib/libffi.so.7
+rm /Rocket_ssd/miniconda3/envs/opennavmap/lib/libffi.so.7
+ln -s /usr/lib/aarch64-linux-gnu/libffi.so.7 /Rocket_ssd/miniconda3/envs/opennavmap/lib/libffi.so.7
 ```
 ```bash
-rm /Rocket_ssd/miniconda3/envs/litevloc/lib/libtiff.so.5
-ln -s /usr/lib/x86_64-linux-gnu/libtiff.so.5 /Rocket_ssd/miniconda3/envs/litevloc/lib/libtiff.so.5
+rm /Rocket_ssd/miniconda3/envs/opennavmap/lib/libtiff.so.5
+ln -s /usr/lib/x86_64-linux-gnu/libtiff.so.5 /Rocket_ssd/miniconda3/envs/opennavmap/lib/libtiff.so.5
 ```
 Issue: ```ImportError: /lib/aarch64-linux-gnu/libgomp.so.1: cannot allocate memory in static TLS block```
 > Set this in the bash file: ```export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libgomp.so.1```
