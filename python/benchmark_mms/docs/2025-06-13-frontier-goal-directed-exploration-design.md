@@ -512,7 +512,7 @@ Scaled proportionally from the 1000×1000 @ 0.5 m/cell OSM benchmark to the 71×
 | `TRANS_THRESH_M` | **2.0** | 7.0 | Topo node translation threshold |
 | `ROT_THRESH_RAD` | **1.047 (60°)** | 1.047 (60°) | Topo node rotation threshold |
 | `CROSS_DIST_M` | **3.0** | 10.0 | Max distance for cross-session edges |
-| `INFLATE_RADIUS` | **2** | 3 | Obstacle inflation radius (cells) |
+| `INFLATE_RADIUS` | **1** | 2 | Obstacle inflation radius (cells) — maze corridors are narrow (2-4 cells wide) |
 | `FRONTIER_DIST_MIN` | **30** | 150 | Min cell distance start↔goal |
 | `FRONTIER_DIST_FALLBACK` | **15** | 100 | Fallback distance |
 | `TOPO_SNAP_DIST_M` | **3.0** | 5.0 | Snap start/goal to nearest topo node |
