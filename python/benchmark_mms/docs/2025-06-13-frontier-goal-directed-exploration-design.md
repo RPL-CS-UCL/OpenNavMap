@@ -1,8 +1,9 @@
 # Frontier-Based Goal-Directed Exploration + Topological Map Design
 
-> **Created:** 2025-06-13  
-> **Status:** Approved, pending implementation plan  
-> **Context:** Multi-Session Mapping Benchmark (`multisession_sim_osm.py`)
+> **Created:** 2025-06-13
+> **Updated:** 2025-06-14 — Added STL maze implementation plan (Section 11)
+> **Status:** Approved, implementing for STL maze
+> **Context:** Multi-Session Mapping Benchmark
 
 ---
 
@@ -31,6 +32,8 @@ This is directly analogous to real-world robot navigation:
 4. The merged map now finds a shorter path for the same (start, goal) pair
 5. After N sessions, the path approaches the ground-truth optimum
 
+**The goal is fixed across all sessions, while each session's starting position is randomly sampled from the full free space.** This means the final evaluation pair (start_for_eval, fixed_goal) uses start_for_eval = the same start used by all sessions' trial, allowing direct comparison of path optimality as the merged map grows.
+
 ---
 
 ## 2. Design Overview
@@ -50,14 +53,14 @@ This is directly analogous to real-world robot navigation:
 
 ```
                    ┌──────────┐
-                   │ fix pair │  (start, goal) sampled once before all sessions
-                   │  save to │  distance >= 150 cells, GT-reachable
+                   │ fix pair │  (start, goal) given via CLI or auto-sampled
+                   │  save to │  distance >= DIST_MIN cells, GT-reachable
                    │ file.json│
                    └────┬─────┘
                         │
         ┌───────────────┼───────────────┐
         ▼               ▼               ▼
-   Session 1        Session 2    ...  Session N
+   Session 1        Session 2    ...  Session K
    ┌─────────┐    ┌─────────┐       ┌─────────┐
    │Frontier │    │Frontier │       │Frontier │
    │Explore  │    │Explore  │       │Explore  │
@@ -65,7 +68,7 @@ This is directly analogous to real-world robot navigation:
    └────┬────┘    └────┬────┘       └────┬────┘
         │               │               │
         ▼               ▼               ▼
-    topo_map_1      topo_map_2       topo_map_N
+    topo_map_1      topo_map_2       topo_map_K
         │               │               │
         └───────────────┼───────────────┘
                         │  merge_topometric_graphs(sessions[:k+1])
@@ -78,7 +81,7 @@ This is directly analogous to real-world robot navigation:
                         │
                         │  ratio[k] = topo_path_len[k] / GT_len
                         ▼
-                 optimality_curve (k=1..N approaches 1.0)
+                 optimality_curve (k=1..K approaches 1.0)
 ```
 
 ---
@@ -143,6 +146,8 @@ next = argmin( astar_len(current, f) for f in frontiers )
 
 This is the nearest-frontier-first strategy (Yamauchi 1997), which minimizes travel distance between frontiers.
 
+**Performance optimization for large maps:** first filter frontiers by Euclidean distance (e.g., top 20 nearest), then compute A\* distances only for those candidates. On small grids like the maze (72×72), compute A\* for all frontiers directly.
+
 ### 3.4 Goal Check
 
 After each FOV update, construct the partial planning grid:
@@ -158,33 +163,33 @@ path, _ = astar(inf_pg, current_position, goal)
 
 If `path is not None`, the goal is reachable on the current partial map → navigate to it and terminate the session.
 
-### 3.5 Observation Model (unchanged)
+### 3.5 Observation Model
 
 - FOV: 90° sector (FOV_HALF_DEG = 45°) pointing along robot yaw
-- Range: 15 meters (FOV_RANGE_M = 15.0)
-- Resolution: per-session res_m (default 1.0 m/cell)
+- Range: sensor-specific (see Section 11 for maze-specific values)
+- Resolution: res_m (0.5 m/cell for STL maze)
 
 ---
 
-## 4. Topological Map Construction (unchanged)
+## 4. Topological Map Construction
 
 `build_topometric_subgraph(trajectory)` extracts keyframes from the exploration trajectory:
 
 | Event | Threshold |
 |-------|-----------|
-| New node inserted | Translation > TRANS_THRESH_M (7.0 m) OR Rotation > ROT_THRESH_RAD (60°) |
+| New node inserted | Translation > TRANS_THRESH_M OR Rotation > ROT_THRESH_RAD |
 | Edge between consecutive nodes | Weight = Euclidean distance (m) |
 
 The resulting graph is a NetworkX Graph with node attributes `(x, y, yaw)`.
 
 ---
 
-## 5. Cross-Session Map Merger (unchanged)
+## 5. Cross-Session Map Merger
 
 `merge_topometric_graphs(subgraphs[:k+1])`:
 1. Relabel nodes from each subgraph with global offsets to avoid ID collision
 2. Union all edges within each subgraph
-3. For each pair of nodes from **different sessions**: if Euclidean distance < CROSS_DIST_M (10 m) AND line-of-sight on `base_grid` is obstacle-free → add cross-session edge
+3. For each pair of nodes from **different sessions**: if Euclidean distance < CROSS_DIST_M AND line-of-sight on `base_grid` is obstacle-free → add cross-session edge
 
 Cross-session edges enable path planning across areas explored by different sessions.
 
@@ -206,8 +211,8 @@ For each cumulative merge level k:
 
 ```
 topo = merged_topos_all[k]
-start_node = nearest topo node to start (distance < 5.0 m)
-goal_node  = nearest topo node to goal  (distance < 5.0 m)
+start_node = nearest topo node to start (distance < TOPO_SNAP_DIST_M)
+goal_node  = nearest topo node to goal  (distance < TOPO_SNAP_DIST_M)
 topo_path_len = nx.shortest_path_length(topo, start_node, goal_node, weight="weight")
 ```
 
@@ -235,58 +240,80 @@ ratio[k] = topo_path_len[k] / GT_len
 
 - Both start and goal must lie on `inflate(base_grid) == 0` (safe free space)
 - Both start and goal must have `base_grid == 0` (not on obstacle)
-- Euclidean distance >= **150 cells** (150 m @ 1 m/cell resolution)
+- Euclidean distance >= **DIST_MIN cells**
 - GT-reachable: `astar(inflate(base_grid), start, goal)` must return a valid path
 
-### 7.2 Sampling Strategy
+### 7.2 Selection Mode
 
-1. Sample ~200 candidates from `inflate(base_grid)` free cells
-2. Filter by distance constraint (>= 150 cells)
-3. Score by GT path length / distance (longer paths = more interesting exploration)
-4. Select the pair with the highest score
-5. If sampling fails at 150 cells threshold, fallback to >= 100 cells
-6. Save to `output/real/fixed_pair.json` for reproducibility
+**Mode A — CLI-provided (required for STL maze):**
+- `--start R C --goal R C` given as command-line arguments
+- Validated at startup; script exits with error message if invalid/unreachable
+- Saved to `output/maze/fixed_pair.json` for reproducibility
+
+**Mode B — Auto-sampled (fallback for general use):**
+1. Sample candidates from `inflate(base_grid)` free cells
+2. Filter by distance constraint
+3. Score by GT path length / distance (longer paths = more interesting)
+4. Select the highest-scoring pair
+5. Fallback to lower distance threshold if primary fails
+6. Save to `output/<mode>/fixed_pair.json`
 
 ---
 
 ## 8. Visualization
 
-### 8.1 fig1: Per-Session Frontier Exploration
+### 8.1 fig0: Base Map
 
-10 panels (5×2 grid). Each panel k shows:
+Single panel showing:
+- Full base_grid occupancy map (free = light, obstacle = dark)
+- Fixed start (green circle) and goal (red X)
+- GT path (orange dashed line)
+- Title with map stats (grid size, resolution, free/obs ratio)
+
+### 8.2 fig1: Per-Session Frontier Exploration
+
+K panels (grid layout depends on K: 1×5 for K=5, 5×2 for K=10). Each panel k shows:
 - **Background:** `sessions_obs[k]` — only what session k observed (unvisited = black)
 - **Exploration trajectory:** white line showing the frontier-to-frontier path
 - **Topo nodes:** blue dots (keyframes from session k only)
 - **Topo edges:** white transparent lines
-- **Start:** green circle; **Goal:** red X
-- **Topo path:** orange line from start to goal on this session's topo graph
+- **Session start:** green circle (random per session)
+- **Fixed Goal:** red X
 - **GT path:** orange dashed line for reference
 - **Title:** `k=X  topo-reach=YES/NO  topo_len=...m  GT=...m  ratio=...`
 
-### 8.2 fig2: Fixed Pair Across Incremental Merge
+### 8.3 fig2: Fixed Pair Across Incremental Merge
 
-10 panels (5×2 grid). Each panel k shows:
+K panels. Each panel k shows:
 - **Background:** `merged_all[k]` — cumulative merge of sessions 0..k
-- **Merged topo graph:** nodes (blue) + edges (white + cross-session in yellow)
+- **Merged topo graph:** nodes (blue) + intra-session edges (white) + cross-session edges (yellow)
 - **Fixed start/goal:** green circle / red X
 - **Topo path:** orange thick line
 - **GT path:** orange dashed
 - **Title:** `k=X  reach=YES/NO  topo=...m  GT=...m  ratio=...`
 
-### 8.3 Output Files
+### 8.4 fig6: Summary Table
+
+K-row quantitative summary table with columns:
+k, session_start, reachable, topo_len, GT_len, ratio, nodes, cov_free_m2
+
+### 8.5 map_growth.gif
+
+K frames (one per cumulative session), FPS=3. Each frame: merged map + current session trajectory + stats.
+
+### 8.6 Output Files
 
 | File | Description |
 |------|-------------|
-| `fig0_osm_base_map.png` | Full OSM occupancy map |
-| `fig1_per_session_exploration.png` | 10-panel frontier exploration per session |
-| `fig2_fixed_pair_merge.png` | 10-panel incremental merge with topo paths |
-| `fig4_temporal_adaptability.png` | Temporal adaptability (unchanged) |
+| `fig0_maze_map.png` | Full maze occupancy map with start/goal/GT path |
+| `fig1_per_session_exploration.png` | K-panel frontier exploration per session |
+| `fig2_fixed_pair_merge.png` | K-panel incremental merge with topo paths |
 | `fig6_summary_table.png` | Quantitative summary |
 | `map_growth.gif` | Map growth animation |
 
 ---
 
-## 9. Implementation Scope
+## 9. Implementation Scope (General)
 
 ### 9.1 New Functions
 
@@ -294,21 +321,12 @@ ratio[k] = topo_path_len[k] / GT_len
 |----------|---------------|
 | `find_frontiers(obs)` | Return list of frontier cell coordinates |
 | `select_nearest_frontier(frontiers, current, obs)` | Pick closest frontier by A\* distance |
-| `frontier_explore_session(start, goal, base_grid, res_m)` | Run one session of frontier exploration; return (poses, obs, subgraph) |
+| `frontier_explore_session(start, goal, base_grid, rng, res_m)` | Run one session of frontier exploration; return (poses, obs, subgraph) |
 | `topo_path_length(topo_graph, start, goal, res_m)` | Shortest path on topo graph for given pair |
 | `fig1_per_session_exploration(...)` | New fig1 with frontier trajectory + topo path |
 | `fig2_fixed_pair_merge(...)` | Updated fig2 with topo-based paths |
 
-### 9.2 Modified Functions
-
-| Function | Change |
-|----------|--------|
-| `sample_goals()` | Increase distance threshold to 150 cells; save pair to file |
-| `run_experiments()` | Replace A\*-on-partial-grid with topo-graph shortest path; call `frontier_explore_session()` per session |
-| `main()` | Pass fixed pair to session generation; wire new fig functions |
-| `_print_experiment_summary()` | Add topo-based reachability columns |
-
-### 9.3 Removed Functions
+### 9.2 Removed Functions (from OSM benchmark)
 
 | Function | Reason |
 |----------|--------|
@@ -319,7 +337,7 @@ ratio[k] = topo_path_len[k] / GT_len
 
 ---
 
-## 10. Key Constants
+## 10. Key Constants (General / OSM-scale)
 
 | Constant | Value | Description |
 |----------|-------|-------------|
@@ -332,3 +350,156 @@ ratio[k] = topo_path_len[k] / GT_len
 | `ROT_THRESH_RAD` | 1.047 (60°) | Topo node rotation threshold |
 | `CROSS_DIST_M` | 10.0 | Max distance for cross-session edges |
 | `INFLATE_RADIUS` | 3 | Obstacle inflation radius (cells) |
+| `TOPO_SNAP_DIST_M` | 5.0 | Max distance to snap start/goal to nearest topo node |
+
+---
+
+## 11. STL Maze Implementation Plan (`frontier_explore_benchmark.py`)
+
+### 11.1 Purpose
+
+A standalone demonstration script using the `octa_maze.stl` file (35×35m garden maze) to prove the core concept: as K=5 exploration sessions accumulate, the shortest path on the merged topometric map from a fixed start to a fixed goal converges toward the ground-truth optimal.
+
+The script is self-contained (no OSM or internet dependency), runs in the `opennavmap` conda environment or any Python 3.8+ with numpy/scipy/matplotlib/networkx.
+
+### 11.2 File Structure
+
+```
+benchmark_mms/
+  frontier_explore_benchmark.py    ← new standalone script
+  output/
+    maze/
+      base_map.npy
+      fixed_pair.json
+      fig0_maze_map.png
+      fig1_per_session_exploration.png
+      fig2_fixed_pair_merge.png
+      fig6_summary_table.png
+      map_growth.gif
+      data/
+        session_01_poses.npy
+        session_01_obs.npy
+        ...
+        merged_obs_k01.npy
+        topo_graph_k01.json
+        metrics.json
+```
+
+### 11.3 STL Parsing → 2D Grid Map
+
+**Source:** `/data/octa_maze.stl` (binary STL, ASCII-sig header `solid garden_maze2`, 1478 triangles)
+
+**Coordinate frame:** The STL uses Y for height (0–3.5m with walls at Y≈3.5m) and XZ for the floor plane (0–35m × 0–35m). Walls are vertical faces with `|normal_Y| < 0.1`.
+
+**Method:**
+1. Parse binary STL using `struct` (zero external dependencies — fallback to `trimesh` if available)
+2. Identify wall triangles: faces where `|normal_Y| < 0.1` (vertical faces)
+3. Project wall footprints onto the XZ plane (rasterize each wall triangle's bounding box)
+4. Resolution: 0.5 m/cell → 70×70 grid + 2-cell border = **72×72 cells**
+5. Add 2-cell border walls
+6. Validate: obstacle ratio must be in [0.04, 0.95]
+
+**Grid coordinates:** `grid[row][col]` where `row = z / RES`, `col = x / RES`
+
+```python
+def load_stl_grid(stl_path, res_m=0.5):
+    """Parse binary STL and rasterize walls to 2D occupancy grid.
+    
+    Returns: grid (uint8, 0=free 1=obstacle), shape=(grid_h, grid_w)
+    """
+    # Pure-Python struct-based STL parser
+    # Extract wall faces (|normal_Y| < 0.1)
+    # Rasterize bounding boxes of wall triangles to XZ grid
+    # Add border walls
+    # Return validated grid
+```
+
+### 11.4 Maze-Specific Constants
+
+Scaled proportionally from the 1000×1000 @ 0.5 m/cell OSM benchmark to the 72×72 grid (scale factor ≈ 72/1000 = 0.072):
+
+| Constant | Maze Value | OSM Value | Description |
+|----------|------------|-----------|-------------|
+| `N_SESSIONS` (K) | **5** | 10 | Number of exploration sessions |
+| `GRID_RES_M` | **0.5** | 0.5 | Grid resolution (m/cell) |
+| `GRID_SHAPE` | **72×72** | 1000×1000 | Grid dimensions |
+| `MAP_SIZE_M` | **35×35 m** | 500×500 m | Real-world map size |
+| `FOV_HALF_DEG` | **45.0** | 45.0 | Half field-of-view angle |
+| `FOV_RANGE_M` | **8.0** | 15.0 | Sensor range (meters) |
+| `TRANS_THRESH_M` | **2.0** | 7.0 | Topo node translation threshold |
+| `ROT_THRESH_RAD` | **1.047 (60°)** | 1.047 (60°) | Topo node rotation threshold |
+| `CROSS_DIST_M` | **3.0** | 10.0 | Max distance for cross-session edges |
+| `INFLATE_RADIUS` | **2** | 3 | Obstacle inflation radius (cells) |
+| `FRONTIER_DIST_MIN` | **30** | 150 | Min cell distance start↔goal |
+| `FRONTIER_DIST_FALLBACK` | **15** | 100 | Fallback distance |
+| `TOPO_SNAP_DIST_M` | **3.0** | 5.0 | Snap start/goal to nearest topo node |
+| `MAX_STEPS_COVERAGE_BUDGET` | **0.5** | 0.5 | Max steps = h × w × budget |
+
+### 11.5 Session Configuration
+
+- **K = 5**: default, overridable via `--k`
+- **Fixed goal**: provided via CLI `--goal R C`, same for all K sessions
+- **Fixed evaluation start**: same as fixed goal's pair start, provided via CLI `--start R C`
+- **Per-session start**: uniformly random from `inflate(base_grid)` free cells, using `np.random.default_rng(session_id)` for reproducibility
+- Each session starts exploration from its random start, with awareness of the fixed goal for the goal-check loop
+
+### 11.6 CLI Interface
+
+```bash
+# Required: provide fixed start and goal in grid coordinates (row, col)
+python frontier_explore_benchmark.py --start 5 5 --goal 60 60
+
+# Optional overrides
+python frontier_explore_benchmark.py --start 5 5 --goal 60 60 \
+    --res_m 0.5 --k 5 --seed 42 --output_dir ./output/maze
+```
+
+| Argument | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `--start R C` | Yes | — | Fixed start cell (row, col) for the evaluation pair |
+| `--goal R C` | Yes | — | Fixed goal cell (row, col) |
+| `--res_m` | No | 0.5 | Grid resolution (m/cell) |
+| `--k` | No | 5 | Number of sessions |
+| `--seed` | No | 42 | Master random seed |
+| `--output_dir` | No | `./output/maze` | Output directory |
+
+### 11.7 Dependencies
+
+```bash
+# Core (required):
+pip install numpy matplotlib scipy networkx
+
+# Optional (better STL rendering):
+pip install trimesh       # falls back to pure-Python struct parser if unavailable
+pip install imageio       # for map_growth.gif; fails gracefully if missing
+```
+
+No OSM-related dependencies (osmnx, geopandas, shapely). No internet required.
+
+### 11.8 Execution Flow
+
+```
+1. Parse octa_maze.stl → 72×72 occupancy grid (base_map.npy)
+2. Validate CLI-provided --start and --goal (free + GT-reachable)
+3. Save fixed_pair.json
+4. For k in 1..K:
+   a. Sample random session_start from free cells
+   b. Run frontier_explore_session(session_start, fixed_goal, base_grid)
+   c. Build topometric subgraph from trajectory
+   d. Merge subgraph with previous sessions
+   e. Evaluate topo_path for fixed evaluation pair (start, fixed_goal)
+5. Generate output figures (fig0, fig1, fig2, fig6, map_growth.gif)
+6. Save all data snapshots
+7. Print quantitative summary to terminal
+```
+
+### 11.9 Expected Results
+
+- `ratio[1]` should be > 1.0 (or unreachable) — session 1 alone has incomplete knowledge
+- `ratio[k]` should decrease monotonically as k grows, approaching 1.0
+- By k=5, `ratio` should be close to 1.0 (near-optimal path on merged topo map)
+- `node_count` and `cov_free_m2` should increase with k
+
+### 11.10 Self-Contained Design
+
+The script is **entirely standalone** — it copies in all shared utility functions from `multisession_sim_osm.py` (A\*, inflate, build_topometric_subgraph, merge_topometric_graphs, observe_batch_fov, _line_free, _add_subgraph_to_merged) rather than importing them. This avoids coupling to the OSM benchmark code and ensures the script can be moved or shared independently.
