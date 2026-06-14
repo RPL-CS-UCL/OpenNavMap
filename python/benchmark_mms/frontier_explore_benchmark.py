@@ -259,15 +259,17 @@ def select_frontier(
     inf_pg: np.ndarray,
     res: float = GRID_RES_M,
     frontier_free_neighbors: list[tuple[int, int]] | None = None,
+    goal: tuple[int, int] | None = None,
+    goal_bias: float = 0.5,
 ) -> tuple[int, int] | None:
-    """Softmax-temperature frontier selection.
+    """Softmax-temperature frontier selection with optional goal-direction bias.
 
-    Filters top-N frontiers by Euclidean distance, computes A* path lengths
-    to the nearest known-free neighbor of each frontier, applies softmax over
-    -dist / T, and randomly picks one. Returns the nearest FREE cell adjacent
-    to the chosen frontier (not the unknown frontier cell itself).
+    Picks a target (the known-free cell adjacent to a frontier) via softmax
+    over Euclidean distance, optionally boosted by cosine similarity toward goal.
 
-    If frontier_free_neighbors is provided, it maps frontier[i] → free_neighbor[i].
+    Args:
+        goal:      Grid (r, c) of goal cell. If provided, adds goal_bias * cos_sim bonus.
+        goal_bias: Additive weight for the direction bonus (0 = disabled).
     """
     if not frontiers:
         return None
@@ -281,10 +283,7 @@ def select_frontier(
     targets = []
     for idx in order[:top_k]:
         fr, fc = frontiers[idx]
-        if frontier_free_neighbors is not None:
-            tgt = frontier_free_neighbors[idx]
-        else:
-            tgt = (fr, fc)
+        tgt = frontier_free_neighbors[idx] if frontier_free_neighbors is not None else (fr, fc)
         if tgt == (cr, cc):
             continue
         targets.append(tgt)
@@ -295,13 +294,22 @@ def select_frontier(
     tgt_arr = np.array(targets)
     eucl_to_targets = np.abs(tgt_arr[:, 0] - cr) + np.abs(tgt_arr[:, 1] - cc)
     logits = -eucl_to_targets / max(temperature, 1e-6)
+
+    if goal is not None:
+        goal_r, goal_c = goal
+        dot = ((tgt_arr[:, 0] - cr) * (goal_r - cr) +
+               (tgt_arr[:, 1] - cc) * (goal_c - cc))
+        tgt_to_goal = np.maximum(np.hypot(goal_r - tgt_arr[:, 0], goal_c - tgt_arr[:, 1]), 1e-6)
+        direction_score = dot / tgt_to_goal
+        logits += goal_bias * direction_score
+
     logits -= logits.max()
     probs = np.exp(logits)
     probs /= probs.sum()
     chosen_idx = rng.choice(len(targets), p=probs)
 
-    # Validate: A* must be reachable. If not, fallback.
-    _, length = astar(inf_pg, current, (int(targets[chosen_idx][0]), int(targets[chosen_idx][1])), res)
+    _, length = astar(inf_pg, current,
+                      (int(targets[chosen_idx][0]), int(targets[chosen_idx][1])), res)
     if length >= float("inf"):
         return _fallback_select(order, frontiers, frontier_free_neighbors, inf_pg, current, res)
 
@@ -448,6 +456,7 @@ def frontier_explore_session(
     inflate_radius: int = INFLATE_RADIUS,
     max_steps: int | None = None,
     top_n: int = FRONTIER_TOP_N,
+    verbose: bool = False,
 ) -> tuple[list[tuple[int, int, float]], np.ndarray]:
     """Run one session of frontier-based goal-directed exploration.
 
@@ -495,7 +504,8 @@ def frontier_explore_session(
 
         next_f = select_frontier(frontiers, (r, c), obs, rng,
                                  frontier_temperature, top_n, inf_pg, res,
-                                 frontier_free_neighbors=free_neighbors)
+                                 frontier_free_neighbors=free_neighbors,
+                                 goal=goal, goal_bias=0.5)
         if next_f is None:
             break
 
