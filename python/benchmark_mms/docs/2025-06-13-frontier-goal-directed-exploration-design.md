@@ -1,9 +1,9 @@
 # Frontier-Based Goal-Directed Exploration + Topological Map Design
 
 > **Created:** 2025-06-13
-> **Updated:** 2025-06-14 — Added STL maze implementation plan (Section 11)
-> **Status:** Approved, implementing for STL maze
-> **Context:** Multi-Session Mapping Benchmark
+> **Updated:** 2025-06-14 — Final spec: PCD loading, fixed (start,goal), softmax perturbation, 3-figure visualization
+> **Status:** Approved, final spec. Implementing `frontier_explore_benchmark.py`
+> **Context:** Multi-Session Mapping Benchmark — octa_maze PCD demo
 
 ---
 
@@ -32,7 +32,7 @@ This is directly analogous to real-world robot navigation:
 4. The merged map now finds a shorter path for the same (start, goal) pair
 5. After N sessions, the path approaches the ground-truth optimum
 
-**The goal is fixed across all sessions, while each session's starting position is randomly sampled from the full free space.** This means the final evaluation pair (start_for_eval, fixed_goal) uses start_for_eval = the same start used by all sessions' trial, allowing direct comparison of path optimality as the merged map grows.
+**Both start and goal are fixed across all sessions.** Session diversity comes from exploration strategy perturbation (different initial yaw + softmax frontier selection temperature), not from different starting positions. This enables direct comparison of path optimality as the merged topometric map grows across sessions.
 
 ---
 
@@ -136,17 +136,39 @@ frontier = unknown_cell AND (UNIQUE(neighbor_4) contains free_cell)
 
 That is: a cell whose value is 0 (unknown) in `obs`, and at least one of its 4-connected neighbors is -1 (observed free). Obstacle neighbors do not qualify.
 
-### 3.3 Frontier Selection Strategy
+### 3.3 Frontier Selection Strategy (with Perturbation)
 
-Select the frontier cell with the **shortest A\* path distance** from the current position on the known map:
+The base strategy is nearest-frontier-first (Yamauchi 1997), augmented with **softmax-temperature perturbation** to produce diverse exploration paths across sessions.
+
+**Algorithm:**
 
 ```
-next = argmin( astar_len(current, f) for f in frontiers )
+# 1. Filter top-N candidates by Euclidean distance
+candidates = frontiers[argsort(euclidean_dist(current, f))][:FRONTIER_TOP_N]
+
+# 2. Compute negative distances to the candidates on the known map
+dists = [astar_len(inflate(pg), current, c) for c in candidates]
+
+# 3. Softmax selection with per-session temperature T_k
+logits = -np.array(dists) / T_k
+probs  = softmax(logits)           # stable via exp(logits - max(logits))
+next   = rng.choice(candidates, p=probs)
 ```
 
-This is the nearest-frontier-first strategy (Yamauchi 1997), which minimizes travel distance between frontiers.
+**Temperature schedule across sessions:**
 
-**Performance optimization for large maps:** first filter frontiers by Euclidean distance (e.g., top 20 nearest), then compute A\* distances only for those candidates. On small grids like the maze (72×72), compute A\* for all frontiers directly.
+```
+T_k = FRONTIER_TEMP_MIN + k * (FRONTIER_TEMP_MAX - FRONTIER_TEMP_MIN) / max(K - 1, 1)
+```
+
+| k | T_k | Behavior |
+|---|-----|----------|
+| 0 (first session) | 0.5 | Near-greedy: almost always picks the nearest frontier |
+| K-1 (last session) | 5.0 | Near-uniform: explores more varied areas |
+
+**Initial yaw perturbation:** each session k starts exploration facing direction `k * (2π / K)` radians, further differentiating the initial FOV coverage.
+
+**Performance optimization for large maps:** first filter frontiers by Euclidean distance (e.g., top 20 nearest), then compute A\* distances only for those candidates. On small grids like the maze (71×71), compute A\* for all frontiers directly.
 
 ### 3.4 Goal Check
 
@@ -166,8 +188,8 @@ If `path is not None`, the goal is reachable on the current partial map → navi
 ### 3.5 Observation Model
 
 - FOV: 90° sector (FOV_HALF_DEG = 45°) pointing along robot yaw
-- Range: sensor-specific (see Section 11 for maze-specific values)
-- Resolution: res_m (0.5 m/cell for STL maze)
+- Range: FOV_RANGE_M (8.0 m for maze, 15.0 m for OSM-scale)
+- Resolution: res_m (0.5 m/cell for octa_maze)
 
 ---
 
@@ -262,54 +284,91 @@ ratio[k] = topo_path_len[k] / GT_len
 
 ## 8. Visualization
 
-### 8.1 fig0: Base Map
+All figures at **300 dpi**.
 
-Single panel showing:
-- Full base_grid occupancy map (free = light, obstacle = dark)
-- Fixed start (green circle) and goal (red X)
-- GT path (orange dashed line)
-- Title with map stats (grid size, resolution, free/obs ratio)
+### 8.1 fig1: Session Exploration Paths + Merged Graph
 
-### 8.2 fig1: Per-Session Frontier Exploration
+**Layout:** 2×3 panels (K=5: sessions 0–4 + Merged), size 18×12 inches.
 
-K panels (grid layout depends on K: 1×5 for K=5, 5×2 for K=10). Each panel k shows:
-- **Background:** `sessions_obs[k]` — only what session k observed (unvisited = black)
-- **Exploration trajectory:** white line showing the frontier-to-frontier path
-- **Topo nodes:** blue dots (keyframes from session k only)
-- **Topo edges:** white transparent lines
-- **Session start:** green circle (random per session)
-- **Fixed Goal:** red X
-- **GT path:** orange dashed line for reference
-- **Title:** `k=X  topo-reach=YES/NO  topo_len=...m  GT=...m  ratio=...`
+**Session k subplot (panels 1–5):**
+- Background: `base_grid` (obstacle=black, free=light gray)
+- Topo nodes: blue solid dots (keyframes from session k only)
+- Topo edges: blue thin lines (session k intra-session edges)
+- Shortest path on **session k alone** topo graph: orange thick solid line (start→goal)
+- If unreachable on session k's topo graph → label "unreachable", no orange line
+- Start: green circle; Goal: red X
+- Title: `Session {k}  T={T_k:.1f}  nodes={N}  reach=YES/NO`
 
-### 8.3 fig2: Fixed Pair Across Incremental Merge
+**Merged subplot (panel 6):**
+- Background: `base_grid`
+- All session topo nodes: blue dots
+- Intra-session edges: blue thin lines
+- Cross-session edges: yellow thin lines
+- Shortest path on merged topo graph: orange thick solid line
+- GT optimal path: orange dashed line (reference)
+- Start: green circle; Goal: red X
+- Title: `Merged (k=0..{K-1})  topo={len:.1f}m  GT={gt_len:.1f}m  ratio={ratio:.2f}`
 
-K panels. Each panel k shows:
-- **Background:** `merged_all[k]` — cumulative merge of sessions 0..k
-- **Merged topo graph:** nodes (blue) + intra-session edges (white) + cross-session edges (yellow)
-- **Fixed start/goal:** green circle / red X
-- **Topo path:** orange thick line
-- **GT path:** orange dashed
-- **Title:** `k=X  reach=YES/NO  topo=...m  GT=...m  ratio=...`
+**Output:** `output/octa_maze/fig1_session_exploration.png`
 
-### 8.4 fig6: Summary Table
+### 8.2 fig2: Optimality Curve
 
-K-row quantitative summary table with columns:
-k, session_start, reachable, topo_len, GT_len, ratio, nodes, cov_free_m2
+**Layout:** single plot, size 8×5 inches.
 
-### 8.5 map_growth.gif
+- X-axis: Cumulative session count k (1 → K)
+- Y-axis: Optimality ratio = `topo_path_len[k] / GT_len`
+- Blue line + dots: ratio per cumulative merge level k
+- Red dashed horizontal line: `ratio = 1.0` (GT optimal reference)
+- Each data point annotated with value (e.g. `r=1.23`)
+- Unreachable at level k → gray dashed segment + "∞" label
+- Title: `Path Optimality vs. Number of Sessions`
+- Legend: `topo ratio`, `GT optimal (1.0)`
 
-K frames (one per cumulative session), FPS=3. Each frame: merged map + current session trajectory + stats.
+**Output:** `output/octa_maze/fig2_optimality_curve.png`
 
-### 8.6 Output Files
+### 8.3 fig3: Coverage Growth
 
-| File | Description |
-|------|-------------|
-| `fig0_maze_map.png` | Full maze occupancy map with start/goal/GT path |
-| `fig1_per_session_exploration.png` | K-panel frontier exploration per session |
-| `fig2_fixed_pair_merge.png` | K-panel incremental merge with topo paths |
-| `fig6_summary_table.png` | Quantitative summary |
-| `map_growth.gif` | Map growth animation |
+**Layout:** 2×3 panels (K=5: cumulative k=1..5 + summary line plot), size 18×12 inches.
+
+**Cumulative coverage subplot k (panels 1–5):**
+- Background: `base_grid` (obstacle=black)
+- Historical coverage (sessions 0..k-1): green semi-transparent overlay (`merged_obs[:k] == -1`)
+- Current session k new coverage: **cyan** semi-transparent overlay (distinct from history)
+- Current session k exploration trajectory: white thin line
+- Start: green circle; Goal: red X
+- Annotation: `k={k}  new_cov={new_pct:.0f}%  total_cov={total_pct:.0f}%  area={cov_m2:.0f}m²`
+
+**Summary line plot (panel 6):**
+- X-axis: Cumulative session count (1 → K)
+- Y-axis: Coverage percentage (`cov_free_m2 / total_free_m2 × 100`)
+- Blue line + dots: cumulative coverage curve
+- Cyan bars or area fill: per-session new coverage contribution
+- Title: `Cumulative Coverage Growth`
+
+**Output:** `output/octa_maze/fig3_reachability_coverage.png`
+
+### 8.4 Output Directory Structure
+
+```
+output/octa_maze/
+├── base_map.npy
+├── fixed_pair.json
+├── fig1_session_exploration.png
+├── fig2_optimality_curve.png
+├── fig3_reachability_coverage.png
+└── data/
+    ├── session_0_poses.npy
+    ├── session_0_obs.npy
+    ├── ...
+    ├── session_4_poses.npy
+    ├── session_4_obs.npy
+    ├── merged_obs_k0.npy
+    ├── merged_obs_k1.npy
+    ├── ...
+    ├── topo_graph_k0.json
+    ├── ...
+    └── metrics.json
+```
 
 ---
 
@@ -320,11 +379,13 @@ K frames (one per cumulative session), FPS=3. Each frame: merged map + current s
 | Function | Responsibility |
 |----------|---------------|
 | `find_frontiers(obs)` | Return list of frontier cell coordinates |
-| `select_nearest_frontier(frontiers, current, obs)` | Pick closest frontier by A\* distance |
-| `frontier_explore_session(start, goal, base_grid, rng, res_m)` | Run one session of frontier exploration; return (poses, obs, subgraph) |
+| `select_frontier(frontiers, current, obs, rng, temperature, top_n)` | Softmax-temperature frontier selection with perturbation |
+| `frontier_explore_session(start, goal, base_grid, rng, initial_yaw, frontier_temperature, res_m)` | Run one session of frontier exploration; return (poses, obs, subgraph) |
+| `load_pcd_grid(pcd_path, resolution, height_slice, height_tolerance, dilate)` | Parse PCD, crop height slice, rasterize → 2D occupancy grid |
 | `topo_path_length(topo_graph, start, goal, res_m)` | Shortest path on topo graph for given pair |
-| `fig1_per_session_exploration(...)` | New fig1 with frontier trajectory + topo path |
-| `fig2_fixed_pair_merge(...)` | Updated fig2 with topo-based paths |
+| `fig1_session_exploration(...)` | 2×3 panels: per-session topo graph paths + merged graph |
+| `fig2_optimality_curve(...)` | Line plot: optimality ratio vs. session count |
+| `fig3_reachability_coverage(...)` | 2×3 panels: cumulative coverage growth + summary line |
 
 ### 9.2 Removed Functions (from OSM benchmark)
 
@@ -351,14 +412,17 @@ K frames (one per cumulative session), FPS=3. Each frame: merged map + current s
 | `CROSS_DIST_M` | 10.0 | Max distance for cross-session edges |
 | `INFLATE_RADIUS` | 3 | Obstacle inflation radius (cells) |
 | `TOPO_SNAP_DIST_M` | 5.0 | Max distance to snap start/goal to nearest topo node |
+| `FRONTIER_TEMP_MIN` | 0.5 | Softmax temperature for session 0 (near-greedy) |
+| `FRONTIER_TEMP_MAX` | 5.0 | Softmax temperature for session K-1 (near-uniform) |
+| `FRONTIER_TOP_N` | 5 | Number of nearest frontier candidates for softmax |
 
 ---
 
-## 11. STL Maze Implementation Plan (`frontier_explore_benchmark.py`)
+## 11. Octa Maze Implementation Plan (`frontier_explore_benchmark.py`)
 
 ### 11.1 Purpose
 
-A standalone demonstration script using the `octa_maze.stl` file (35×35m garden maze) to prove the core concept: as K=5 exploration sessions accumulate, the shortest path on the merged topometric map from a fixed start to a fixed goal converges toward the ground-truth optimal.
+A standalone demonstration script using the `octa_maze.pcd` point cloud (35×35m garden maze, 250k points) to prove the core concept: all K=5 exploration sessions start from the same (start, goal) pair but use different exploration behavior (perturbed initial yaw + softmax-temperature frontier selection). As sessions accumulate, the shortest path on the merged topometric map converges toward the ground-truth optimal.
 
 The script is self-contained (no OSM or internet dependency), runs in the `opennavmap` conda environment or any Python 3.8+ with numpy/scipy/matplotlib/networkx.
 
@@ -367,63 +431,82 @@ The script is self-contained (no OSM or internet dependency), runs in the `openn
 ```
 benchmark_mms/
   frontier_explore_benchmark.py    ← new standalone script
+  data/
+    octa_maze.pcd                  ← 250k points, ASCII PCD
+    octa_maze.stl                  ← original mesh (not used by script)
+    stl2pcd_occupancy.py           ← reference: PCD→grid parameters
   output/
-    maze/
-      base_map.npy
-      fixed_pair.json
-      fig0_maze_map.png
-      fig1_per_session_exploration.png
-      fig2_fixed_pair_merge.png
-      fig6_summary_table.png
-      map_growth.gif
+    octa_maze/                     ← output directory
+      base_map.npy                 ← 71×71 uint8 occupancy grid
+      fixed_pair.json              ← start/goal grid + world coords
+      fig1_session_exploration.png ← 2×3 panels, 300dpi, 18×12in
+      fig2_optimality_curve.png    ← single plot, 300dpi, 8×5in
+      fig3_reachability_coverage.png ← 2×3 panels, 300dpi, 18×12in
       data/
-        session_01_poses.npy
-        session_01_obs.npy
+        session_0_poses.npy
+        session_0_obs.npy
         ...
-        merged_obs_k01.npy
-        topo_graph_k01.json
+        merged_obs_k0.npy
+        merged_obs_k1.npy
+        ...
+        topo_graph_k0.json
+        ...
         metrics.json
 ```
 
-### 11.3 STL Parsing → 2D Grid Map
+### 11.3 PCD Loading → 2D Grid Map
 
-**Source:** `/data/octa_maze.stl` (binary STL, ASCII-sig header `solid garden_maze2`, 1478 triangles)
+**Source:** `data/octa_maze.pcd` (ASCII PCD v0.7, 250,000 points, FIELDS x y z)
 
-**Coordinate frame:** The STL uses Y for height (0–3.5m with walls at Y≈3.5m) and XZ for the floor plane (0–35m × 0–35m). Walls are vertical faces with `|normal_Y| < 0.1`.
+**Coordinate frame:** XZ is the ground plane (0–35 m × 0–35 m). Y is height (0–3.5 m). Grid maps `row = z / RES`, `col = x / RES`.
 
-**Method:**
-1. Parse binary STL using `struct` (zero external dependencies — fallback to `trimesh` if available)
-2. Identify wall triangles: faces where `|normal_Y| < 0.1` (vertical faces)
-3. Project wall footprints onto the XZ plane (rasterize each wall triangle's bounding box)
-4. Resolution: 0.5 m/cell → 70×70 grid + 2-cell border = **72×72 cells**
-5. Add 2-cell border walls
-6. Validate: obstacle ratio must be in [0.04, 0.95]
+**Conversion parameters (from `stl2pcd_occupancy.py`):**
 
-**Grid coordinates:** `grid[row][col]` where `row = z / RES`, `col = x / RES`
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `height_slice` | 2.0 m | Crop Y at this height for 2D projection |
+| `height_tolerance` | 0.3 m | Keep points where `abs(Y - height_slice) ≤ tolerance`, i.e. Y ∈ [1.7, 2.3] |
+| `resolution` | 0.5 m/cell | Output grid resolution |
+| `dilate` | 1 px | Binary dilation to thicken walls |
+
+**Expected grid shape:** 35 m / 0.5 m + 1 = **71×71 cells**
+
+**Validation:** obstacle ratio must be in [0.04, 0.95]
 
 ```python
-def load_stl_grid(stl_path, res_m=0.5):
-    """Parse binary STL and rasterize walls to 2D occupancy grid.
+def load_pcd_grid(pcd_path, resolution=0.5,
+                  height_slice=2.0, height_tolerance=0.3,
+                  dilate=1):
+    """Load ASCII PCD, crop Y-height slice, rasterize to 2D grid.
     
-    Returns: grid (uint8, 0=free 1=obstacle), shape=(grid_h, grid_w)
+    Returns: grid (uint8, 0=free 1=obstacle),
+             x_range=(x_min, x_max), z_range=(z_min, z_max)
     """
-    # Pure-Python struct-based STL parser
-    # Extract wall faces (|normal_Y| < 0.1)
-    # Rasterize bounding boxes of wall triangles to XZ grid
-    # Add border walls
-    # Return validated grid
+    pts = np.loadtxt(pcd_path, skiprows=10)       # skip 10-line PCD header
+    x_range = (pts[:,0].min(), pts[:,0].max())     # (0.0, 35.0)
+    z_range = (pts[:,2].min(), pts[:,2].max())     # (0.0, 35.0)
+    # Height-based crop on Y
+    mask = np.abs(pts[:,1] - height_slice) <= height_tolerance
+    pts_slice = pts[mask]
+    grid = generate_occupancy_grid(pts_slice, x_range, z_range, resolution)
+    if dilate > 0:
+        grid = binary_dilation(grid, structure=numpy.ones((3,3), bool)).astype(np.uint8)
+    return grid, x_range, z_range
 ```
 
 ### 11.4 Maze-Specific Constants
 
-Scaled proportionally from the 1000×1000 @ 0.5 m/cell OSM benchmark to the 72×72 grid (scale factor ≈ 72/1000 = 0.072):
+Scaled proportionally from the 1000×1000 @ 0.5 m/cell OSM benchmark to the 71×71 grid (scale factor ≈ 71/1000 = 0.071):
 
 | Constant | Maze Value | OSM Value | Description |
 |----------|------------|-----------|-------------|
 | `N_SESSIONS` (K) | **5** | 10 | Number of exploration sessions |
 | `GRID_RES_M` | **0.5** | 0.5 | Grid resolution (m/cell) |
-| `GRID_SHAPE` | **72×72** | 1000×1000 | Grid dimensions |
+| `GRID_SHAPE` | **71×71** | 1000×1000 | Grid dimensions |
 | `MAP_SIZE_M` | **35×35 m** | 500×500 m | Real-world map size |
+| `PCD_HEIGHT_SLICE` | **2.0** | — | Height (Y) to crop for 2D grid (m) |
+| `PCD_HEIGHT_TOL` | **0.3** | — | Tolerance band around height_slice (m) |
+| `PCD_DILATE` | **1** | — | Binary dilation radius (px) for walls |
 | `FOV_HALF_DEG` | **45.0** | 45.0 | Half field-of-view angle |
 | `FOV_RANGE_M` | **8.0** | 15.0 | Sensor range (meters) |
 | `TRANS_THRESH_M` | **2.0** | 7.0 | Topo node translation threshold |
@@ -434,34 +517,44 @@ Scaled proportionally from the 1000×1000 @ 0.5 m/cell OSM benchmark to the 72×
 | `FRONTIER_DIST_FALLBACK` | **15** | 100 | Fallback distance |
 | `TOPO_SNAP_DIST_M` | **3.0** | 5.0 | Snap start/goal to nearest topo node |
 | `MAX_STEPS_COVERAGE_BUDGET` | **0.5** | 0.5 | Max steps = h × w × budget |
+| `FRONTIER_TEMP_MIN` | **0.5** | — | Softmax temp for session 0 (near-greedy) |
+| `FRONTIER_TEMP_MAX` | **5.0** | — | Softmax temp for session K-1 (near-uniform) |
+| `FRONTIER_TOP_N` | **5** | — | Number of nearest frontier candidates |
 
 ### 11.5 Session Configuration
 
 - **K = 5**: default, overridable via `--k`
-- **Fixed goal**: provided via CLI `--goal R C`, same for all K sessions
-- **Fixed evaluation start**: same as fixed goal's pair start, provided via CLI `--start R C`
-- **Per-session start**: uniformly random from `inflate(base_grid)` free cells, using `np.random.default_rng(session_id)` for reproducibility
-- Each session starts exploration from its random start, with awareness of the fixed goal for the goal-check loop
+- **Fixed (start, goal)**: ALL K sessions share the **same** start and goal, provided via CLI `--start R C --goal R C` in grid coordinates:
+  - start: world `(x=2.5, y=2.0, z=3.5)` → grid `(row=7, col=5)` at 0.5 m/cell
+  - goal:  world `(x=32.0, y=2.0, z=32.5)` → grid `(row=65, col=64)` at 0.5 m/cell
+  - Euclidean distance ≈ 82.7 cells (~41.4 m) — satisfies FRONTIER_DIST_MIN=30
+- **Session diversity via exploration perturbation**: same start/goal, but different exploration behavior per session:
+  - **RNG**: `np.random.default_rng(master_seed + k)` per session
+  - **Initial yaw**: `k * (2π / K)` radians — session 0 faces +X (east), session 1 72° rotated, etc.
+  - **Frontier selection softmax temperature**: `T_k = T_MIN + k * (T_MAX - T_MIN) / max(K-1, 1)`
+    - session 0: T=0.5 (near-greedy: picks nearest frontier with high probability)
+    - session 4: T=5.0 (near-uniform: explores varied areas)
+  - **Frontier candidates**: top-N=5 nearest frontiers by Euclidean distance, then softmax over `-dist / T_k`
 
 ### 11.6 CLI Interface
 
 ```bash
 # Required: provide fixed start and goal in grid coordinates (row, col)
-python frontier_explore_benchmark.py --start 5 5 --goal 60 60
+python frontier_explore_benchmark.py --start 7 5 --goal 65 64
 
 # Optional overrides
-python frontier_explore_benchmark.py --start 5 5 --goal 60 60 \
-    --res_m 0.5 --k 5 --seed 42 --output_dir ./output/maze
+python frontier_explore_benchmark.py --start 7 5 --goal 65 64 \
+    --res_m 0.5 --k 5 --seed 42 --output_dir ./output/octa_maze
 ```
 
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `--start R C` | Yes | — | Fixed start cell (row, col) for the evaluation pair |
-| `--goal R C` | Yes | — | Fixed goal cell (row, col) |
+| `--start R C` | Yes | — | Fixed start cell (row, col) in grid coords |
+| `--goal R C` | Yes | — | Fixed goal cell (row, col) in grid coords |
 | `--res_m` | No | 0.5 | Grid resolution (m/cell) |
 | `--k` | No | 5 | Number of sessions |
 | `--seed` | No | 42 | Master random seed |
-| `--output_dir` | No | `./output/maze` | Output directory |
+| `--output_dir` | No | `./output/octa_maze` | Output directory |
 
 ### 11.7 Dependencies
 
@@ -469,36 +562,48 @@ python frontier_explore_benchmark.py --start 5 5 --goal 60 60 \
 # Core (required):
 pip install numpy matplotlib scipy networkx
 
-# Optional (better STL rendering):
-pip install trimesh       # falls back to pure-Python struct parser if unavailable
+# Optional:
 pip install imageio       # for map_growth.gif; fails gracefully if missing
 ```
 
-No OSM-related dependencies (osmnx, geopandas, shapely). No internet required.
+No OSM-related dependencies (osmnx, geopandas, shapely). No trimesh needed (PCD loaded via numpy). No internet required.
 
 ### 11.8 Execution Flow
 
 ```
-1. Parse octa_maze.stl → 72×72 occupancy grid (base_map.npy)
-2. Validate CLI-provided --start and --goal (free + GT-reachable)
-3. Save fixed_pair.json
-4. For k in 1..K:
-   a. Sample random session_start from free cells
-   b. Run frontier_explore_session(session_start, fixed_goal, base_grid)
+1. Load data/octa_maze.pcd → crop Y∈[1.7, 2.3] → rasterize XZ at 0.5 m/cell
+   → dilate 1 px → base_grid (71×71, uint8) → save base_map.npy
+2. Validate --start (7,5) and --goal (65,64): both free + GT-reachable
+3. Save fixed_pair.json:
+   {"start":[7,5], "goal":[65,64],
+    "world_start":[2.5,2.0,3.5], "world_goal":[32.0,2.0,32.5]}
+4. For k in 0..K-1:
+   a. rng_k = np.random.default_rng(seed + k)
+      initial_yaw_k = k * (2π / K)
+      temperature_k = T_MIN + k * (T_MAX - T_MIN) / max(K-1, 1)
+   b. Run frontier_explore_session(fixed_start, fixed_goal, base_grid,
+                                    rng=rng_k,
+                                    initial_yaw=initial_yaw_k,
+                                    frontier_temperature=temperature_k)
    c. Build topometric subgraph from trajectory
    d. Merge subgraph with previous sessions
-   e. Evaluate topo_path for fixed evaluation pair (start, fixed_goal)
-5. Generate output figures (fig0, fig1, fig2, fig6, map_growth.gif)
-6. Save all data snapshots
-7. Print quantitative summary to terminal
-```
+   e. Evaluate topo_path for (fixed_start, fixed_goal) at each merge level
+5. Generate figures (all 300 dpi):
+   - fig1_session_exploration.png   (2×3 panels, 18×12 in)
+   - fig2_optimality_curve.png      (single plot, 8×5 in)
+   - fig3_reachability_coverage.png (2×3 panels, 18×12 in)
+6. Save all data snapshots to output/octa_maze/data/
+7. Print quantitative summary to terminal:
+   k  temp  initial_yaw  nodes  reachable  topo_len(m)  GT(m)  ratio  cov_free_m2
 
 ### 11.9 Expected Results
 
-- `ratio[1]` should be > 1.0 (or unreachable) — session 1 alone has incomplete knowledge
-- `ratio[k]` should decrease monotonically as k grows, approaching 1.0
-- By k=5, `ratio` should be close to 1.0 (near-optimal path on merged topo map)
-- `node_count` and `cov_free_m2` should increase with k
+- `ratio[0]` (session 0 alone, T=0.5, greedy): should be > 1.0 or unreachable — single session has incomplete knowledge
+- `ratio[k]` decreases monotonically as k grows, approaching 1.0
+- Early sessions (0–1, low temperature) cover direct corridor; later sessions (3–4, high temperature) explore side branches
+- By k=4 (merged all 5), `ratio` should be close to 1.0 (near-optimal path on merged topo map)
+- `node_count` and `cov_free_m2` increase with k
+- `cov_pct` (coverage percentage) grows, with cyan overlays in fig3 showing diminishing new coverage in later sessions
 
 ### 11.10 Self-Contained Design
 
