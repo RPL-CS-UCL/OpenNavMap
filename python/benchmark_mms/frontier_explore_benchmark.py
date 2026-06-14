@@ -550,11 +550,27 @@ COLOR_GOAL = "#EF4444"
 COLOR_COV_HIST = "#10B981"
 COLOR_COV_NEW = "#06B6D4"
 COLOR_TRAJ = "#FFFFFF"
+STYLE_UNKNOWN = np.array([107, 114, 128]) / 255.0
 # Pre-convert for RGBA overlay usage
 _COV_HIST_RGB = tuple(int(COLOR_COV_HIST.lstrip("#")[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 _COV_NEW_RGB = tuple(int(COLOR_COV_NEW.lstrip("#")[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 ALPHA_COV_HIST = 0.35
 ALPHA_COV_NEW = 0.50
+
+
+def obs_to_rgb(obs: np.ndarray) -> np.ndarray:
+    """Convert int8 obs grid to float32 RGB image for matplotlib.
+
+    obs == -1  (free)     -> STYLE_FREE    (near-white)
+    obs ==  0  (unknown)  -> STYLE_UNKNOWN (grey)
+    obs ==  1  (obstacle) -> STYLE_OBS     (near-black)
+    """
+    H, W = obs.shape
+    rgb = np.empty((H, W, 3), dtype=np.float32)
+    rgb[:] = STYLE_UNKNOWN
+    rgb[obs == -1] = STYLE_FREE
+    rgb[obs == 1] = STYLE_OBS
+    return rgb
 
 
 def _draw_base_grid(ax, base_grid):
@@ -617,7 +633,7 @@ def fig1_session_exploration(
     for k in range(K):
         ax = axes[k]
         ax.set_facecolor(BG_COLOR)
-        _draw_base_grid(ax, base_grid)
+        ax.imshow(obs_to_rgb(all_obs[k]), origin="upper", interpolation="none")
 
         Gk = subgraphs[k]
         if Gk.number_of_nodes() > 0:
@@ -772,16 +788,17 @@ def fig3_reachability_coverage(
     for k in range(K):
         ax = axes[k]
         ax.set_facecolor(BG_COLOR)
-        _draw_base_grid(ax, base_grid)
+        ax.imshow(obs_to_rgb(all_obs[k]), origin="upper", interpolation="none")
 
         prev_mask = cum_free_mask.copy()
         new_free = (all_obs[k] == -1)
         cum_free_mask |= new_free
 
-        cov_layer = np.zeros((*base_grid.shape, 4))
-        cov_layer[prev_mask, :] = (*_COV_HIST_RGB, ALPHA_COV_HIST)
-        cov_layer[new_free & ~prev_mask, :] = (*_COV_NEW_RGB, ALPHA_COV_NEW)
-        ax.imshow(cov_layer, origin="upper", interpolation="none", zorder=2)
+        new_this_session = new_free & ~prev_mask
+        if new_this_session.any():
+            cov_layer = np.zeros((*base_grid.shape, 4))
+            cov_layer[new_this_session, :] = (*_COV_NEW_RGB, ALPHA_COV_NEW)
+            ax.imshow(cov_layer, origin="upper", interpolation="none", zorder=2)
 
         traj = all_poses[k]
         if traj:

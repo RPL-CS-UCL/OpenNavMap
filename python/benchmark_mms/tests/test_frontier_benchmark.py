@@ -19,10 +19,6 @@ def test_fov_half_rad_consistent_with_deg():
     assert abs(feb.FOV_HALF_RAD - np.radians(30.0)) < 1e-9
 
 
-def _make_simple_grid(h=15, w=15):
-    return np.zeros((h, w), dtype=np.uint8)
-
-
 def test_select_frontier_prefers_goal_direction():
     rng = np.random.default_rng(0)
     frontiers = [(2, 7), (10, 7)]
@@ -66,3 +62,37 @@ def test_select_frontier_no_bias_behaves_as_nearest():
             nearest_count += 1
 
     assert nearest_count > 150, f"Expected >150/200 nearest, got {nearest_count}"
+
+
+def test_obs_to_rgb_unknown_is_grey():
+    obs = np.zeros((5, 5), dtype=np.int8)
+    rgb = feb.obs_to_rgb(obs)
+    expected = np.array([107, 114, 128]) / 255.0
+    np.testing.assert_allclose(rgb[2, 2], expected, atol=1e-6)
+
+
+def test_obs_to_rgb_free_is_white():
+    obs = np.full((5, 5), -1, dtype=np.int8)
+    rgb = feb.obs_to_rgb(obs)
+    expected = np.array([243, 244, 246]) / 255.0
+    np.testing.assert_allclose(rgb[2, 2], expected, atol=1e-6)
+
+
+def test_obs_to_rgb_obstacle_is_black():
+    obs = np.full((5, 5), 1, dtype=np.int8)
+    rgb = feb.obs_to_rgb(obs)
+    expected = np.array([31, 41, 55]) / 255.0
+    np.testing.assert_allclose(rgb[2, 2], expected, atol=1e-6)
+
+
+def test_obs_to_rgb_mixed():
+    obs = np.zeros((3, 3), dtype=np.int8)
+    obs[0, 0] = -1
+    obs[1, 1] = 1
+    rgb = feb.obs_to_rgb(obs)
+    white = np.array([243, 244, 246]) / 255.0
+    black = np.array([31, 41, 55]) / 255.0
+    grey  = np.array([107, 114, 128]) / 255.0
+    np.testing.assert_allclose(rgb[0, 0], white, atol=1e-6)
+    np.testing.assert_allclose(rgb[1, 1], black, atol=1e-6)
+    np.testing.assert_allclose(rgb[2, 2], grey,  atol=1e-6)
