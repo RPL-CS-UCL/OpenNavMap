@@ -35,9 +35,9 @@ from scipy.ndimage import binary_dilation
 # ============================================================================
 GRID_RES_M = 0.5
 N_SESSIONS = 5
-FOV_HALF_DEG = 45.0
+FOV_HALF_DEG = 30.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
-FOV_RANGE_M = 8.0
+FOV_RANGE_M = 5.0
 TRANS_THRESH_M = 2.0
 ROT_THRESH_RAD = np.radians(60)
 CROSS_DIST_M = 3.0
