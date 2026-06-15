@@ -334,15 +334,32 @@ def build_topometric_subgraph(
     G.add_node(0, x=c0 * res, y=r0 * res, yaw=y0)
     node_idx = 0
     prev = (r0, c0, y0)
-    for r, c, yaw in poses[1:]:
+    inf_grid = inflate_grid(base_grid) if base_grid is not None else None
+
+    for i in range(1, len(poses)):
+        r, c, yaw = poses[i]
         pr, pc, py = prev
-        trans = res * (abs(r - pr) + abs(c - pc))
-        rot = abs(np.arctan2(np.sin(yaw - py), np.cos(yaw - py)))
-        if trans > trans_thresh or rot > rot_thresh:
+
+        if inf_grid is not None:
+            if not _line_free(pr, pc, r, c, base_grid):
+                continue
+
+            trans = res * (abs(r - pr) + abs(c - pc))
+            trigger = trans > trans_thresh
+
+            if not trigger and i + 1 < len(poses):
+                nr, nc, _ = poses[i + 1]
+                if not _line_free(pr, pc, nr, nc, base_grid):
+                    trigger = True
+        else:
+            trans = res * (abs(r - pr) + abs(c - pc))
+            rot = abs(np.arctan2(np.sin(yaw - py), np.cos(yaw - py)))
+            trigger = trans > trans_thresh or rot > rot_thresh
+
+        if trigger:
             node_idx += 1
             G.add_node(node_idx, x=c * res, y=r * res, yaw=yaw)
-            if base_grid is not None:
-                inf_grid = inflate_grid(base_grid)
+            if inf_grid is not None:
                 _, dist_m = astar(inf_grid, (pr, pc), (r, c), res)
                 if dist_m >= float("inf"):
                     dist_m = res * (abs(r - pr) + abs(c - pc))

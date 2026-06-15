@@ -172,18 +172,18 @@ def test_inflate_radius_is_1():
     assert feb.INFLATE_RADIUS == 1, f"Expected 1, got {feb.INFLATE_RADIUS}"
 
 
-def test_topo_subgraph_edge_weight_uses_astar():
-    """Edge weight with base_grid provided must reflect A* path, not straight Manhattan."""
+def test_topo_subgraph_condition2_last_visible():
+    """Condition 2: B becomes keyframe if LOS(A→B) clear but LOS(A→B+1) blocked."""
     grid = np.zeros((15, 15), dtype=np.uint8)
-    grid[0:4, 2] = 1   # vertical wall at col 2, rows 0-3
-    # Manhattan = (0+12)*0.5 = 6.0m > 5.0m TRANS_THRESH_M; wall forces A* detour
-    poses = [(0, 0, 0.0), (0, 12, 0.0)]
-    G_no_grid = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
-    G_with_grid = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M, base_grid=grid)
-    w_no = list(G_no_grid.edges(data=True))[0][2]["weight"]
-    w_with = list(G_with_grid.edges(data=True))[0][2]["weight"]
-    assert w_no == 12 * feb.GRID_RES_M, f"Expected 6.0, got {w_no}"
-    assert w_with > w_no, f"Expected A* weight {w_with} > Manhattan {w_no}"
+    grid[0:10, 10] = 1   # vertical wall at col 10
+
+    # Trajectory from col 0 to col 12:
+    # B=(0,9): LOS(A→B) clear (col 9 is free in base_grid)
+    # B+1=(0,10): LOS(A→B+1) blocked by wall at col 10 → triggers condition 2
+    poses = [(0, 0, 0.0)] + [(0, i, 0.0) for i in range(1, 13)]
+    G = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M, base_grid=grid)
+    node_cols = sorted([int(d["x"] / feb.GRID_RES_M) for _, d in G.nodes(data=True)])
+    assert 9 in node_cols, f"Col 9 must be a keyframe (last visible before wall). Got: {node_cols}"
 
 
 def test_merge_edge_weight_uses_astar():
