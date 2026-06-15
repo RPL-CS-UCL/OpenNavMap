@@ -668,9 +668,13 @@ def fig1_session_exploration(
         ax.set_yticks([])
 
     # Merged panel
+    merged_obs = np.zeros(base_grid.shape, dtype=np.int8)
+    for obs_k in all_obs:
+        merged_obs[obs_k == -1] = -1
+        merged_obs[obs_k ==  1] =  1
     ax = axes[K]
     ax.set_facecolor(BG_COLOR)
-    _draw_base_grid(ax, base_grid)
+    ax.imshow(obs_to_rgb(merged_obs), origin="upper", interpolation="none")
     if merged_topo.number_of_nodes() > 0:
         _draw_topo_graph(ax, merged_topo,
                          edge_color=COLOR_TOPO_EDGE_INTRA, res=res)
