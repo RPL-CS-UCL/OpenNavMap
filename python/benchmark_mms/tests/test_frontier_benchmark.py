@@ -164,14 +164,14 @@ def test_merge_does_not_connect_beyond_5m():
     assert merged.number_of_edges() == 0, "Nodes > 5 m apart must NOT be connected"
 
 
-def test_pcd_dilate_is_0():
-    """PCD_DILATE must be 0 (raw grid, inflate for planning)."""
-    assert feb.PCD_DILATE == 0, f"Expected 0, got {feb.PCD_DILATE}"
+def test_pcd_dilate_is_1():
+    """PCD_DILATE must be 1 (walls expanded by 1 pixel on load)."""
+    assert feb.PCD_DILATE == 1, f"Expected 1, got {feb.PCD_DILATE}"
 
 
-def test_inflate_radius_is_1():
-    """INFLATE_RADIUS must be 1 (safety margin for planning)."""
-    assert feb.INFLATE_RADIUS == 1, f"Expected 1, got {feb.INFLATE_RADIUS}"
+def test_inflate_radius_is_0():
+    """INFLATE_RADIUS must be 0 (dilated PCD already provides safety margin)."""
+    assert feb.INFLATE_RADIUS == 0, f"Expected 0, got {feb.INFLATE_RADIUS}"
 
 
 def test_topo_subgraph_condition2_last_visible():
