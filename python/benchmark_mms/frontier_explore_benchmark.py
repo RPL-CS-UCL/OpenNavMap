@@ -22,6 +22,7 @@ import json
 import os
 import time
 from pathlib import Path
+from collections import deque
 
 import matplotlib
 matplotlib.use("Agg")
@@ -478,6 +479,7 @@ def frontier_explore_session(
     obs = np.zeros_like(base_grid, dtype=np.int8)
     traj: list[tuple[int, int, float]] = [(start[0], start[1], initial_yaw)]
     visited_for_fov: set[tuple[int, int]] = {(start[0], start[1])}
+    recently_visited: deque[tuple[int, int]] = deque(maxlen=40)  # tabu list
 
     def _scan_position(pr: int, pc: int, pyaw: float) -> None:
         add_fov_observation(obs, pr, pc, pyaw, base_grid, fov_range_m, fov_half_rad, res)
@@ -497,6 +499,7 @@ def frontier_explore_session(
             for nr, nc in path_to_goal[1:]:
                 ny = np.arctan2(nr - traj[-1][0], nc - traj[-1][1])
                 traj.append((nr, nc, float(ny)))
+                recently_visited.append((nr, nc))
                 if (nr, nc) not in visited_for_fov:
                     visited_for_fov.add((nr, nc))
                     _scan_position(nr, nc, float(ny))
@@ -505,6 +508,14 @@ def frontier_explore_session(
         frontiers, free_neighbors = find_frontiers(obs)
         if not frontiers:
             break
+
+        # Filter out recently-visited targets to break oscillation loops
+        filtered = [(f, fn) for f, fn in zip(frontiers, free_neighbors)
+                    if fn not in recently_visited]
+        if len(filtered) >= 3:
+            frontiers, free_neighbors = zip(*filtered)
+            frontiers = list(frontiers)
+            free_neighbors = list(free_neighbors)
 
         pg = obs_to_planning_grid(obs, start, goal, inflate_radius, for_goal_check=False)
         inf_pg = pg  # no inflation for frontier navigation — need to traverse into unknown
@@ -521,8 +532,11 @@ def frontier_explore_session(
             break
 
         for nr, nc in path_to_f[1:]:
+            if base_grid[nr, nc] == 1:  # discovered obstacle — stop
+                break
             ny = np.arctan2(nr - traj[-1][0], nc - traj[-1][1])
             traj.append((nr, nc, float(ny)))
+            recently_visited.append((nr, nc))
 
             if (nr, nc) not in visited_for_fov:
                 visited_for_fov.add((nr, nc))
@@ -533,6 +547,7 @@ def frontier_explore_session(
                 for gr, gc in goal_path[1:]:
                     gy = np.arctan2(gr - traj[-1][0], gc - traj[-1][1])
                     traj.append((gr, gc, float(gy)))
+                    recently_visited.append((gr, gc))
                     if (gr, gc) not in visited_for_fov:
                         visited_for_fov.add((gr, gc))
                         _scan_position(gr, gc, float(gy))
