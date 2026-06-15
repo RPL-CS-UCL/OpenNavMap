@@ -35,7 +35,7 @@ from scipy.ndimage import binary_dilation
 # Constants (maze-specific, 71×71 grid @ 0.5 m/cell)
 # ============================================================================
 GRID_RES_M = 0.5
-N_SESSIONS = 10
+N_SESSIONS = 5
 FOV_HALF_DEG = 45.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
 FOV_RANGE_M = 8.0
