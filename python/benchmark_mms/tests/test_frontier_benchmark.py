@@ -108,23 +108,26 @@ def test_astar_distance_is_manhattan():
     assert abs(dist - expected) < 1e-9, f"Expected {expected}, got {dist}"
 
 
-def test_astar_no_diagonal_movement():
-    """A* must not cut diagonals — every step must be axis-aligned."""
+def test_astar_uses_8_directions():
+    """A* must support 8-directional movement (horizontal, vertical, diagonal)."""
     grid = np.zeros((10, 10), dtype=np.uint8)
     path, _ = feb.astar(grid, (0, 0), (2, 2))
     assert path is not None
-    for (r0, c0), (r1, c1) in zip(path, path[1:]):
-        assert (r0 == r1) or (c0 == c1), f"Diagonal step from ({r0},{c0}) to ({r1},{c1})"
+    has_diagonal = any(
+        abs(path[i][0] - path[i-1][0]) == 1 and abs(path[i][1] - path[i-1][1]) == 1
+        for i in range(1, len(path))
+    )
+    assert has_diagonal, "A* should use diagonal steps in 8-direction mode"
 
 
 def test_topo_subgraph_edge_weight_is_manhattan():
     """build_topometric_subgraph edge weight: Manhattan, not Euclidean."""
     import networkx as nx
-    poses = [(0, 0, 0.0), (3, 4, 0.0)]
+    poses = [(0, 0, 0.0), (6, 5, 0.0)]   # Manhattan = (6+5)*0.5 = 5.5m > 5.0m TRANS_THRESH_M
     G = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
     assert G.number_of_edges() == 1
     weight = list(G.edges(data=True))[0][2]["weight"]
-    expected = (3 + 4) * feb.GRID_RES_M
+    expected = (6 + 5) * feb.GRID_RES_M
     assert abs(weight - expected) < 1e-9, f"Expected {expected}, got {weight}"
 
 
@@ -171,29 +174,40 @@ def test_inflate_radius_is_1():
 
 def test_topo_subgraph_edge_weight_uses_astar():
     """Edge weight with base_grid provided must reflect A* path, not straight Manhattan."""
-    grid = np.zeros((10, 10), dtype=np.uint8)
+    grid = np.zeros((15, 15), dtype=np.uint8)
     grid[0:4, 2] = 1   # vertical wall at col 2, rows 0-3
-    poses = [(0, 0, 0.0), (0, 6, 0.0)]
+    # Manhattan = (0+12)*0.5 = 6.0m > 5.0m TRANS_THRESH_M; wall forces A* detour
+    poses = [(0, 0, 0.0), (0, 12, 0.0)]
     G_no_grid = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
     G_with_grid = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M, base_grid=grid)
     w_no = list(G_no_grid.edges(data=True))[0][2]["weight"]
     w_with = list(G_with_grid.edges(data=True))[0][2]["weight"]
-    assert w_no == 6 * feb.GRID_RES_M, f"Expected 3.0, got {w_no}"
+    assert w_no == 12 * feb.GRID_RES_M, f"Expected 6.0, got {w_no}"
     assert w_with > w_no, f"Expected A* weight {w_with} > Manhattan {w_no}"
 
 
 def test_merge_edge_weight_uses_astar():
-    """Cross-session edge weight must use A* path, not straight Manhattan."""
+    """Cross-session edge weight uses A* path when line of sight is clear."""
     import networkx as nx
     grid = np.zeros((10, 10), dtype=np.uint8)
-    grid[0:8, 4] = 1   # vertical wall at col 4, rows 0-7 (row 8-9 free for detour)
-    G1 = nx.Graph(); G1.add_node(0, x=0.5, y=0.5, yaw=0.0)   # grid(r=1,c=1)
-    G2 = nx.Graph(); G2.add_node(0, x=3.5, y=0.5, yaw=0.0)   # grid(r=1,c=7)
+    G1 = nx.Graph(); G1.add_node(0, x=1.0, y=1.0, yaw=0.0)   # grid(r=2,c=2)
+    G2 = nx.Graph(); G2.add_node(0, x=3.0, y=1.0, yaw=0.0)   # grid(r=2,c=6)
     merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
     assert merged.number_of_edges() >= 1
     edge_w = list(merged.edges(data=True))[0][2]["weight"]
-    # Manhattan = 3.0m, but wall forces detour → A* > 3.0m
-    assert edge_w > 3.0, f"Expected A* weight > 3.0, got {edge_w}"
+    # Manhattan = 2.0m, A* on clear grid = 2.0m (identical with 8-dir Manhattan A*)
+    assert edge_w >= 2.0, f"Expected >= 2.0, got {edge_w}"
+
+
+def test_merge_line_of_sight_required():
+    """Nodes without clear line of sight on inflate(base_grid) must not be connected."""
+    import networkx as nx
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    grid[3:7, 4] = 1   # vertical partial wall blocking LOS
+    G1 = nx.Graph(); G1.add_node(0, x=1.5, y=2.5, yaw=0.0)   # grid(r=5,c=3)
+    G2 = nx.Graph(); G2.add_node(0, x=2.5, y=2.5, yaw=0.0)   # grid(r=5,c=5)
+    merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
+    assert merged.number_of_edges() == 0, "Wall must block cross-session edge"
 
 
 def test_merge_no_edge_if_unreachable():

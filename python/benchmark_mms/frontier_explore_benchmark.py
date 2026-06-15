@@ -39,7 +39,7 @@ N_SESSIONS = 5
 FOV_HALF_DEG = 45.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
 FOV_RANGE_M = 8.0
-TRANS_THRESH_M = 2.0
+TRANS_THRESH_M = 5.0
 ROT_THRESH_RAD = np.radians(60)
 CROSS_DIST_M = 5.0
 INFLATE_RADIUS = 1
@@ -115,8 +115,10 @@ def astar(
     if grid[start] or grid[goal]:
         return None, float("inf")
     H, W = grid.shape
+    diag = 2 * res
     dirs = [
         (-1, 0, res), (1, 0, res), (0, -1, res), (0, 1, res),
+        (-1, -1, diag), (-1, 1, diag), (1, -1, diag), (1, 1, diag),
     ]
 
     g_score = {start: 0.0}
@@ -334,7 +336,7 @@ def build_topometric_subgraph(
     prev = (r0, c0, y0)
     for r, c, yaw in poses[1:]:
         pr, pc, py = prev
-        trans = res * np.hypot(r - pr, c - pc)
+        trans = res * (abs(r - pr) + abs(c - pc))
         rot = abs(np.arctan2(np.sin(yaw - py), np.cos(yaw - py)))
         if trans > trans_thresh or rot > rot_thresh:
             node_idx += 1
@@ -410,10 +412,11 @@ def merge_topometric_graphs(
                     if d < cross_dist and not merged.has_edge(ni, nj):
                         ri, ci = int(yi / res), int(xi / res)
                         rj, cj = int(yj / res), int(xj / res)
-                        _, path_len = astar(inf_grid, (ri, ci), (rj, cj), res)
-                        if path_len < float("inf"):
-                            merged.add_edge(ni, nj, weight=path_len,
-                                            rel_pose=(xj - xi, yj - yi, 0.0))
+                        if _line_free(ri, ci, rj, cj, inf_grid):
+                            _, path_len = astar(inf_grid, (ri, ci), (rj, cj), res)
+                            if path_len < float("inf"):
+                                merged.add_edge(ni, nj, weight=path_len,
+                                                rel_pose=(xj - xi, yj - yi, 0.0))
     return merged
 
 
