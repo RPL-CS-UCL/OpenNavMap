@@ -157,3 +157,13 @@ def test_merge_does_not_connect_beyond_5m():
     G2 = nx.Graph(); G2.add_node(0, x=5.5, y=0.0, yaw=0.0)
     merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
     assert merged.number_of_edges() == 0, "Nodes > 5 m apart must NOT be connected"
+
+
+def test_pcd_dilate_is_1():
+    """PCD_DILATE must be 1 (walls expanded by 1 pixel on load)."""
+    assert feb.PCD_DILATE == 1, f"Expected 1, got {feb.PCD_DILATE}"
+
+
+def test_inflate_radius_is_0():
+    """INFLATE_RADIUS must be 0 (dilated PCD already provides safety margin)."""
+    assert feb.INFLATE_RADIUS == 0, f"Expected 0, got {feb.INFLATE_RADIUS}"

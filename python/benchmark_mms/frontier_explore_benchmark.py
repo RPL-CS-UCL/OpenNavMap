@@ -41,7 +41,7 @@ FOV_RANGE_M = 5.0
 TRANS_THRESH_M = 2.0
 ROT_THRESH_RAD = np.radians(60)
 CROSS_DIST_M = 5.0
-INFLATE_RADIUS = 1
+INFLATE_RADIUS = 0
 FRONTIER_DIST_MIN = 30
 TOPO_SNAP_DIST_M = 3.0
 MAX_STEPS_COVERAGE_BUDGET = 0.5
@@ -50,7 +50,7 @@ FRONTIER_TEMP_MAX = 5.0
 FRONTIER_TOP_N = 5
 PCD_HEIGHT_SLICE = 2.0
 PCD_HEIGHT_TOL = 0.3
-PCD_DILATE = 0
+PCD_DILATE = 1
 MASTER_SEED = 42
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -850,10 +850,12 @@ def fig3_reachability_coverage(
 def main():
     parser = argparse.ArgumentParser(
         description="Frontier-Based Goal-Directed Exploration Benchmark — Octa Maze")
-    parser.add_argument("--start", type=int, nargs=2, required=True,
-                        metavar=("R", "C"), help="Fixed start cell (row, col)")
-    parser.add_argument("--goal", type=int, nargs=2, required=True,
-                        metavar=("R", "C"), help="Fixed goal cell (row, col)")
+    parser.add_argument("--start", type=int, nargs=2, required=False,
+                        default=[7, 5], metavar=("R", "C"),
+                        help="Fixed start cell (row, col, default=[7, 5])")
+    parser.add_argument("--goal", type=int, nargs=2, required=False,
+                        default=[62, 65], metavar=("R", "C"),
+                        help="Fixed goal cell (row, col, default=[62, 65])")
     parser.add_argument("--res_m", type=float, default=GRID_RES_M,
                         help=f"Grid resolution (m/cell, default={GRID_RES_M})")
     parser.add_argument("--k", type=int, default=N_SESSIONS,
@@ -913,7 +915,12 @@ def main():
     # Save fixed_pair.json
     fixed_pair = {
         "start": list(start), "goal": list(goal),
-        "world_start": [2.5, 2.0, 3.5], "world_goal": [32.0, 2.0, 32.5],
+        "world_start": [round(start[1] * res + float(x_range[0]), 1),
+                        2.0,
+                        round(start[0] * res + float(z_range[0]), 1)],
+        "world_goal":  [round(goal[1] * res + float(x_range[0]), 1),
+                        2.0,
+                        round(goal[0] * res + float(z_range[0]), 1)],
         "grid_shape": [H, W], "res_m": res,
         "gt_len_m": round(gt_len, 3), "eucl_cells": round(eucl_cells, 1),
     }
