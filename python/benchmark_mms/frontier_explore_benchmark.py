@@ -115,7 +115,7 @@ def astar(
     if grid[start] or grid[goal]:
         return None, float("inf")
     H, W = grid.shape
-    diag = 2 * res
+    diag = res * np.sqrt(2)
     dirs = [
         (-1, 0, res), (1, 0, res), (0, -1, res), (0, 1, res),
         (-1, -1, diag), (-1, 1, diag), (1, -1, diag), (1, 1, diag),
@@ -123,7 +123,7 @@ def astar(
 
     g_score = {start: 0.0}
     parent: dict = {}
-    pq = [(res * (abs(start[0] - goal[0]) + abs(start[1] - goal[1])), start)]
+    pq = [(res * np.hypot(start[0] - goal[0], start[1] - goal[1]), start)]
 
     while pq:
         _, cur = heapq.heappop(pq)
@@ -141,7 +141,7 @@ def astar(
                 if ng < g_score.get(nb, float("inf")):
                     g_score[nb] = ng
                     parent[nb] = cur
-                    h = res * (abs(nb[0] - goal[0]) + abs(nb[1] - goal[1]))
+                    h = res * np.hypot(nb[0] - goal[0], nb[1] - goal[1])
                     heapq.heappush(pq, (ng + h, nb))
     return None, float("inf")
 
@@ -277,7 +277,7 @@ def select_frontier(
 
     f_arr = np.array(frontiers)
     cr, cc = current
-    eucl_dists = np.abs(f_arr[:, 0] - cr) + np.abs(f_arr[:, 1] - cc)
+    eucl_dists = np.hypot(f_arr[:, 0] - cr, f_arr[:, 1] - cc)
     order = np.argsort(eucl_dists)
     top_k = min(top_n, len(frontiers))
 
@@ -293,7 +293,7 @@ def select_frontier(
         return _fallback_select(order, frontiers, frontier_free_neighbors, inf_pg, current, res)
 
     tgt_arr = np.array(targets)
-    eucl_to_targets = np.abs(tgt_arr[:, 0] - cr) + np.abs(tgt_arr[:, 1] - cc)
+    eucl_to_targets = np.hypot(tgt_arr[:, 0] - cr, tgt_arr[:, 1] - cc)
     logits = -eucl_to_targets / max(temperature, 1e-6)
 
     if goal is not None:
@@ -344,7 +344,7 @@ def build_topometric_subgraph(
             if not _line_free(pr, pc, r, c, base_grid):
                 continue
 
-            trans = res * (abs(r - pr) + abs(c - pc))
+            trans = res * np.hypot(r - pr, c - pc)
             trigger = trans > trans_thresh
 
             if not trigger and i + 1 < len(poses):
@@ -352,7 +352,7 @@ def build_topometric_subgraph(
                 if not _line_free(pr, pc, nr, nc, base_grid):
                     trigger = True
         else:
-            trans = res * (abs(r - pr) + abs(c - pc))
+            trans = res * np.hypot(r - pr, c - pc)
             rot = abs(np.arctan2(np.sin(yaw - py), np.cos(yaw - py)))
             trigger = trans > trans_thresh or rot > rot_thresh
 
@@ -362,9 +362,9 @@ def build_topometric_subgraph(
             if inf_grid is not None:
                 _, dist_m = astar(inf_grid, (pr, pc), (r, c), res)
                 if dist_m >= float("inf"):
-                    dist_m = res * (abs(r - pr) + abs(c - pc))
+                    dist_m = res * np.hypot(r - pr, c - pc)
             else:
-                dist_m = res * (abs(r - pr) + abs(c - pc))
+                dist_m = res * np.hypot(r - pr, c - pc)
             G.add_edge(node_idx - 1, node_idx, weight=dist_m,
                        rel_pose=(c - pc, r - pr, yaw - py))
             prev = (r, c, yaw)
@@ -425,7 +425,7 @@ def merge_topometric_graphs(
             nj_list = [(n, x, y) for n, x, y in all_nodes if n in subgraph_node_sets[sj]]
             for ni, xi, yi in ni_list:
                 for nj, xj, yj in nj_list:
-                    d = abs(xi - xj) + abs(yi - yj)
+                    d = np.hypot(xi - xj, yi - yj)
                     if d < cross_dist and not merged.has_edge(ni, nj):
                         ri, ci = int(yi / res), int(xi / res)
                         rj, cj = int(yj / res), int(xj / res)
@@ -453,8 +453,8 @@ def topo_path_length(
     best_sn, best_gn = None, None
     best_sd, best_gd = float("inf"), float("inf")
     for n, d in topo_graph.nodes(data=True):
-        ds = abs(d["x"] - sx) + abs(d["y"] - sy)
-        dg = abs(d["x"] - gx) + abs(d["y"] - gy)
+        ds = np.hypot(d["x"] - sx, d["y"] - sy)
+        dg = np.hypot(d["x"] - gx, d["y"] - gy)
         if ds < best_sd:
             best_sd, best_sn = ds, n
         if dg < best_gd:

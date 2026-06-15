@@ -100,11 +100,13 @@ def test_obs_to_rgb_mixed():
 
 # ── Manhattan / graph-structure fixes ────────────────────────────────
 
-def test_astar_distance_is_manhattan():
-    """A* on a clear 10×10 grid must return Manhattan distance (4-dir only)."""
+def test_astar_distance_is_euclidean():
+    """A* on a clear 10×10 grid must use Euclidean step costs (8-dir with √2 diagonal)."""
     grid = np.zeros((10, 10), dtype=np.uint8)
     _, dist = feb.astar(grid, (0, 0), (3, 4))
-    expected = (3 + 4) * feb.GRID_RES_M
+    # Optimal 8-dir path: 3 diagonal (√2×r) + 1 straight (r) = 3×√2×0.5 + 0.5
+    r = feb.GRID_RES_M
+    expected = 3 * (np.sqrt(2) * r) + 1 * r
     assert abs(dist - expected) < 1e-9, f"Expected {expected}, got {dist}"
 
 
@@ -120,14 +122,14 @@ def test_astar_uses_8_directions():
     assert has_diagonal, "A* should use diagonal steps in 8-direction mode"
 
 
-def test_topo_subgraph_edge_weight_is_manhattan():
-    """build_topometric_subgraph edge weight: Manhattan, not Euclidean."""
+def test_topo_subgraph_edge_weight_is_euclidean():
+    """build_topometric_subgraph edge weight: Euclidean, not Manhattan."""
     import networkx as nx
-    poses = [(0, 0, 0.0), (6, 5, 0.0)]   # Manhattan = (6+5)*0.5 = 5.5m > 5.0m TRANS_THRESH_M
+    poses = [(0, 0, 0.0), (12, 0, 0.0)]  # Euclidean = 12*0.5 = 6.0m > 5.0m TRANS_THRESH_M
     G = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
     assert G.number_of_edges() == 1
     weight = list(G.edges(data=True))[0][2]["weight"]
-    expected = (6 + 5) * feb.GRID_RES_M
+    expected = np.hypot(0, 12) * feb.GRID_RES_M
     assert abs(weight - expected) < 1e-9, f"Expected {expected}, got {weight}"
 
 
