@@ -35,7 +35,7 @@ from scipy.ndimage import binary_dilation
 # Constants (maze-specific, 71×71 grid @ 0.5 m/cell)
 # ============================================================================
 GRID_RES_M = 0.5
-N_SESSIONS = 5
+N_SESSIONS = 10
 FOV_HALF_DEG = 45.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
 FOV_RANGE_M = 8.0
@@ -991,7 +991,7 @@ def main():
 
     for k in range(K):
         rng = np.random.default_rng(seed + k)
-        initial_yaw = k * (2 * np.pi / K)
+        initial_yaw = k * (2 * np.pi / K) + rng.uniform(-0.15, 0.15) * np.pi
         temperature = FRONTIER_TEMP_MIN + k * (FRONTIER_TEMP_MAX - FRONTIER_TEMP_MIN) / max(K - 1, 1)
         temperatures.append(temperature)
         max_steps = int(H * W * MAX_STEPS_COVERAGE_BUDGET)
