@@ -46,7 +46,7 @@ INFLATE_RADIUS = 1
 FRONTIER_DIST_MIN = 30
 TOPO_SNAP_DIST_M = 3.0
 MAX_STEPS_COVERAGE_BUDGET = 0.5
-FRONTIER_TEMP_MIN = 0.5
+FRONTIER_TEMP_MIN = 1.0
 FRONTIER_TEMP_MAX = 5.0
 FRONTIER_TOP_N = 5
 PCD_HEIGHT_SLICE = 2.0
@@ -552,7 +552,8 @@ def frontier_explore_session(
             break
 
         for nr, nc in path_to_f[1:]:
-            if base_grid[nr, nc] == 1:  # discovered obstacle — stop
+            if base_grid[nr, nc] == 1:  # discovered obstacle — record and re-plan
+                obs[nr, nc] = 1
                 break
             ny = np.arctan2(nr - traj[-1][0], nc - traj[-1][1])
             traj.append((nr, nc, float(ny)))
