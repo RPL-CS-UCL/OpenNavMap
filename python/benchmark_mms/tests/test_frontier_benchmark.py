@@ -96,3 +96,64 @@ def test_obs_to_rgb_mixed():
     np.testing.assert_allclose(rgb[0, 0], white, atol=1e-6)
     np.testing.assert_allclose(rgb[1, 1], black, atol=1e-6)
     np.testing.assert_allclose(rgb[2, 2], grey,  atol=1e-6)
+
+
+# ── Manhattan / graph-structure fixes ────────────────────────────────
+
+def test_astar_distance_is_manhattan():
+    """A* on a clear 10×10 grid must return Manhattan distance (4-dir only)."""
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    _, dist = feb.astar(grid, (0, 0), (3, 4))
+    expected = (3 + 4) * feb.GRID_RES_M
+    assert abs(dist - expected) < 1e-9, f"Expected {expected}, got {dist}"
+
+
+def test_astar_no_diagonal_movement():
+    """A* must not cut diagonals — every step must be axis-aligned."""
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    path, _ = feb.astar(grid, (0, 0), (2, 2))
+    assert path is not None
+    for (r0, c0), (r1, c1) in zip(path, path[1:]):
+        assert (r0 == r1) or (c0 == c1), f"Diagonal step from ({r0},{c0}) to ({r1},{c1})"
+
+
+def test_topo_subgraph_edge_weight_is_manhattan():
+    """build_topometric_subgraph edge weight: Manhattan, not Euclidean."""
+    import networkx as nx
+    poses = [(0, 0, 0.0), (3, 4, 0.0)]
+    G = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
+    assert G.number_of_edges() == 1
+    weight = list(G.edges(data=True))[0][2]["weight"]
+    expected = (3 + 4) * feb.GRID_RES_M
+    assert abs(weight - expected) < 1e-9, f"Expected {expected}, got {weight}"
+
+
+def test_merge_connects_nodes_through_obstacle():
+    """merge_topometric_graphs connects nodes even if base_grid has obstacle in between."""
+    import networkx as nx
+    base_grid = np.zeros((5, 5), dtype=np.uint8)
+    base_grid[2, 2] = 1
+    G1 = nx.Graph(); G1.add_node(0, x=0.5, y=0.5, yaw=0.0)
+    G2 = nx.Graph(); G2.add_node(0, x=1.5, y=1.5, yaw=0.0)
+    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
+    assert merged.number_of_edges() >= 1, "Nodes across obstacle must be connected"
+
+
+def test_merge_distance_threshold_is_5m():
+    """merge_topometric_graphs connects nodes up to 5 m Manhattan distance."""
+    import networkx as nx
+    base_grid = np.zeros((20, 20), dtype=np.uint8)
+    G1 = nx.Graph(); G1.add_node(0, x=0.0, y=0.0, yaw=0.0)
+    G2 = nx.Graph(); G2.add_node(0, x=4.5, y=0.0, yaw=0.0)
+    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
+    assert merged.number_of_edges() >= 1, "Nodes 4.5 m apart must connect (threshold=5 m)"
+
+
+def test_merge_does_not_connect_beyond_5m():
+    """merge_topometric_graphs rejects nodes > 5 m Manhattan distance."""
+    import networkx as nx
+    base_grid = np.zeros((20, 20), dtype=np.uint8)
+    G1 = nx.Graph(); G1.add_node(0, x=0.0, y=0.0, yaw=0.0)
+    G2 = nx.Graph(); G2.add_node(0, x=5.5, y=0.0, yaw=0.0)
+    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
+    assert merged.number_of_edges() == 0, "Nodes > 5 m apart must NOT be connected"

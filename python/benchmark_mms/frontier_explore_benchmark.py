@@ -40,7 +40,7 @@ FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
 FOV_RANGE_M = 5.0
 TRANS_THRESH_M = 2.0
 ROT_THRESH_RAD = np.radians(60)
-CROSS_DIST_M = 3.0
+CROSS_DIST_M = 5.0
 INFLATE_RADIUS = 1
 FRONTIER_DIST_MIN = 30
 TOPO_SNAP_DIST_M = 3.0
@@ -114,15 +114,13 @@ def astar(
     if grid[start] or grid[goal]:
         return None, float("inf")
     H, W = grid.shape
-    diag = res * np.sqrt(2)
     dirs = [
         (-1, 0, res), (1, 0, res), (0, -1, res), (0, 1, res),
-        (-1, -1, diag), (-1, 1, diag), (1, -1, diag), (1, 1, diag),
     ]
 
     g_score = {start: 0.0}
     parent: dict = {}
-    pq = [(res * np.hypot(start[0] - goal[0], start[1] - goal[1]), start)]
+    pq = [(res * (abs(start[0] - goal[0]) + abs(start[1] - goal[1])), start)]
 
     while pq:
         _, cur = heapq.heappop(pq)
@@ -140,7 +138,7 @@ def astar(
                 if ng < g_score.get(nb, float("inf")):
                     g_score[nb] = ng
                     parent[nb] = cur
-                    h = res * np.hypot(nb[0] - goal[0], nb[1] - goal[1])
+                    h = res * (abs(nb[0] - goal[0]) + abs(nb[1] - goal[1]))
                     heapq.heappush(pq, (ng + h, nb))
     return None, float("inf")
 
@@ -339,7 +337,7 @@ def build_topometric_subgraph(
         if trans > trans_thresh or rot > rot_thresh:
             node_idx += 1
             G.add_node(node_idx, x=c * res, y=r * res, yaw=yaw)
-            dist_m = res * np.hypot(r - pr, c - pc)
+            dist_m = res * (abs(r - pr) + abs(c - pc))
             G.add_edge(node_idx - 1, node_idx, weight=dist_m,
                        rel_pose=(c - pc, r - pr, yaw - py))
             prev = (r, c, yaw)
@@ -399,13 +397,10 @@ def merge_topometric_graphs(
             nj_list = [(n, x, y) for n, x, y in all_nodes if n in subgraph_node_sets[sj]]
             for ni, xi, yi in ni_list:
                 for nj, xj, yj in nj_list:
-                    d = np.hypot(xi - xj, yi - yj)
+                    d = abs(xi - xj) + abs(yi - yj)
                     if d < cross_dist and not merged.has_edge(ni, nj):
-                        ri, ci = int(yi / res), int(xi / res)
-                        rj, cj = int(yj / res), int(xj / res)
-                        if _line_free(ri, ci, rj, cj, base_grid):
-                            merged.add_edge(ni, nj, weight=d,
-                                            rel_pose=(xj - xi, yj - yi, 0.0))
+                        merged.add_edge(ni, nj, weight=d,
+                                        rel_pose=(xj - xi, yj - yi, 0.0))
     return merged
 
 
@@ -425,8 +420,8 @@ def topo_path_length(
     best_sn, best_gn = None, None
     best_sd, best_gd = float("inf"), float("inf")
     for n, d in topo_graph.nodes(data=True):
-        ds = np.hypot(d["x"] - sx, d["y"] - sy)
-        dg = np.hypot(d["x"] - gx, d["y"] - gy)
+        ds = abs(d["x"] - sx) + abs(d["y"] - sy)
+        dg = abs(d["x"] - gx) + abs(d["y"] - gy)
         if ds < best_sd:
             best_sd, best_sn = ds, n
         if dg < best_gd:
