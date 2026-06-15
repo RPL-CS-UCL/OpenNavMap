@@ -322,6 +322,7 @@ def build_topometric_subgraph(
     res: float = GRID_RES_M,
     trans_thresh: float = TRANS_THRESH_M,
     rot_thresh: float = ROT_THRESH_RAD,
+    base_grid: np.ndarray | None = None,
 ) -> nx.Graph:
     G = nx.Graph()
     if not poses:
@@ -337,7 +338,13 @@ def build_topometric_subgraph(
         if trans > trans_thresh or rot > rot_thresh:
             node_idx += 1
             G.add_node(node_idx, x=c * res, y=r * res, yaw=yaw)
-            dist_m = res * (abs(r - pr) + abs(c - pc))
+            if base_grid is not None:
+                inf_grid = inflate_grid(base_grid)
+                _, dist_m = astar(inf_grid, (pr, pc), (r, c), res)
+                if dist_m >= float("inf"):
+                    dist_m = res * (abs(r - pr) + abs(c - pc))
+            else:
+                dist_m = res * (abs(r - pr) + abs(c - pc))
             G.add_edge(node_idx - 1, node_idx, weight=dist_m,
                        rel_pose=(c - pc, r - pr, yaw - py))
             prev = (r, c, yaw)
@@ -391,6 +398,7 @@ def merge_topometric_graphs(
         offset += G.number_of_nodes() + 1
 
     all_nodes = [(n, d["x"], d["y"]) for n, d in merged.nodes(data=True)]
+    inf_grid = inflate_grid(base_grid)
     for si in range(len(subgraph_node_sets)):
         for sj in range(si + 1, len(subgraph_node_sets)):
             ni_list = [(n, x, y) for n, x, y in all_nodes if n in subgraph_node_sets[si]]
@@ -399,8 +407,12 @@ def merge_topometric_graphs(
                 for nj, xj, yj in nj_list:
                     d = abs(xi - xj) + abs(yi - yj)
                     if d < cross_dist and not merged.has_edge(ni, nj):
-                        merged.add_edge(ni, nj, weight=d,
-                                        rel_pose=(xj - xi, yj - yi, 0.0))
+                        ri, ci = int(yi / res), int(xi / res)
+                        rj, cj = int(yj / res), int(xj / res)
+                        _, path_len = astar(inf_grid, (ri, ci), (rj, cj), res)
+                        if path_len < float("inf"):
+                            merged.add_edge(ni, nj, weight=path_len,
+                                            rel_pose=(xj - xi, yj - yi, 0.0))
     return merged
 
 
@@ -954,7 +966,7 @@ def main():
             res=res, max_steps=max_steps, verbose=False)
         dt = time.time() - t1
 
-        subgraph = build_topometric_subgraph(traj, res=res)
+        subgraph = build_topometric_subgraph(traj, res=res, base_grid=base_grid)
         all_poses.append(traj)
         all_obs.append(obs)
         subgraphs.append(subgraph)  # solo subgraph for session k

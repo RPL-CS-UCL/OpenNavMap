@@ -129,14 +129,14 @@ def test_topo_subgraph_edge_weight_is_manhattan():
 
 
 def test_merge_connects_nodes_through_obstacle():
-    """merge_topometric_graphs connects nodes even if base_grid has obstacle in between."""
+    """merge_topometric_graphs must NOT connect nodes if A* path is obstructed."""
     import networkx as nx
     base_grid = np.zeros((5, 5), dtype=np.uint8)
     base_grid[2, 2] = 1
     G1 = nx.Graph(); G1.add_node(0, x=0.5, y=0.5, yaw=0.0)
     G2 = nx.Graph(); G2.add_node(0, x=1.5, y=1.5, yaw=0.0)
     merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
-    assert merged.number_of_edges() >= 1, "Nodes across obstacle must be connected"
+    assert merged.number_of_edges() == 0, "Nodes across obstacle must NOT be connected via A*"
 
 
 def test_merge_distance_threshold_is_5m():
@@ -167,3 +167,41 @@ def test_pcd_dilate_is_0():
 def test_inflate_radius_is_1():
     """INFLATE_RADIUS must be 1 (safety margin for planning)."""
     assert feb.INFLATE_RADIUS == 1, f"Expected 1, got {feb.INFLATE_RADIUS}"
+
+
+def test_topo_subgraph_edge_weight_uses_astar():
+    """Edge weight with base_grid provided must reflect A* path, not straight Manhattan."""
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    grid[0:4, 2] = 1   # vertical wall at col 2, rows 0-3
+    poses = [(0, 0, 0.0), (0, 6, 0.0)]
+    G_no_grid = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
+    G_with_grid = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M, base_grid=grid)
+    w_no = list(G_no_grid.edges(data=True))[0][2]["weight"]
+    w_with = list(G_with_grid.edges(data=True))[0][2]["weight"]
+    assert w_no == 6 * feb.GRID_RES_M, f"Expected 3.0, got {w_no}"
+    assert w_with > w_no, f"Expected A* weight {w_with} > Manhattan {w_no}"
+
+
+def test_merge_edge_weight_uses_astar():
+    """Cross-session edge weight must use A* path, not straight Manhattan."""
+    import networkx as nx
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    grid[0:8, 4] = 1   # vertical wall at col 4, rows 0-7 (row 8-9 free for detour)
+    G1 = nx.Graph(); G1.add_node(0, x=0.5, y=0.5, yaw=0.0)   # grid(r=1,c=1)
+    G2 = nx.Graph(); G2.add_node(0, x=3.5, y=0.5, yaw=0.0)   # grid(r=1,c=7)
+    merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
+    assert merged.number_of_edges() >= 1
+    edge_w = list(merged.edges(data=True))[0][2]["weight"]
+    # Manhattan = 3.0m, but wall forces detour → A* > 3.0m
+    assert edge_w > 3.0, f"Expected A* weight > 3.0, got {edge_w}"
+
+
+def test_merge_no_edge_if_unreachable():
+    """Unreachable cross-session node pairs must not be connected."""
+    import networkx as nx
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    grid[:, 4] = 1   # full vertical wall
+    G1 = nx.Graph(); G1.add_node(0, x=1.5, y=1.5, yaw=0.0)
+    G2 = nx.Graph(); G2.add_node(0, x=3.5, y=1.5, yaw=0.0)
+    merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
+    assert merged.number_of_edges() == 0, "Unreachable nodes must not be connected"
