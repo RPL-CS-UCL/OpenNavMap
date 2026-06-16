@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Run frontier exploration benchmark on tunnel
-# Grid: ~1636x1262 at 0.2m res (X+Y plane, binary PCD)
-# Axes: col=0 (X), row=1 (Y), height=2 (Z)
-# Start: world (-7, 25) → grid (~519, 30)
-# Goal:  world (227, -60) → grid (~349, 498)
-# The tunnel long axis is PCD-Y, so row_axis=1
+# Grid: ~1262x1635 at 0.2m res, ~6% obstacles (XY=ground, Z=height)
+# Start: world (col=1,   row=-5)  → grid (row=84,   col=470)
+# Goal:  world (col=201, row=220) → grid (row=1209, col=1467)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJ_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -22,13 +20,11 @@ cd "$PROJ_DIR"
 exec python -u "$BENCH" \
   --pcd "$PCD" \
   --output_dir "$OUT" \
-  --col_axis 0 \
-  --row_axis 1 \
-  --height_axis 2 \
-  --start_world -7 25 \
-  --goal_world 227 -60 \
-  --res_m 0.5 \
-  --dilate 0 \
+  --start -15 -5 \
+  --goal 201 132 \
+  --res_m 0.3 \
   --k 10 \
   --seed 42 \
+  --temperature 2.5 \
+  --max_steps 8000 \
   "$@"

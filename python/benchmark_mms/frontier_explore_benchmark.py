@@ -10,8 +10,8 @@ toward the ground-truth optimal path.
 
 Usage
 -----
-python frontier_explore_benchmark.py --start 7 5 --goal 65 64
-python frontier_explore_benchmark.py --start 7 5 --goal 65 64 --k 5 --seed 42
+python frontier_explore_benchmark.py --start 1.4 1.0 --goal 13.0 12.8
+python frontier_explore_benchmark.py --start 1.4 1.0 --goal 13.0 12.8 --k 5 --seed 42
 """
 
 from __future__ import annotations
@@ -31,6 +31,67 @@ import numpy as np
 import networkx as nx
 from scipy.ndimage import binary_dilation
 
+
+def _acquire_color_palette() -> np.ndarray:
+    t = np.linspace(-510, 510, 60)
+    palette = np.round(np.clip(
+        np.stack([-t, 510 - np.abs(t), t], axis=1), 0, 255
+    )).astype("float32") / 255
+    palette[0] = [0, 152 / 255, 83 / 255]
+    palette[1] = [228 / 255, 53 / 255, 39 / 255]
+    palette[2] = [140 / 255, 3 / 255, 120 / 255]
+    palette[3] = [0, 95 / 255, 129 / 255]
+    palette[4] = [0.9290, 0.6940, 0.1250]
+    palette[5] = [0.6350, 0.0780, 0.1840]
+    palette[6] = [0.494, 0.184, 0.556]
+    palette[7] = [0.850, 0.3250, 0.0980]
+    palette[8] = [0.466, 0.674, 0.188]
+    palette[9] = [0.3010, 0.7450, 0.9330]
+    return palette
+
+
+def _acquire_markers() -> list[str]:
+    return ["o", "s", "^", "D", "X", "*", "+"]
+
+
+def _acquire_linestyles() -> list[str]:
+    return ["-", "--", "-.", ":", "--", "-.", ":"]
+
+
+def _setting_font(
+    fontsize: int = 12,
+    titlesize: int = 12,
+    legend_fontsize: int = 10,
+) -> None:
+    try:
+        from colorama import init as colorama_init
+        colorama_init(autoreset=True)
+    except ImportError:
+        pass
+    try:
+        from matplotlib import rc, pylab
+        rc("font", **{"family": "serif", "serif": ["Palatino"], "size": fontsize})
+        rc("text", usetex=True)
+        pylab.rcParams.update({
+            "axes.titlesize": titlesize,
+            "legend.fontsize": legend_fontsize,
+            "legend.numpoints": 1,
+        })
+    except Exception:
+        from matplotlib import rc, pylab
+        rc("font", **{"family": "serif", "serif": ["DejaVu Serif"], "size": fontsize})
+        rc("text", usetex=False)
+        pylab.rcParams.update({
+            "axes.titlesize": titlesize,
+            "legend.fontsize": legend_fontsize,
+            "legend.numpoints": 1,
+        })
+
+
+_PALETTE = _acquire_color_palette()
+_MARKERS = _acquire_markers()
+_LINESTYLES = _acquire_linestyles()
+
 # ============================================================================
 # Constants (maze-specific, 71×71 grid @ 0.5 m/cell)
 # ============================================================================
@@ -38,7 +99,7 @@ GRID_RES_M = 0.2
 N_SESSIONS = 5
 FOV_HALF_DEG = 45.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
-FOV_RANGE_M = 8.0
+FOV_RANGE_M = 5.0
 TRANS_THRESH_M = 5.0
 ROT_THRESH_RAD = np.radians(60)
 CROSS_DIST_M = 5.0
@@ -47,9 +108,10 @@ TOPO_SNAP_DIST_M = 3.0
 MAX_STEPS_COVERAGE_BUDGET = 0.1
 FRONTIER_TEMP_MIN = 0.5
 FRONTIER_TEMP_MAX = 3.0
+FRONTIER_TEMP_FIXED = 2.5
 FRONTIER_TOP_N = 5
-PCD_HEIGHT_SLICE = 2.0
-PCD_HEIGHT_TOL = 0.3
+PCD_HEIGHT_SLICE = 1.5
+PCD_HEIGHT_TOL = 0.1
 PCD_DILATE = 1
 MASTER_SEED = 42
 
@@ -130,15 +192,15 @@ def load_pcd_grid(
     height_tolerance: float = PCD_HEIGHT_TOL,
     dilate: int = PCD_DILATE,
     col_axis: int = 0,
-    row_axis: int = 2,
-    height_axis: int = 1,
+    row_axis: int = 1,
+    height_axis: int = 2,
 ) -> tuple[np.ndarray, tuple[float, float], tuple[float, float]]:
     """Load ASCII or binary PCD, crop a height band, rasterize to 2D occupancy grid.
 
     Args:
         col_axis:  PCD field index used for grid columns (default 0 = X).
-        row_axis:  PCD field index used for grid rows    (default 2 = Z).
-        height_axis: PCD field index used for the height-slice filter (default 1 = Y).
+        row_axis:  PCD field index used for grid rows    (default 1 = Y).
+        height_axis: PCD field index used for the height-slice filter (default 2 = Z).
 
     Returns:
         grid: uint8 (0=free, 1=obstacle)
@@ -195,9 +257,13 @@ def astar(
     g_score = {start: 0.0}
     parent: dict = {}
     pq = [(res * np.hypot(start[0] - goal[0], start[1] - goal[1]), start)]
+    closed: set[tuple[int, int]] = set()
 
     while pq:
         _, cur = heapq.heappop(pq)
+        if cur in closed:
+            continue
+        closed.add(cur)
         if cur == goal:
             path = [cur]
             while cur in parent:
@@ -215,6 +281,28 @@ def astar(
                     h = res * np.hypot(nb[0] - goal[0], nb[1] - goal[1])
                     heapq.heappush(pq, (ng + h, nb))
     return None, float("inf")
+
+
+def astar_local(
+    grid: np.ndarray,
+    start: tuple[int, int],
+    goal: tuple[int, int],
+    res: float = GRID_RES_M,
+    margin: int = 50,
+) -> tuple[list | None, float]:
+    r_min = max(0, min(start[0], goal[0]) - margin)
+    r_max = min(grid.shape[0] - 1, max(start[0], goal[0]) + margin)
+    c_min = max(0, min(start[1], goal[1]) - margin)
+    c_max = min(grid.shape[1] - 1, max(start[1], goal[1]) + margin)
+
+    sub_grid = grid[r_min:r_max + 1, c_min:c_max + 1]
+    local_start = (start[0] - r_min, start[1] - c_min)
+    local_goal = (goal[0] - r_min, goal[1] - c_min)
+    local_path, path_len = astar(sub_grid, local_start, local_goal, res)
+    if local_path is None:
+        return None, float("inf")
+    path = [(r + r_min, c + c_min) for r, c in local_path]
+    return path, path_len
 
 
 def world_to_grid(
@@ -244,18 +332,24 @@ def add_fov_observation(
 ) -> None:
     H, W = obs.shape
     R = int(np.ceil(fov_range_m / res))
-    dr_arr = np.arange(-R, R + 1)
-    dc_arr = np.arange(-R, R + 1)
-    dR, dC = np.meshgrid(dr_arr, dc_arr, indexing="ij")
-    dist2 = dR.astype(float) ** 2 + dC.astype(float) ** 2
-    range_mask = dist2 <= R**2
-    angle_to_cell = np.arctan2(dR.astype(float), dC.astype(float))
-    angle_diff = np.abs(np.arctan2(np.sin(angle_to_cell - yaw), np.cos(angle_to_cell - yaw)))
-    fov_mask = (angle_diff <= fov_half_rad) & range_mask
-    rr = np.clip(r + dR[fov_mask], 0, H - 1)
-    cc = np.clip(c + dC[fov_mask], 0, W - 1)
-    obs[rr[base_grid[rr, cc] == 0], cc[base_grid[rr, cc] == 0]] = -1
-    obs[rr[base_grid[rr, cc] == 1], cc[base_grid[rr, cc] == 1]] = 1
+    if R <= 0:
+        return
+    angle_step = max(np.arctan(1.0 / R), 1e-3)
+    n_rays = max(2, int(np.ceil((2 * fov_half_rad) / angle_step)) + 1)
+    for theta in np.linspace(yaw - fov_half_rad, yaw + fov_half_rad, n_rays):
+        seen_cells: set[tuple[int, int]] = set()
+        for step in range(1, R + 1):
+            nr = int(round(r + step * np.sin(theta)))
+            nc = int(round(c + step * np.cos(theta)))
+            if (nr, nc) in seen_cells:
+                continue
+            seen_cells.add((nr, nc))
+            if not (0 <= nr < H and 0 <= nc < W):
+                break
+            if base_grid[nr, nc] == 1:
+                obs[nr, nc] = 1
+                break
+            obs[nr, nc] = -1
 
 
 def obs_to_planning_grid(
@@ -306,7 +400,7 @@ def find_frontiers(obs: np.ndarray) -> tuple[list[tuple[int, int]], list[tuple[i
     return list(frontiers), [free_neighbor_map[f] for f in frontiers]
 
 
-def _fallback_select(order, frontiers, free_neighbors, inf_pg, current, res):
+def _fallback_select(order, frontiers, free_neighbors, inf_pg, current, res, local_margin=None):
     for idx in order:
         if free_neighbors is not None:
             tgt = free_neighbors[idx]
@@ -314,7 +408,11 @@ def _fallback_select(order, frontiers, free_neighbors, inf_pg, current, res):
             tgt = frontiers[idx]
         if tgt == current:
             continue
-        _, length = astar(inf_pg, current, (int(tgt[0]), int(tgt[1])), res)
+        planner = astar_local if local_margin is not None else astar
+        if local_margin is not None:
+            _, length = planner(inf_pg, current, (int(tgt[0]), int(tgt[1])), res, local_margin)
+        else:
+            _, length = planner(inf_pg, current, (int(tgt[0]), int(tgt[1])), res)
         if length < float("inf"):
             return (int(tgt[0]), int(tgt[1]))
     return None
@@ -332,6 +430,7 @@ def select_frontier(
     frontier_free_neighbors: list[tuple[int, int]] | None = None,
     goal: tuple[int, int] | None = None,
     goal_bias: float = 0.5,
+    local_margin: int | None = None,
 ) -> tuple[int, int] | None:
     """Softmax-temperature frontier selection with optional goal-direction bias.
 
@@ -360,7 +459,8 @@ def select_frontier(
         targets.append(tgt)
 
     if not targets:
-        return _fallback_select(order, frontiers, frontier_free_neighbors, inf_pg, current, res)
+        return _fallback_select(order, frontiers, frontier_free_neighbors, inf_pg,
+                                current, res, local_margin)
 
     tgt_arr = np.array(targets)
     eucl_to_targets = np.hypot(tgt_arr[:, 0] - cr, tgt_arr[:, 1] - cc)
@@ -379,12 +479,16 @@ def select_frontier(
     probs /= probs.sum()
     chosen_idx = rng.choice(len(targets), p=probs)
 
-    _, length = astar(inf_pg, current,
-                      (int(targets[chosen_idx][0]), int(targets[chosen_idx][1])), res)
+    chosen_target = (int(targets[chosen_idx][0]), int(targets[chosen_idx][1]))
+    if local_margin is not None:
+        _, length = astar_local(inf_pg, current, chosen_target, res, local_margin)
+    else:
+        _, length = astar(inf_pg, current, chosen_target, res)
     if length >= float("inf"):
-        return _fallback_select(order, frontiers, frontier_free_neighbors, inf_pg, current, res)
+        return _fallback_select(order, frontiers, frontier_free_neighbors, inf_pg,
+                                current, res, local_margin)
 
-    return (int(targets[chosen_idx][0]), int(targets[chosen_idx][1]))
+    return chosen_target
 
 
 # ============================================================================
@@ -396,12 +500,15 @@ def build_topometric_subgraph(
     trans_thresh: float = TRANS_THRESH_M,
     rot_thresh: float = ROT_THRESH_RAD,
     base_grid: np.ndarray | None = None,
+    force_end_node: bool = True,
+    goal: tuple[int, int] | None = None,
 ) -> nx.Graph:
     G = nx.Graph()
     if not poses:
         return G
     r0, c0, y0 = poses[0]
     G.add_node(0, x=c0 * res, y=r0 * res, yaw=y0)
+    G.graph["start_node"] = 0
     node_idx = 0
     prev = (r0, c0, y0)
     inf_grid = base_grid
@@ -438,6 +545,22 @@ def build_topometric_subgraph(
             G.add_edge(node_idx - 1, node_idx, weight=dist_m,
                        rel_pose=(c - pc, r - pr, yaw - py))
             prev = (r, c, yaw)
+    last_r, last_c, last_yaw = poses[-1]
+    prev_r, prev_c, prev_yaw = prev
+    reached_goal = goal is None or (last_r, last_c) == goal
+    if force_end_node and reached_goal and (last_r, last_c) != (prev_r, prev_c):
+        node_idx += 1
+        G.add_node(node_idx, x=last_c * res, y=last_r * res, yaw=last_yaw)
+        if inf_grid is not None:
+            _, dist_m = astar(inf_grid, (prev_r, prev_c), (last_r, last_c), res)
+            if dist_m >= float("inf"):
+                dist_m = res * np.hypot(last_r - prev_r, last_c - prev_c)
+        else:
+            dist_m = res * np.hypot(last_r - prev_r, last_c - prev_c)
+        G.add_edge(node_idx - 1, node_idx, weight=dist_m,
+                   rel_pose=(last_c - prev_c, last_r - prev_r, last_yaw - prev_yaw))
+    if reached_goal:
+        G.graph["goal_node"] = node_idx
     return G
 
 
@@ -472,6 +595,45 @@ def _line_free(r0: int, c0: int, r1: int, c1: int, base_grid: np.ndarray) -> boo
     return True
 
 
+def _candidate_topo_edge(
+    xi: float,
+    yi: float,
+    xj: float,
+    yj: float,
+    base_grid: np.ndarray,
+    res: float,
+    cross_dist: float,
+) -> tuple[float, tuple[float, float, float]] | None:
+    if np.hypot(xi - xj, yi - yj) >= cross_dist:
+        return None
+    ri, ci = round(yi / res), round(xi / res)
+    rj, cj = round(yj / res), round(xj / res)
+    if not _line_free(ri, ci, rj, cj, base_grid):
+        return None
+    _, path_len = astar(base_grid, (ri, ci), (rj, cj), res)
+    if path_len >= float("inf"):
+        return None
+    return path_len, (xj - xi, yj - yi, 0.0)
+
+
+def add_intra_session_loop_edges(
+    G: nx.Graph,
+    base_grid: np.ndarray,
+    res: float = GRID_RES_M,
+    cross_dist: float = CROSS_DIST_M,
+) -> None:
+    nodes = [(n, d["x"], d["y"]) for n, d in G.nodes(data=True)]
+    for i, (ni, xi, yi) in enumerate(nodes):
+        for nj, xj, yj in nodes[i + 1:]:
+            if G.has_edge(ni, nj) or abs(ni - nj) == 1:
+                continue
+            edge = _candidate_topo_edge(xi, yi, xj, yj, base_grid, res, cross_dist)
+            if edge is None:
+                continue
+            path_len, rel_pose = edge
+            G.add_edge(ni, nj, weight=path_len, rel_pose=rel_pose)
+
+
 def merge_topometric_graphs(
     subgraphs: list[nx.Graph],
     base_grid: np.ndarray,
@@ -484,6 +646,10 @@ def merge_topometric_graphs(
     for G in subgraphs:
         mapping = {n: n + offset for n in G.nodes}
         merged.update(nx.relabel_nodes(G, mapping))
+        if "start_node" in G.graph:
+            merged.graph.setdefault("start_nodes", []).append(G.graph["start_node"] + offset)
+        if "goal_node" in G.graph:
+            merged.graph.setdefault("goal_nodes", []).append(G.graph["goal_node"] + offset)
         subgraph_node_sets.append({n + offset for n in G.nodes})
         offset += G.number_of_nodes() + 1
 
@@ -494,15 +660,13 @@ def merge_topometric_graphs(
             nj_list = [(n, x, y) for n, x, y in all_nodes if n in subgraph_node_sets[sj]]
             for ni, xi, yi in ni_list:
                 for nj, xj, yj in nj_list:
-                    d = np.hypot(xi - xj, yi - yj)
-                    if d < cross_dist and not merged.has_edge(ni, nj):
-                        ri, ci = int(yi / res), int(xi / res)
-                        rj, cj = int(yj / res), int(xj / res)
-                        if _line_free(ri, ci, rj, cj, base_grid):
-                            _, path_len = astar(base_grid, (ri, ci), (rj, cj), res)
-                            if path_len < float("inf"):
-                                merged.add_edge(ni, nj, weight=path_len,
-                                                rel_pose=(xj - xi, yj - yi, 0.0))
+                    if merged.has_edge(ni, nj):
+                        continue
+                    edge = _candidate_topo_edge(xi, yi, xj, yj, base_grid, res, cross_dist)
+                    if edge is None:
+                        continue
+                    path_len, rel_pose = edge
+                    merged.add_edge(ni, nj, weight=path_len, rel_pose=rel_pose)
     return merged
 
 
@@ -511,30 +675,56 @@ def topo_path_length(
     start: tuple[int, int],
     goal: tuple[int, int],
     res: float = GRID_RES_M,
-    snap_dist: float = TOPO_SNAP_DIST_M,
 ) -> tuple[float, int | None, int | None]:
-    """Shortest path on topo graph for (start, goal).
+    """Shortest path between explicit start/goal topo nodes."""
+    start_nodes = topo_graph.graph.get("start_nodes")
+    goal_nodes = topo_graph.graph.get("goal_nodes")
+    if start_nodes is None:
+        start_node = topo_graph.graph.get("start_node")
+        start_nodes = [] if start_node is None else [start_node]
+    if goal_nodes is None:
+        goal_node = topo_graph.graph.get("goal_node")
+        goal_nodes = [] if goal_node is None else [goal_node]
 
-    Returns: (length_m, start_node, goal_node) or (float('inf'), None, None)
-    """
-    sx, sy = start[1] * res, start[0] * res
-    gx, gy = goal[1] * res, goal[0] * res
+    best_len = float("inf")
     best_sn, best_gn = None, None
-    best_sd, best_gd = float("inf"), float("inf")
-    for n, d in topo_graph.nodes(data=True):
-        ds = np.hypot(d["x"] - sx, d["y"] - sy)
-        dg = np.hypot(d["x"] - gx, d["y"] - gy)
-        if ds < best_sd:
-            best_sd, best_sn = ds, n
-        if dg < best_gd:
-            best_gd, best_gn = dg, n
-    if best_sn is None or best_gn is None or best_sd > snap_dist or best_gd > snap_dist:
+    for sn in start_nodes:
+        for gn in goal_nodes:
+            if sn not in topo_graph or gn not in topo_graph:
+                continue
+            try:
+                length = nx.shortest_path_length(topo_graph, sn, gn, weight="weight")
+            except nx.NetworkXNoPath:
+                continue
+            if length < best_len:
+                best_len = length
+                best_sn, best_gn = sn, gn
+    if best_sn is None or best_gn is None:
         return float("inf"), None, None
-    try:
-        length = nx.shortest_path_length(topo_graph, best_sn, best_gn, weight="weight")
-        return length + best_sd + best_gd, best_sn, best_gn
-    except nx.NetworkXNoPath:
-        return float("inf"), None, None
+    return best_len, best_sn, best_gn
+
+
+def topomap_to_npz_arrays(G: nx.Graph) -> dict[str, np.ndarray]:
+    nodes_xy = np.array([[d["x"], d["y"]] for _, d in G.nodes(data=True)], dtype=np.float32)
+    edges = np.array([[u, v] for u, v in G.edges()], dtype=np.int32)
+    if edges.size == 0:
+        edges = edges.reshape(0, 2)
+    edge_weights = np.array([G[u][v]["weight"] for u, v in G.edges()], dtype=np.float32)
+
+    arrays = {
+        "nodes_xy": nodes_xy,
+        "edges": edges,
+        "edge_weights": edge_weights,
+    }
+    if "start_node" in G.graph:
+        arrays["start_node"] = np.array([G.graph["start_node"]], dtype=np.int32)
+    if "goal_node" in G.graph:
+        arrays["goal_node"] = np.array([G.graph["goal_node"]], dtype=np.int32)
+    if "start_nodes" in G.graph:
+        arrays["start_nodes"] = np.array(G.graph["start_nodes"], dtype=np.int32)
+    if "goal_nodes" in G.graph:
+        arrays["goal_nodes"] = np.array(G.graph["goal_nodes"], dtype=np.int32)
+    return arrays
 
 
 # ============================================================================
@@ -568,6 +758,7 @@ def frontier_explore_session(
     traj: list[tuple[int, int, float]] = [(start[0], start[1], initial_yaw)]
     visited_for_fov: set[tuple[int, int]] = {(start[0], start[1])}
     recently_visited: deque[tuple[int, int]] = deque(maxlen=40)  # tabu list
+    local_margin = max(int(np.ceil(fov_range_m / res)) + 20, 40)
 
     def _scan_position(pr: int, pc: int, pyaw: float) -> None:
         add_fov_observation(obs, pr, pc, pyaw, base_grid, fov_range_m, fov_half_rad, res)
@@ -611,17 +802,20 @@ def frontier_explore_session(
         next_f = select_frontier(frontiers, (r, c), obs, rng,
                                  frontier_temperature, top_n, inf_pg, res,
                                  frontier_free_neighbors=free_neighbors,
-                                 goal=goal, goal_bias=0.5)
+                                 goal=goal, goal_bias=0.5,
+                                 local_margin=local_margin)
         if next_f is None:
             break
 
-        path_to_f, _ = astar(inf_pg, (r, c), next_f, res)
+        path_to_f, _ = astar_local(inf_pg, (r, c), next_f, res, local_margin)
         if path_to_f is None or len(path_to_f) < 2:
             break
 
+        blocked = False
         for nr, nc in path_to_f[1:]:
             if base_grid[nr, nc] == 1:  # discovered obstacle — record and re-plan
                 obs[nr, nc] = 1
+                blocked = True
                 break
             ny = np.arctan2(nr - traj[-1][0], nc - traj[-1][1])
             traj.append((nr, nc, float(ny)))
@@ -631,16 +825,20 @@ def frontier_explore_session(
                 visited_for_fov.add((nr, nc))
                 _scan_position(nr, nc, float(ny))
 
-            goal_path, _ = _try_goal(nr, nc)
-            if goal_path is not None and len(goal_path) > 1:
-                for gr, gc in goal_path[1:]:
-                    gy = np.arctan2(gr - traj[-1][0], gc - traj[-1][1])
-                    traj.append((gr, gc, float(gy)))
-                    recently_visited.append((gr, gc))
-                    if (gr, gc) not in visited_for_fov:
-                        visited_for_fov.add((gr, gc))
-                        _scan_position(gr, gc, float(gy))
-                return traj, obs
+        if blocked:
+            continue
+
+        r_end, c_end, _ = traj[-1]
+        goal_path, _ = _try_goal(r_end, c_end)
+        if goal_path is not None and len(goal_path) > 1:
+            for gr, gc in goal_path[1:]:
+                gy = np.arctan2(gr - traj[-1][0], gc - traj[-1][1])
+                traj.append((gr, gc, float(gy)))
+                recently_visited.append((gr, gc))
+                if (gr, gc) not in visited_for_fov:
+                    visited_for_fov.add((gr, gc))
+                    _scan_position(gr, gc, float(gy))
+            return traj, obs
 
     return traj, obs
 
@@ -651,20 +849,19 @@ def frontier_explore_session(
 STYLE_FREE = np.array([243, 244, 246]) / 255.0
 STYLE_OBS = np.array([31, 41, 55]) / 255.0
 BG_COLOR = "#111827"
-COLOR_TOPO_NODE = "#3B82F6"
-COLOR_TOPO_EDGE_INTRA = "#60A5FA"
-COLOR_TOPO_EDGE_CROSS = "#FBBF24"
-COLOR_TOPO_PATH = "#F97316"
-COLOR_GT_PATH = "#F97316"
-COLOR_START = "#10B981"
-COLOR_GOAL = "#EF4444"
-COLOR_COV_HIST = "#10B981"
-COLOR_COV_NEW = "#06B6D4"
+COLOR_TOPO_NODE = _PALETTE[3]
+COLOR_TOPO_EDGE_INTRA = _PALETTE[9]
+COLOR_TOPO_PATH = _PALETTE[1]
+COLOR_GT_PATH = _PALETTE[7]
+COLOR_START = _PALETTE[0]
+COLOR_GOAL = _PALETTE[1]
+COLOR_COV_HIST = _PALETTE[0]
+COLOR_COV_NEW = _PALETTE[9]
 COLOR_TRAJ = "#FFFFFF"
 STYLE_UNKNOWN = np.array([107, 114, 128]) / 255.0
 # Pre-convert for RGBA overlay usage
-_COV_HIST_RGB = tuple(int(COLOR_COV_HIST.lstrip("#")[i:i+2], 16) / 255.0 for i in (0, 2, 4))
-_COV_NEW_RGB = tuple(int(COLOR_COV_NEW.lstrip("#")[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+_COV_HIST_RGB = tuple(float(v) for v in COLOR_COV_HIST)
+_COV_NEW_RGB = tuple(float(v) for v in COLOR_COV_NEW)
 ALPHA_COV_HIST = 0.35
 ALPHA_COV_NEW = 0.50
 
@@ -700,17 +897,18 @@ def _draw_topo_graph(ax, G, node_color=COLOR_TOPO_NODE, edge_color=COLOR_TOPO_ED
                 color=edge_color, alpha=edge_alpha, linewidth=edge_lw)
     xs = [d["x"] / res for _, d in G.nodes(data=True)]
     ys = [d["y"] / res for _, d in G.nodes(data=True)]
-    ax.scatter(xs, ys, c=node_color, s=node_size, zorder=5)
+    ax.scatter(xs, ys, color=node_color, s=node_size, zorder=5)
 
 
-def _draw_path(ax, path_nodes, G, color=COLOR_TOPO_PATH, lw=2.0, res=GRID_RES_M):
+def _draw_path(ax, path_nodes, G, color=COLOR_TOPO_PATH, lw=3.0, res=GRID_RES_M):
     if not path_nodes or len(path_nodes) < 2:
         return
     xs, ys = [], []
     for n in path_nodes:
         xs.append(G.nodes[n]["x"] / res)
         ys.append(G.nodes[n]["y"] / res)
-    ax.plot(xs, ys, color=color, linewidth=lw, zorder=6)
+    ax.plot(xs, ys, color=color, linewidth=lw, zorder=8)
+    ax.scatter(xs, ys, color=color, s=60, zorder=9)
 
 
 def _draw_gt_path(ax, gt_path, lw=1.5, res=GRID_RES_M):
@@ -734,6 +932,7 @@ def fig1_session_exploration(
     res: float = GRID_RES_M,
     output_path: str | Path = "fig1_session_exploration.png",
 ) -> None:
+    _setting_font(fontsize=12, titlesize=12, legend_fontsize=10)
     K = len(subgraphs)
     ncols = 3
     nrows = (K + 1 + ncols - 1) // ncols
@@ -745,6 +944,12 @@ def fig1_session_exploration(
         ax = axes[k]
         ax.set_facecolor(BG_COLOR)
         ax.imshow(obs_to_rgb(all_obs[k]), origin="upper", interpolation="none")
+
+        traj = all_poses[k]
+        if traj:
+            tr = np.array([(p[0], p[1]) for p in traj])
+            ax.plot(tr[:, 1], tr[:, 0], color=COLOR_TRAJ, linewidth=0.8,
+                    alpha=0.6, zorder=3)
 
         Gk = subgraphs[k]
         if Gk.number_of_nodes() > 0:
@@ -760,9 +965,9 @@ def fig1_session_exploration(
         else:
             tlen, reachable = float("inf"), "NO"
 
-        ax.scatter(start[1], start[0], c=COLOR_START, s=80, marker="o",
+        ax.scatter(start[1], start[0], color=COLOR_START, s=80, marker="o",
                    edgecolors="white", linewidths=1.5, zorder=7)
-        ax.scatter(goal[1], goal[0], c=COLOR_GOAL, s=80, marker="X",
+        ax.scatter(goal[1], goal[0], color=COLOR_GOAL, s=80, marker="X",
                    edgecolors="white", linewidths=1.5, zorder=7)
         title = (f"Session {k}  T={temperatures[k]:.1f}  "
                  f"nodes={Gk.number_of_nodes()}  "
@@ -782,27 +987,9 @@ def fig1_session_exploration(
     if merged_topo.number_of_nodes() > 0:
         _draw_topo_graph(ax, merged_topo,
                          edge_color=COLOR_TOPO_EDGE_INTRA, res=res)
-        # highlight cross-session edges in yellow
-        sub_node_sets = []
-        off = 0
-        for Gk in subgraphs:
-            sub_node_sets.append(set(range(off, off + Gk.number_of_nodes())))
-            off += Gk.number_of_nodes() + 1
-        for si in range(len(sub_node_sets)):
-            for sj in range(si + 1, len(sub_node_sets)):
-                for u in sub_node_sets[si]:
-                    for v in sub_node_sets[sj]:
-                        if merged_topo.has_edge(u, v):
-                            xu = merged_topo.nodes[u]["x"] / res
-                            yu = merged_topo.nodes[u]["y"] / res
-                            xv = merged_topo.nodes[v]["x"] / res
-                            yv = merged_topo.nodes[v]["y"] / res
-                            ax.plot([xu, xv], [yu, yv],
-                                    color=COLOR_TOPO_EDGE_CROSS, alpha=0.5,
-                                    linewidth=0.6, zorder=4)
         nodes_x = [d["x"] / res for _, d in merged_topo.nodes(data=True)]
         nodes_y = [d["y"] / res for _, d in merged_topo.nodes(data=True)]
-        ax.scatter(nodes_x, nodes_y, c=COLOR_TOPO_NODE, s=15, zorder=5)
+        ax.scatter(nodes_x, nodes_y, color=COLOR_TOPO_NODE, s=15, zorder=5)
         tlen, sn, gn = topo_path_length(merged_topo, start, goal, res)
         if sn is not None and gn is not None:
             try:
@@ -811,9 +998,9 @@ def fig1_session_exploration(
             except nx.NetworkXNoPath:
                 tlen = float("inf")
 
-    ax.scatter(start[1], start[0], c=COLOR_START, s=80, marker="o",
+    ax.scatter(start[1], start[0], color=COLOR_START, s=80, marker="o",
                edgecolors="white", linewidths=1.5, zorder=7)
-    ax.scatter(goal[1], goal[0], c=COLOR_GOAL, s=80, marker="X",
+    ax.scatter(goal[1], goal[0], color=COLOR_GOAL, s=80, marker="X",
                edgecolors="white", linewidths=1.5, zorder=7)
     _draw_gt_path(ax, gt_path, res=res)
     ratio = tlen / gt_len if gt_len > 0 and tlen < float("inf") else float("inf")
@@ -840,6 +1027,7 @@ def fig2_optimality_curve(
     res: float = GRID_RES_M,
     output_path: str | Path = "fig2_optimality_curve.png",
 ) -> None:
+    _setting_font(fontsize=12, titlesize=14, legend_fontsize=10)
     fig, ax = plt.subplots(figsize=(8, 5), facecolor=BG_COLOR)
     ax.set_facecolor(BG_COLOR)
     k_vals = list(range(1, len(ratios) + 1))
@@ -848,7 +1036,8 @@ def fig2_optimality_curve(
     finite_k = np.array(k_vals)[finite_mask]
 
     if len(finite_k) > 0:
-        ax.plot(finite_k, finite_ratios, color="#3B82F6", marker="o",
+        ax.plot(finite_k, finite_ratios, color=COLOR_TOPO_NODE,
+                marker=_MARKERS[0], linestyle=_LINESTYLES[0],
                 markersize=8, linewidth=2, label="topo ratio")
         for k, r in zip(finite_k, finite_ratios):
             ax.annotate(f"r={r:.2f}", (k, r), textcoords="offset points",
@@ -861,7 +1050,8 @@ def fig2_optimality_curve(
         for k in inf_k:
             ax.text(k, 1.35, "unreachable", ha="center", color="#6B7280", fontsize=8)
 
-    ax.axhline(y=1.0, color=COLOR_GOAL, linestyle="--", linewidth=1.5, label="GT optimal (1.0)")
+    ax.axhline(y=1.0, color=COLOR_GOAL, linestyle=_LINESTYLES[1],
+               linewidth=1.5, label="GT optimal (1.0)")
     ax.set_xlabel("Number of Sessions (k)", color="white", fontsize=12)
     ax.set_ylabel("Optimality Ratio (topo_len / GT_len)", color="white", fontsize=12)
     ax.set_title("Path Optimality vs. Number of Sessions", color="white", fontsize=14)
@@ -888,7 +1078,8 @@ def fig3_reachability_coverage(
     goal: tuple[int, int],
     res: float = GRID_RES_M,
     output_path: str | Path = "fig3_reachability_coverage.png",
-) -> None:
+) -> dict[str, list[float] | float]:
+    _setting_font(fontsize=12, titlesize=12, legend_fontsize=10)
     K = len(all_obs)
     total_free = int((base_grid == 0).sum())
     ncols = 3
@@ -898,6 +1089,9 @@ def fig3_reachability_coverage(
     axes = np.atleast_1d(axes).flatten()
 
     cov_pcts = []
+    cov_m2_list = []
+    new_m2_list = []
+    new_pct_list = []
     cum_free_mask = np.zeros(base_grid.shape, dtype=bool)
 
     for k in range(K):
@@ -915,7 +1109,7 @@ def fig3_reachability_coverage(
             cov_layer[new_this_session, :] = (*_COV_NEW_RGB, ALPHA_COV_NEW)
             ax.imshow(cov_layer, origin="upper", interpolation="none", zorder=2)
 
-        traj = all_poses[k]
+        traj = all_poses[k] if k < len(all_poses) else []
         if traj:
             tr = np.array([(p[0], p[1]) for p in traj])
             ax.plot(tr[:, 1], tr[:, 0], color=COLOR_TRAJ, linewidth=0.8, alpha=0.8, zorder=3)
@@ -924,15 +1118,19 @@ def fig3_reachability_coverage(
         new_cov = int((new_free & ~prev_mask).sum())
         total_pct = 100.0 * total_cov / total_free if total_free > 0 else 0
         new_pct = 100.0 * new_cov / total_free if total_free > 0 else 0
-        cov_pcts.append(total_pct)
-
-        ax.scatter(start[1], start[0], c=COLOR_START, s=60, marker="o",
-                   edgecolors="white", linewidths=1, zorder=7)
-        ax.scatter(goal[1], goal[0], c=COLOR_GOAL, s=60, marker="X",
-                   edgecolors="white", linewidths=1, zorder=7)
         cov_m2 = total_cov * res * res
-        title = (f"k={k + 1}  new_cov={new_pct:.0f}%  "
-                 f"total_cov={total_pct:.0f}%  area={cov_m2:.0f}m²")
+        new_m2 = new_cov * res * res
+        cov_pcts.append(total_pct)
+        cov_m2_list.append(cov_m2)
+        new_m2_list.append(new_m2)
+        new_pct_list.append(new_pct)
+
+        ax.scatter(start[1], start[0], color=COLOR_START, s=60, marker="o",
+                   edgecolors="white", linewidths=1, zorder=7)
+        ax.scatter(goal[1], goal[0], color=COLOR_GOAL, s=60, marker="X",
+                   edgecolors="white", linewidths=1, zorder=7)
+        title = (f"k={k + 1}  new={new_m2:.0f} m²  "
+                 f"total={cov_m2:.0f} m²  ({total_pct:.0f}%)")
         ax.set_title(title, color="white", fontsize=10)
         ax.set_xticks([])
         ax.set_yticks([])
@@ -941,17 +1139,19 @@ def fig3_reachability_coverage(
     ax = axes[K]
     ax.set_facecolor(BG_COLOR)
     ks = list(range(1, K + 1))
-    ax.bar(ks, cov_pcts, color=COLOR_COV_NEW, alpha=0.7, label="cumulative coverage")
-    ax.plot(ks, cov_pcts, color=COLOR_TOPO_NODE, marker="o", markersize=6, linewidth=2)
-    for k, pct in zip(ks, cov_pcts):
-        ax.annotate(f"{pct:.0f}%", (k, pct), textcoords="offset points",
+    ax.bar(ks, cov_m2_list, color=COLOR_COV_NEW, alpha=0.7, label="cumulative coverage")
+    ax.plot(ks, cov_m2_list, color=COLOR_TOPO_NODE, marker=_MARKERS[0],
+            linestyle=_LINESTYLES[0], markersize=6, linewidth=2)
+    percent_symbol = r"\%" if plt.rcParams.get("text.usetex") else "%"
+    for k, area_m2, pct in zip(ks, cov_m2_list, cov_pcts):
+        ax.annotate(f"{area_m2:.0f} m²\n({pct:.0f}{percent_symbol})", (k, area_m2), textcoords="offset points",
                     xytext=(0, 8), ha="center", color="white", fontsize=9)
     ax.set_xlabel("Number of Sessions (k)", color="white", fontsize=10)
-    ax.set_ylabel("Coverage (%)", color="white", fontsize=10)
+    ax.set_ylabel("Cumulative Coverage [m²]", color="white", fontsize=10)
     ax.set_title("Cumulative Coverage Growth", color="white", fontsize=12)
     ax.tick_params(colors="white")
     ax.set_xticks(ks)
-    ax.set_ylim(0, max(cov_pcts) * 1.2 if cov_pcts else 100)
+    ax.set_ylim(0, max(cov_m2_list) * 1.2 if cov_m2_list else 1)
     for spine in ax.spines.values():
         spine.set_color("white")
 
@@ -962,6 +1162,13 @@ def fig3_reachability_coverage(
     fig.savefig(output_path, dpi=300, facecolor=BG_COLOR)
     plt.close(fig)
     print(f"  Saved {output_path}")
+    return {
+        "res_m": res,
+        "cum_m2": [round(float(v), 3) for v in cov_m2_list],
+        "new_m2": [round(float(v), 3) for v in new_m2_list],
+        "cum_pct": [round(float(v), 3) for v in cov_pcts],
+        "new_pct": [round(float(v), 3) for v in new_pct_list],
+    }
 
 
 # ============================================================================
@@ -970,18 +1177,12 @@ def fig3_reachability_coverage(
 def main():
     parser = argparse.ArgumentParser(
         description="Frontier-Based Goal-Directed Exploration Benchmark")
-    parser.add_argument("--start", type=int, nargs=2, required=False,
-                        default=None, metavar=("R", "C"),
-                        help="Grid start cell (row, col). Mutually exclusive with --start_world.")
-    parser.add_argument("--goal", type=int, nargs=2, required=False,
-                        default=None, metavar=("R", "C"),
-                        help="Grid goal cell (row, col). Mutually exclusive with --goal_world.")
-    parser.add_argument("--start_world", type=float, nargs=2, required=False,
-                        default=None, metavar=("COL", "ROW"),
-                        help="World start (col_val, row_val) along col_axis/row_axis.")
-    parser.add_argument("--goal_world", type=float, nargs=2, required=False,
-                        default=None, metavar=("COL", "ROW"),
-                        help="World goal (col_val, row_val) along col_axis/row_axis.")
+    parser.add_argument("--start", type=float, nargs=2, required=True,
+                        metavar=("COL_M", "ROW_M"),
+                        help="Start position in world coordinates (col_axis value, row_axis value) [m]")
+    parser.add_argument("--goal", type=float, nargs=2, required=True,
+                        metavar=("COL_M", "ROW_M"),
+                        help="Goal position in world coordinates (col_axis value, row_axis value) [m]")
     parser.add_argument("--res_m", type=float, default=GRID_RES_M,
                         help=f"Grid resolution (m/cell, default={GRID_RES_M})")
     parser.add_argument("--k", type=int, default=N_SESSIONS,
@@ -994,20 +1195,20 @@ def main():
                         help=f"Output directory (default={DEFAULT_OUTPUT_DIR})")
     parser.add_argument("--col_axis", type=int, default=0,
                         help="PCD field index for grid columns (default=0=X)")
-    parser.add_argument("--row_axis", type=int, default=2,
-                        help="PCD field index for grid rows (default=2=Z)")
-    parser.add_argument("--height_axis", type=int, default=1,
-                        help="PCD field index for height-slice filter (default=1=Y)")
+    parser.add_argument("--row_axis", type=int, default=1,
+                        help="PCD field index for grid rows (default=1=Y)")
+    parser.add_argument("--height_axis", type=int, default=2,
+                        help="PCD field index for height-slice filter (default=2=Z)")
     parser.add_argument("--dilate", type=int, default=None,
                         help=f"Obstacle dilation radius in pixels (default=PCD_DILATE={PCD_DILATE})")
     parser.add_argument("--max_steps", type=int, default=None,
                         help="Override max exploration steps per session (default=H*W*budget)")
+    parser.add_argument("--temperature", type=float, default=FRONTIER_TEMP_FIXED,
+                        help=f"Frontier softmax temperature for all sessions (default={FRONTIER_TEMP_FIXED})")
     args = parser.parse_args()
 
-    if args.start is not None and args.start_world is not None:
-        parser.error("--start and --start_world are mutually exclusive")
-    if args.goal is not None and args.goal_world is not None:
-        parser.error("--goal and --goal_world are mutually exclusive")
+    if args.start is not None and args.goal is not None:
+        pass  # both required, nothing to check
 
     K = args.k
     seed = args.seed
@@ -1034,25 +1235,12 @@ def main():
         pcd_path, res, col_axis=col_axis, row_axis=row_axis, height_axis=height_axis,
         dilate=args.dilate if args.dilate is not None else PCD_DILATE)
     np.save(output_dir / "base_map.npy", base_grid)
+    np.save(output_dir / "data" / "base_map.npy", base_grid)
     H, W = base_grid.shape
 
-    # Resolve start / goal
-    if args.start_world is not None:
-        start = world_to_grid(args.start_world[0], args.start_world[1],
-                              col_range, row_range, res)
-    elif args.start is not None:
-        start = (args.start[0], args.start[1])
-    else:
-        print("ERROR: must specify --start or --start_world")
-        return 1
-    if args.goal_world is not None:
-        goal = world_to_grid(args.goal_world[0], args.goal_world[1],
-                             col_range, row_range, res)
-    elif args.goal is not None:
-        goal = (args.goal[0], args.goal[1])
-    else:
-        print("ERROR: must specify --goal or --goal_world")
-        return 1
+    # Resolve start / goal from world coordinates
+    start = world_to_grid(args.start[0], args.start[1], col_range, row_range, res)
+    goal  = world_to_grid(args.goal[0],  args.goal[1],  col_range, row_range, res)
 
     print(f"  start={(start)}, goal={(goal)}, K={K}, seed={seed}")
 
@@ -1112,7 +1300,7 @@ def main():
     for k in range(K):
         rng = np.random.default_rng(seed + k)
         initial_yaw = k * (2 * np.pi / K) + rng.uniform(-0.15, 0.15) * np.pi
-        temperature = FRONTIER_TEMP_MIN + k * (FRONTIER_TEMP_MAX - FRONTIER_TEMP_MIN) / max(K - 1, 1)
+        temperature = args.temperature
         temperatures.append(temperature)
         max_steps = args.max_steps if args.max_steps is not None else int(H * W * MAX_STEPS_COVERAGE_BUDGET)
         t1 = time.time()
@@ -1124,7 +1312,8 @@ def main():
             res=res, max_steps=max_steps, verbose=False)
         dt = time.time() - t1
 
-        subgraph = build_topometric_subgraph(traj, res=res, base_grid=base_grid)
+        subgraph = build_topometric_subgraph(traj, res=res, base_grid=base_grid, goal=goal)
+        add_intra_session_loop_edges(subgraph, base_grid, res=res)
         all_poses.append(traj)
         all_obs.append(obs)
         subgraphs.append(subgraph)  # solo subgraph for session k
@@ -1145,6 +1334,10 @@ def main():
         np.save(output_dir / "data" / f"session_{k}_poses.npy",
                 np.array(traj, dtype=np.float32))
         np.save(output_dir / "data" / f"session_{k}_obs.npy", obs)
+        np.savez(output_dir / "data" / f"topomap_k{k}.npz",
+                 **topomap_to_npz_arrays(subgraph))
+        np.savez(output_dir / "data" / f"topomap_merged_k{k}.npz",
+                 **topomap_to_npz_arrays(merged))
 
         merged_obs = np.zeros_like(base_grid, dtype=np.int8)
         for prev_obs in all_obs:
@@ -1181,6 +1374,8 @@ def main():
     }
     with open(output_dir / "data" / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
+    with open(output_dir / "data" / "ratios.json", "w") as f:
+        json.dump({"gt_len_m": round(gt_len, 3), "ratios": metrics["ratios"]}, f, indent=2)
 
     # ------------------------------------------------------------------
     print(f"\n--- Generating Figures (300 dpi) ---")
@@ -1190,9 +1385,11 @@ def main():
         output_path=output_dir / "fig1_session_exploration.png")
     fig2_optimality_curve(ratios, gt_len, res=res,
                           output_path=output_dir / "fig2_optimality_curve.png")
-    fig3_reachability_coverage(
+    coverage_data = fig3_reachability_coverage(
         base_grid, all_poses, all_obs, start, goal, res=res,
         output_path=output_dir / "fig3_reachability_coverage.png")
+    with open(output_dir / "data" / "coverage.json", "w") as f:
+        json.dump(coverage_data, f, indent=2)
 
     print(f"\nDone. Total time: {time.time() - t0:.1f}s")
     return 0

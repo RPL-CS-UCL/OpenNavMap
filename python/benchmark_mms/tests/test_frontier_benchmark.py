@@ -12,7 +12,11 @@ def test_fov_half_deg_is_45():
 
 
 def test_fov_range_m_is_8():
-    assert feb.FOV_RANGE_M == 8.0, f"Expected 8.0, got {feb.FOV_RANGE_M}"
+    assert feb.FOV_RANGE_M == 5.0, f"Expected 5.0, got {feb.FOV_RANGE_M}"
+
+
+def test_frontier_temperature_fixed_is_2_5():
+    assert feb.FRONTIER_TEMP_FIXED == 2.5, f"Expected 2.5, got {feb.FRONTIER_TEMP_FIXED}"
 
 
 def test_fov_half_rad_consistent_with_deg():
@@ -98,6 +102,44 @@ def test_obs_to_rgb_mixed():
     np.testing.assert_allclose(rgb[2, 2], grey,  atol=1e-6)
 
 
+def test_fig3_returns_cumulative_coverage_square_meters(tmp_path):
+    base_grid = np.zeros((4, 4), dtype=np.uint8)
+    obs0 = np.zeros((4, 4), dtype=np.int8)
+    obs1 = np.zeros((4, 4), dtype=np.int8)
+    obs0[0, 0] = -1
+    obs0[0, 1] = -1
+    obs1[0, 1] = -1
+    obs1[1, 0] = -1
+
+    data = feb.fig3_reachability_coverage(
+        base_grid, [], [obs0, obs1], start=(0, 0), goal=(3, 3),
+        res=0.5, output_path=tmp_path / "coverage.png",
+    )
+
+    assert data["cum_m2"] == [0.5, 0.75]
+    assert data["new_m2"] == [0.5, 0.25]
+    assert data["cum_pct"] == [12.5, 18.75]
+    assert (tmp_path / "coverage.png").exists()
+
+
+def test_topomap_to_npz_arrays_exports_nodes_edges_weights():
+    import networkx as nx
+    G = nx.Graph()
+    G.add_node(0, x=1.0, y=2.0)
+    G.add_node(1, x=3.0, y=4.0)
+    G.add_edge(0, 1, weight=5.0)
+    G.graph["start_node"] = 0
+    G.graph["goal_node"] = 1
+
+    arrays = feb.topomap_to_npz_arrays(G)
+
+    np.testing.assert_allclose(arrays["nodes_xy"], np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
+    np.testing.assert_array_equal(arrays["edges"], np.array([[0, 1]], dtype=np.int32))
+    np.testing.assert_allclose(arrays["edge_weights"], np.array([5.0], dtype=np.float32))
+    np.testing.assert_array_equal(arrays["start_node"], np.array([0], dtype=np.int32))
+    np.testing.assert_array_equal(arrays["goal_node"], np.array([1], dtype=np.int32))
+
+
 # ── Manhattan / graph-structure fixes ────────────────────────────────
 
 def test_astar_distance_is_euclidean():
@@ -120,6 +162,33 @@ def test_astar_uses_8_directions():
         for i in range(1, len(path))
     )
     assert has_diagonal, "A* should use diagonal steps in 8-direction mode"
+
+
+def test_astar_local_matches_global_path_cost():
+    grid = np.zeros((20, 20), dtype=np.uint8)
+    grid[5:15, 10] = 1
+    grid[10, 10] = 0
+
+    _, global_dist = feb.astar(grid, (2, 2), (18, 18), res=0.5)
+    _, local_dist = feb.astar_local(grid, (2, 2), (18, 18), res=0.5, margin=20)
+
+    assert abs(local_dist - global_dist) < 1e-9
+
+
+def test_astar_local_matches_global_astar_in_window():
+    grid = np.zeros((30, 30), dtype=np.uint8)
+    grid[10:20, 15] = 1
+    start = (8, 8)
+    goal = (22, 22)
+
+    global_path, global_dist = feb.astar(grid, start, goal, res=1.0)
+    local_path, local_dist = feb.astar_local(grid, start, goal, res=1.0, margin=5)
+
+    assert global_path is not None
+    assert local_path is not None
+    assert abs(local_dist - global_dist) < 1e-9
+    assert local_path[0] == start
+    assert local_path[-1] == goal
 
 
 def test_topo_subgraph_edge_weight_is_euclidean():
@@ -182,6 +251,90 @@ def test_topo_subgraph_condition2_last_visible():
     G = feb.build_topometric_subgraph(poses, res=0.5, base_grid=grid)
     node_cols = sorted([int(d["x"] / 0.5) for _, d in G.nodes(data=True)])
     assert 9 in node_cols, f"Col 9 must be a keyframe (last visible before wall). Got: {node_cols}"
+
+
+def test_fov_observation_stops_at_obstacle():
+    grid = np.zeros((7, 7), dtype=np.uint8)
+    grid[3, 4] = 1
+    obs = np.zeros_like(grid, dtype=np.int8)
+
+    feb.add_fov_observation(
+        obs, 3, 2, yaw=0.0, base_grid=grid,
+        fov_range_m=4.0, fov_half_rad=0.01, res=1.0,
+    )
+
+    assert obs[3, 3] == -1
+    assert obs[3, 4] == 1
+    assert obs[3, 5] == 0
+
+
+def test_topo_subgraph_forces_last_pose_as_node():
+    poses = [(0, 0, 0.0), (1, 0, 0.0), (2, 0, 0.0)]
+    G = feb.build_topometric_subgraph(poses, res=1.0, trans_thresh=10.0, goal=(2, 0))
+
+    assert G.number_of_nodes() == 2
+    assert G.graph["start_node"] == 0
+    assert G.graph["goal_node"] == 1
+    assert G.nodes[1]["x"] == 0.0
+    assert G.nodes[1]["y"] == 2.0
+
+
+def test_topo_subgraph_does_not_set_goal_node_before_reaching_goal():
+    poses = [(0, 0, 0.0), (1, 0, 0.0), (2, 0, 0.0)]
+    G = feb.build_topometric_subgraph(poses, res=1.0, trans_thresh=10.0, goal=(5, 0))
+
+    assert G.number_of_nodes() == 1
+    assert G.graph["start_node"] == 0
+    assert "goal_node" not in G.graph
+
+
+def test_add_intra_session_loop_edges_connects_non_adjacent_nodes():
+    grid = np.zeros((10, 10), dtype=np.uint8)
+    G = feb.build_topometric_subgraph(
+        [(0, 0, 0.0), (0, 6, 0.0), (3, 3, 0.0)],
+        res=1.0, trans_thresh=2.0, base_grid=grid,
+    )
+
+    assert not G.has_edge(0, 2)
+    feb.add_intra_session_loop_edges(G, grid, res=1.0, cross_dist=5.0)
+
+    assert G.has_edge(0, 2)
+
+
+def test_candidate_topo_edge_uses_rounded_grid_coordinates():
+    grid = np.zeros((100, 100), dtype=np.uint8)
+    edge = feb._candidate_topo_edge(
+        xi=8.6, yi=12.6, xj=8.8, yj=13.6,
+        base_grid=grid, res=0.2, cross_dist=5.0,
+    )
+
+    assert edge is not None
+    path_len, _ = edge
+    _, expected = feb.astar(grid, (63, 43), (68, 44), res=0.2)
+    assert abs(path_len - expected) < 1e-9
+
+
+def test_frontier_session_does_not_goal_check_every_inner_cell(monkeypatch):
+    grid = np.zeros((20, 20), dtype=np.uint8)
+    start = (1, 1)
+    goal = (18, 18)
+    calls_to_goal = 0
+    original_astar = feb.astar
+
+    def counting_astar(grid_arg, start_arg, goal_arg, res=feb.GRID_RES_M):
+        nonlocal calls_to_goal
+        if goal_arg == goal:
+            calls_to_goal += 1
+        return original_astar(grid_arg, start_arg, goal_arg, res)
+
+    monkeypatch.setattr(feb, "astar", counting_astar)
+    feb.frontier_explore_session(
+        start, goal, grid, np.random.default_rng(0), initial_yaw=0.0,
+        frontier_temperature=2.5, res=1.0, fov_range_m=4.0,
+        fov_half_rad=np.pi / 2, max_steps=3,
+    )
+
+    assert calls_to_goal <= 4
 
 
 def test_merge_edge_weight_uses_astar():

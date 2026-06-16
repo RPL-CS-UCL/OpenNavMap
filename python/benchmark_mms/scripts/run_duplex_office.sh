@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Run frontier exploration benchmark on duplex_office
-# Grid: 207x207 at 0.1m res, 44.0% obstacles
-# Start: world (2.0, 2.5) → grid (25, 20)
-# Goal:  world (19.0, 18.0) → grid (180,190)
-# MUST use 0.1m: 0.2m fragments free space into 390 disconnected components
+# Grid: ~104x104 at 0.2m res, ~32% obstacles (XY=ground, Z=height)
+# Start: world (col=1.5, row=2.5) → grid (row=12, col=7)
+# Goal:  world (col=19,  row=18)  → grid (row=90, col=95)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJ_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -21,10 +20,10 @@ cd "$PROJ_DIR"
 exec python -u "$BENCH" \
   --pcd "$PCD" \
   --output_dir "$OUT" \
-  --start_world 2 2.5 \
-  --goal_world 19 18 \
-  --res_m 0.1 \
-  --dilate 0 \
+  --start 1.5 2.5 \
+  --goal 19 18 \
+  --res_m 0.2 \
   --k 5 \
   --seed 42 \
+  --temperature 2.5 \
   "$@"

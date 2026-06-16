@@ -25,6 +25,10 @@ cache/
 
 # Multi-session mapping benchmark generated outputs
 python/benchmark_mms/output/
+python/benchmark_mms/output*/
+python/benchmark_mms/data/*_occupancy.png
+python/benchmark_mms/data/*.rrd
+python/benchmark_mms/data/*.log
 python/benchmark_mms/*.npy
 python/benchmark_mms/*.png
 python/benchmark_mms/*.gif
