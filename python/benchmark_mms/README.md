@@ -1,12 +1,29 @@
-# benchmark_mms — Frontier Exploration Benchmark
+# benchmark_mms — Multi-Session Frontier Exploration Benchmark
 
-Multi-session frontier-based goal-directed exploration benchmark on the Octa Maze.
+This benchmark evaluates goal-directed frontier exploration and multi-session
+topometric map merging on `octa_maze`, `duplex_office`, and `tunnel` point-cloud
+maps.
 
 ## Overview
 
-K sessions each start from the same `(start, goal)` pair and explore using frontier
-selection with per-session softmax-temperature perturbation. As sessions accumulate,
-the topometric map path from start to goal converges toward the ground-truth optimal.
+Each environment runs `K` sessions from a fixed `(start, goal)` pair. Session
+diversity comes from different initial yaw values while the frontier softmax
+temperature is fixed by the run script, currently `--temperature 2.5`.
+
+The benchmark measures:
+
+- shortest path length on the cumulative topometric map,
+- optimality ratio `topo_len / GT_len`,
+- reachability across cumulative sessions,
+- cumulative explored free-space area in square meters (`m²`).
+
+Coordinates follow the current convention:
+
+- PCD ground plane: `X/Y`
+- PCD height axis: `Z`
+- grid column axis: `X`
+- grid row axis: `Y`
+- CLI `--start` and `--goal`: world coordinates `(col_m, row_m)`
 
 ## Requirements
 
@@ -15,81 +32,116 @@ conda activate opennavmap
 pip install numpy matplotlib scipy networkx
 ```
 
-## Usage
+## Recommended Runs
+
+Run from the repository root:
 
 ```bash
-cd python/benchmark_mms
-python frontier_explore_benchmark.py
+cd /Titan/code/robohike_ws/src/opennavmap
+
+bash python/benchmark_mms/scripts/run_duplex_office.sh
+bash python/benchmark_mms/scripts/run_octa_maze.sh
+bash python/benchmark_mms/scripts/run_tunnel.sh
 ```
 
-With explicit arguments:
+Current script settings:
+
+| Script | Resolution | Sessions | Start `(col,row)` | Goal `(col,row)` | Temperature |
+|--------|------------|----------|-------------------|------------------|-------------|
+| `run_duplex_office.sh` | `0.2 m` | `5` | `(1.5, 2.5)` | `(19, 18)` | `2.5` |
+| `run_octa_maze.sh` | `0.2 m` | `5` | `(2.5, 4)` | `(30, 33)` | `2.5` |
+| `run_tunnel.sh` | `0.3 m` | `10` | `(-15, -5)` | `(201, 132)` | `2.5` |
+
+`run_tunnel.sh` also sets `--max_steps 8000` to avoid the area-based default
+step budget on the large tunnel map.
+
+## Direct CLI Usage
 
 ```bash
-python frontier_explore_benchmark.py \
-    --start 7 5 --goal 62 65 \
-    --k 5 --seed 42 \
-    --output_dir output/octa_maze
+python python/benchmark_mms/frontier_explore_benchmark.py \
+  --pcd python/benchmark_mms/data/duplex_office.pcd \
+  --output_dir python/benchmark_mms/output/duplex_office \
+  --start 1.5 2.5 \
+  --goal 19 18 \
+  --res_m 0.2 \
+  --k 5 \
+  --seed 42 \
+  --temperature 2.5
 ```
 
 ## CLI Arguments
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--start R C` | `7 5` | Start cell in grid coordinates (row, col) |
-| `--goal R C` | `62 65` | Goal cell in grid coordinates (row, col) |
-| `--k` | `5` | Number of exploration sessions |
-| `--seed` | `42` | Master random seed |
-| `--res_m` | `0.5` | Grid resolution (m/cell) |
-| `--pcd` | `data/octa_maze.pcd` | Path to point cloud file |
-| `--output_dir` | `output/octa_maze` | Output directory |
+| Argument | Description |
+|----------|-------------|
+| `--start COL_M ROW_M` | Start position in world coordinates along `(col_axis,row_axis)` |
+| `--goal COL_M ROW_M` | Goal position in world coordinates along `(col_axis,row_axis)` |
+| `--res_m` | Occupancy-grid resolution in meters per cell |
+| `--k` | Number of sessions |
+| `--seed` | Master random seed |
+| `--temperature` | Fixed frontier softmax temperature for all sessions |
+| `--pcd` | Input PCD path |
+| `--output_dir` | Output directory |
+| `--col_axis` | PCD field index for grid columns, default `0` (`X`) |
+| `--row_axis` | PCD field index for grid rows, default `1` (`Y`) |
+| `--height_axis` | PCD field index for height slice, default `2` (`Z`) |
+| `--dilate` | Obstacle dilation radius in pixels, default `PCD_DILATE=1` |
+| `--max_steps` | Optional per-session step limit |
 
-## Output Files
+## Outputs
 
-All outputs written to `output/octa_maze/`:
+Each run writes to `python/benchmark_mms/output/<environment>/`.
+
+Top-level outputs:
 
 | File | Description |
 |------|-------------|
-| `fig1_session_exploration.png` | Per-session topo graph + merged exploration map |
-| `fig2_optimality_curve.png` | Path optimality ratio per cumulative session count |
-| `fig3_reachability_coverage.png` | Cumulative coverage growth with per-session trajectory |
-| `fixed_pair.json` | Fixed (start, goal) metadata and GT path length |
-| `data/metrics.json` | Per-session metrics (ratio, nodes, traj length) |
+| `fig1_session_exploration.png` | Per-session observations, trajectories, topo graphs, and merged map |
+| `fig2_optimality_curve.png` | Cumulative path optimality ratio curve |
+| `fig3_reachability_coverage.png` | Cumulative coverage growth plotted in `m²` |
+| `fixed_pair.json` | Start/goal metadata and GT path length |
+| `base_map.npy` | Occupancy grid copy for compatibility |
 
-## Data
+Data outputs under `data/`:
 
-`data/octa_maze.pcd` — 250k-point ASCII PCD of a 35×35 m octagonal maze.
+| File | Description |
+|------|-------------|
+| `base_map.npy` | Occupancy grid used by the run |
+| `metrics.json` | Run metadata, ratios, node counts, trajectory lengths |
+| `ratios.json` | `gt_len_m` and cumulative `topo_len / GT_len` ratios |
+| `coverage.json` | `cum_m2`, `new_m2`, `cum_pct`, `new_pct` per session |
+| `session_<k>_poses.npy` | Session trajectory `(row, col, yaw)` |
+| `session_<k>_obs.npy` | Session observation grid (`-1=free`, `1=obstacle`, `0=unknown`) |
+| `merged_obs_k<k>.npy` | Cumulative observation grid through session `k` |
+| `topomap_k<k>.npz` | Single-session topo nodes, edges, edge weights, start/goal node IDs |
+| `topomap_merged_k<k>.npz` | Cumulative merged topo map through session `k` |
 
-Grid parameters after loading:
-- Resolution: 0.5 m/cell → 71×71 grid
-- Height slice: Y = 2.0 ± 0.3 m
-- Obstacle ratio: ~29% (no pre-dilation)
+`topomap_*.npz` contains:
 
-## World Coordinates
+- `nodes_xy`: node coordinates in meters,
+- `edges`: integer node-index pairs,
+- `edge_weights`: edge path lengths in meters,
+- `start_node` / `goal_node` for session maps when available,
+- `start_nodes` / `goal_nodes` for merged maps when available.
 
-The PCD uses XZ as the ground plane (Y = height):
+Generated result directories are ignored by git via `.gitignore`.
 
-| Point | World (x, y, z) | Grid (row, col) |
-|-------|-----------------|-----------------|
-| Start | (2.5, 2.0, 3.5) | (7, 5) |
-| Goal  | (32.5, 2.0, 31.0) | (62, 65) |
+## Implementation Notes
 
-## Session Diversity
+- FOV observations use ray casting: obstacle cells terminate visibility, so cells
+  behind obstacles are not marked as visible.
+- A* uses 8-neighbor Euclidean costs and a closed set.
+- Frontier navigation uses local-window A* for short-range planning on large maps.
+- The first topo node is the true start. The goal node is recorded only if the
+  session actually reaches the goal.
+- Non-adjacent nodes inside one session can receive loop-closure edges if they
+  satisfy the same distance, line-of-sight, and A* reachability checks used for
+  cross-session merge edges.
+- `fig3_reachability_coverage.png` reports cumulative free-space coverage in
+  square meters, with percentages retained in annotations and `coverage.json`.
 
-All sessions share the same `(start, goal)` pair. Exploration diversity is achieved via:
-
-- **Initial yaw**: `k × (2π / K)` — session 0 faces east, each subsequent session rotates
-- **Frontier temperature** `T_k`: linearly from `T_min=0.5` (greedy) to `T_max=5.0`
-  (near-uniform), controlled via softmax over Euclidean distance to frontier candidates
-
-## Run Tests
+## Tests
 
 ```bash
-cd /path/to/opennavmap   # repo root
-conda run -n opennavmap python -m pytest python/benchmark_mms/tests/ -v
+cd /Titan/code/robohike_ws/src/opennavmap
+pytest python/benchmark_mms/tests/test_frontier_benchmark.py -q
 ```
-
-## Design Notes
-
-See `docs/2025-06-13-frontier-goal-directed-exploration-design.md` for the full
-algorithm specification including frontier exploration pseudocode, topometric graph
-construction, and path optimality evaluation.
