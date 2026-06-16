@@ -173,7 +173,7 @@ def run_order(
         # save SfM reconstruction visualization
         _sfm_vis_dir = merge_dir.parent / "sfm_vis"
         _sfm_vis_dir.mkdir(parents=True, exist_ok=True)
-        save_sfm_vis(sfm_model, _sfm_vis_dir / "sfm_reconstruction.png",
+        save_sfm_vis(sfm_model, _sfm_vis_dir / "sfm_reconstruction.rrd",
                      title=f"SfM submap0: {len(sfm_model.images)} reg / {len(sfm_model.points3D)} pts")
 
         optimizer = PoseGraphOptimizer()
