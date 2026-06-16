@@ -22,7 +22,7 @@ def test_fov_half_rad_consistent_with_deg():
 def test_select_frontier_prefers_goal_direction():
     rng = np.random.default_rng(0)
     frontiers = [(2, 7), (10, 7)]
-    free_neighbors = [(3, 7), (9, 7)]
+    free_neighbors = [(3, 7), (7, 7)]
     current = (5, 7)
     goal = (12, 7)
     obs = np.full((15, 15), -1, dtype=np.int8)
@@ -36,7 +36,7 @@ def test_select_frontier_prefers_goal_direction():
             frontier_free_neighbors=free_neighbors,
             goal=goal, goal_bias=0.5,
         )
-        if result == (9, 7):
+        if result == (7, 7):
             toward_count += 1
 
     assert toward_count > 140, f"Expected >140/200 toward-goal, got {toward_count}"

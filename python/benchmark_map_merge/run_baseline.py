@@ -39,6 +39,7 @@ from benchmark_map_merge.merge_writer import (
     merge_edges_with_offset,
 )
 from benchmark_map_merge.export_eval_data import export_to_eval_structure
+from benchmark_map_merge.vis_utils import save_topdown_pose_viz, save_sfm_vis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("run_baseline")
@@ -61,6 +62,8 @@ def run_order(
     max_submaps: int = None,
     traj_eval_data_root: Path = None,
     skip_eval_export: bool = False,
+    data_dir: str = "s00000_aria_data",
+    pnp_sample_dist: float = 0.0,
 ):
     orders_file = dataset_root / "s00000_orders.txt"
     with open(orders_file) as f:
@@ -74,7 +77,8 @@ def run_order(
         submap_ids = submap_ids[:max_submaps]
         order_tag = f"{order_tag}_{max_submaps}sub"
 
-    result_root = dataset_root / f"s00000_results_{order_tag}_{method}"
+    data_suffix = f"_{data_dir.replace('s00000_aria_', '')}" if data_dir != "s00000_aria_data" else ""
+    result_root = dataset_root / f"s00000_results_{order_tag}_{method}{data_suffix}"
     result_root.mkdir(parents=True, exist_ok=True)
     log_file = result_root / "logs" / "pipeline.log"
 
@@ -83,8 +87,9 @@ def run_order(
     _log(f"Order: {order_index} ({ORDER_TAGS[order_index]}), Tag: {order_tag}", log_file)
     _log(f"Submaps: {submap_ids}", log_file)
     _log(f"Result dir: {result_root}", log_file)
+    _log(f"Data dir: {data_dir}", log_file)
 
-    submap_base = dataset_root / "s00000_aria_data"
+    submap_base = dataset_root / data_dir
     submap_dirs = [submap_base / sid for sid in submap_ids]
     for d in submap_dirs:
         if not d.exists():
@@ -128,7 +133,10 @@ def run_order(
 
     ref_intr  = read_intrinsics(str(ref_dir / "intrinsics.txt"))
     ref_gps   = read_gps(str(ref_dir / "gps_data.txt"))
-    ref_edges = read_edges_odom(str(ref_dir / "edges_odom.txt"))
+    _ref_odom_path = ref_dir / "edges_odom.txt"
+    ref_edges = read_edges_odom(str(_ref_odom_path)) if _ref_odom_path.exists() else []
+    if not _ref_odom_path.exists():
+        print(f"[run_baseline] edges_odom.txt not found in ref submap, skipping odometry edges")
 
     merged_intrinsics = reindex_dict(ref_intr, ref_images, global_offset)
     merged_gps        = reindex_dict(ref_gps,  ref_images, global_offset)
@@ -153,18 +161,43 @@ def run_order(
             intr_tuple = (444.492708, 444.492708, 511.5, 287.5, 1024, 576)
 
         _log(f"  building SfM map from submap 0...", log_file)
-        sfm_model = sfm_merger.build_ref_map(ref_dir, ref_images, intr_tuple)
+        ref_vio = read_poses(str(ref_dir / "poses.txt"))
+        sfm_model = sfm_merger.build_ref_map(
+            ref_dir, ref_images, intr_tuple, vio_poses=ref_vio,
+            sfm_sample_dist=0.5,
+        )
         if sfm_model is None:
             _log("  ERROR: SfM failed for reference submap, aborting.", log_file)
             return
 
+        # save SfM reconstruction visualization
+        _sfm_vis_dir = merge_dir.parent / "sfm_vis"
+        _sfm_vis_dir.mkdir(parents=True, exist_ok=True)
+        save_sfm_vis(sfm_model, _sfm_vis_dir / "sfm_reconstruction.png",
+                     title=f"SfM submap0: {len(sfm_model.images)} reg / {len(sfm_model.points3D)} pts")
+
         optimizer = PoseGraphOptimizer()
         _sfm_all_frames: list = []
-        ref_vio = read_poses(str(ref_dir / "poses.txt"))
         ref_offset = optimizer.add_submap(ref_vio, ref_images, is_reference=True)
         _sfm_all_frames += [(ref_offset + j, img) for j, img in enumerate(ref_images)]
+        # per-submap optimized poses (local img_name → vec7)
+        _sfm_submap_poses: List[Dict[str, np.ndarray]] = []
+        # submap0: GTSAM will output VIO-like poses (tight prior), use VIO as initial pred
+        _sfm_submap_poses.append({img: ref_vio[img] for img in ref_images if img in ref_vio})
         _log(f"  SfM model: {len(sfm_model.images)} images, "
              f"{len(sfm_model.points3D)} 3D points", log_file)
+
+        # write merge_0 preds
+        _preds0_dir = merge_dir.parent / "preds"
+        _preds0_dir.mkdir(parents=True, exist_ok=True)
+        write_poses_txt({img: ref_vio[img] for img in ref_images if img in ref_vio},
+                        _preds0_dir / "s0_pred.txt")
+        save_topdown_pose_viz(
+            _sfm_submap_poses, merged_gt,
+            _preds0_dir / "topdown_poses.png",
+            submap_labels=["submap 0"],
+            title="merge_0",
+        )
 
     failures = []
     total_start = time.time()
@@ -179,10 +212,22 @@ def run_order(
 
         # ---- SfM path ----
         if method in _SFM_METHODS:
-            pnp_poses = sfm_merger.localize_submap(
+            inc_vio = read_poses(str(sdir / "poses.txt"))
+            pnp_poses, pnp_ref_names = sfm_merger.localize_submap(
                 sfm_model, ref_dir, ref_images,
                 sdir, incoming_images, intr_tuple, submap_idx=i,
+                inc_vio_poses=inc_vio,
+                pnp_sample_dist=pnp_sample_dist,
             )
+            # map ref image name → ref global key for BetweenFactor construction
+            ref_name_to_gkey = {img: ref_offset + j for j, img in enumerate(ref_images)}
+            pnp_ref_gkeys = {
+                img: ref_name_to_gkey[ref_nm]
+                for img, ref_nm in pnp_ref_names.items()
+                if ref_nm in ref_name_to_gkey
+            }
+            print(f"[run_baseline] submap{i}: PnP {len(pnp_poses)}/{len(incoming_images)} "
+                  f"localized, {len(pnp_ref_gkeys)} cross-submap BetweenFactor edges")
             _log(f"  PnP: {len(pnp_poses)}/{len(incoming_images)} localized", log_file)
 
             if len(pnp_poses) < 5:
@@ -192,14 +237,35 @@ def run_order(
                 global_offset += len(incoming_images)
                 continue
 
-            inc_vio = read_poses(str(sdir / "poses.txt"))
             inc_offset = optimizer.add_submap(
-                inc_vio, incoming_images, abs_poses_w0=pnp_poses,
+                inc_vio, incoming_images,
+                abs_poses_w0=pnp_poses,
+                pnp_ref_frames=pnp_ref_gkeys,
             )
             _sfm_all_frames += [(inc_offset + j, img)
                                  for j, img in enumerate(incoming_images)]
 
             optimized = optimizer.optimize(_sfm_all_frames)
+            print(f"[run_baseline] submap{i}: GTSAM done, "
+                  f"{len(optimized)}/{len(_sfm_all_frames)} total poses optimized")
+
+            # extract optimized per-submap poses (local img_name → vec7)
+            inc_opt_local: Dict[str, np.ndarray] = {}
+            for j, img in enumerate(incoming_images):
+                gk = inc_offset + j
+                if gk in optimized:
+                    inc_opt_local[img] = optimized[gk]
+                elif img in pnp_poses:
+                    inc_opt_local[img] = _T_to_vec(pnp_poses[img])
+            _sfm_submap_poses.append(inc_opt_local)
+
+            # update ref submap's per-submap poses from latest optimization
+            ref_opt_local: Dict[str, np.ndarray] = {}
+            for j, img in enumerate(ref_images):
+                gk = ref_offset + j
+                if gk in optimized:
+                    ref_opt_local[img] = optimized[gk]
+            _sfm_submap_poses[0] = ref_opt_local
 
             # Update merged_poses with optimized global-key poses
             for j, img in enumerate(ref_images):
@@ -229,7 +295,8 @@ def run_order(
 
             inc_intr  = read_intrinsics(str(sdir / "intrinsics.txt"))
             inc_gps   = read_gps(str(sdir / "gps_data.txt"))
-            inc_edges = read_edges_odom(str(sdir / "edges_odom.txt"))
+            _inc_odom_path = sdir / "edges_odom.txt"
+            inc_edges = read_edges_odom(str(_inc_odom_path)) if _inc_odom_path.exists() else []
             merged_intrinsics.update(reindex_dict(inc_intr, incoming_images, global_offset))
             merged_gps.update(reindex_dict(inc_gps, incoming_images, global_offset))
             merged_edges = merge_edges_with_offset(merged_edges, inc_edges, offset=global_offset)
@@ -246,6 +313,20 @@ def run_order(
             write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
             write_gps_txt(merged_gps,               merge_dir / "gps_data.txt")
             write_edges_odom_txt(merged_edges,      merge_dir / "edges_odom.txt")
+
+            # write per-submap predicted poses
+            preds_dir = merge_dir.parent / "preds"
+            preds_dir.mkdir(parents=True, exist_ok=True)
+            for si, sp in enumerate(_sfm_submap_poses):
+                p_out = {img: sp[img] for img in sp}
+                write_poses_txt(p_out, preds_dir / f"s{si}_pred.txt")
+            # top-down trajectory visualization (SE3-aligned to GT)
+            save_topdown_pose_viz(
+                _sfm_submap_poses, merged_gt,
+                preds_dir / "topdown_poses.png",
+                submap_labels=[f"submap {x}" for x in range(len(_sfm_submap_poses))],
+                title=merge_name,
+            )
 
             elapsed = time.time() - t_start
             _log(f"  merged in {elapsed:.0f}s, total {len(merged_poses)} poses", log_file)
@@ -307,7 +388,8 @@ def run_order(
 
         inc_intr  = read_intrinsics(str(sdir / "intrinsics.txt"))
         inc_gps   = read_gps(str(sdir / "gps_data.txt"))
-        inc_edges = read_edges_odom(str(sdir / "edges_odom.txt"))
+        _inc_odom_path2 = sdir / "edges_odom.txt"
+        inc_edges = read_edges_odom(str(_inc_odom_path2)) if _inc_odom_path2.exists() else []
 
         inc_intr_reindexed = reindex_dict(inc_intr, incoming_images, global_offset)
         inc_gps_reindexed  = reindex_dict(inc_gps,  incoming_images, global_offset)
@@ -351,6 +433,8 @@ def run_order(
         "method": method,
         "order_index": order_index,
         "order_tag": order_tag,
+        "data_dir": data_dir,
+        "pnp_sample_dist": pnp_sample_dist,
         "submaps": submap_ids,
         "num_requested_incoming": num_requested,
         "num_merged_success": num_success,
@@ -407,9 +491,15 @@ if __name__ == "__main__":
                    default=Path("/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data"),
                    help="Root for slam_trajectory_evaluation output")
     p.add_argument("--skip-eval-export", action="store_true",
-                   help="Skip exporting TUM trajectories for evaluation")
+                    help="Skip exporting TUM trajectories for evaluation")
+    p.add_argument("--data-dir", type=str, default="s00000_aria_data",
+                   help="Submap data directory name under dataset-root "
+                        "(e.g. s00000_aria_full_data)")
+    p.add_argument("--pnp-sample-dist", type=float, default=0.0,
+                   help="VIO distance sampling for PnP localization frames "
+                        "(e.g. 1.0 = one frame per meter). 0 = all frames.")
     p.add_argument("--use-sfm", action="store_true", default=False,
-                   help="Try using COLMAP SfM for reference model (may crash)")
+                    help="Try using COLMAP SfM for reference model (may crash)")
     args = p.parse_args()
 
     run_order(
@@ -419,4 +509,6 @@ if __name__ == "__main__":
         max_submaps=args.max_submaps,
         traj_eval_data_root=args.traj_eval_data_root,
         skip_eval_export=args.skip_eval_export,
+        data_dir=args.data_dir,
+        pnp_sample_dist=args.pnp_sample_dist,
     )

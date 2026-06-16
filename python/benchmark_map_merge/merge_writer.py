@@ -228,7 +228,12 @@ def read_gps(file_path: str) -> Dict[str, np.ndarray]:
 
 
 def read_edges_odom(file_path: str) -> List[Tuple[int, int, float]]:
-    """Read edges_odom file. Returns list of (node_a, node_b, distance)."""
+    """Read edges_odom file. Returns list of (node_a, node_b, distance).
+
+    Returns empty list if file does not exist (e.g. full_data submap has no edges_odom.txt).
+    """
+    if not Path(file_path).exists():
+        return []
     edges = []
     with open(file_path) as f:
         for line in f:

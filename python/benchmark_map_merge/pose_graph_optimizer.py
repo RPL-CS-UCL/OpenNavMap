@@ -1,9 +1,10 @@
 """GTSAM pose graph optimizer for multi-session map merging.
 
 Builds a factor graph with:
-  - PriorFactor  : reference submap frames (anchor to W0 coordinate frame)
+  - PriorFactor  : first frame of reference submap (anchors W0 coordinate frame)
   - BetweenFactor: consecutive VIO frames within each submap (odometry edges)
-  - PriorFactor  : incoming frames with successful absolute localization (e.g. PnP)
+  - BetweenFactor: PnP-localized inc frames connected to their primary ref frame
+                   (cross-submap loop closure edges, mirrors map_merge_pipeline.py)
 
 Can be reused by any merging method that provides VIO poses and absolute constraints.
 """
@@ -71,6 +72,7 @@ class PoseGraphOptimizer:
         poses_vio: Dict[str, np.ndarray],
         images_ordered: List[str],
         abs_poses_w0: Optional[Dict[str, np.ndarray]] = None,
+        pnp_ref_frames: Optional[Dict[str, int]] = None,
         is_reference: bool = False,
     ) -> int:
         """Add one submap's frames to the factor graph.
@@ -80,13 +82,18 @@ class PoseGraphOptimizer:
             images_ordered: ordered list of local image names for this submap
             abs_poses_w0: {local_img_name: 4×4 C2W numpy} absolute poses in W0 frame.
                           For the reference submap pass None; set is_reference=True instead.
-            is_reference: if True, all frames get tight prior factors to anchor W0.
+            pnp_ref_frames: {local_img_name: ref_global_key} primary ref frame global key
+                            per PnP-localized inc image.  When provided, PnP results are
+                            added as cross-submap BetweenFactors (ref_key → inc_key) instead
+                            of PriorFactors.  Mirrors map_merge_pipeline.py inter-submap edges.
+            is_reference: if True, the first frame gets a tight PriorFactor to anchor W0.
 
         Returns:
             global offset (key of the first frame of this submap).
         """
         offset = self._n_total
         abs_poses = abs_poses_w0 or {}
+        pnp_refs  = pnp_ref_frames or {}
 
         for i, img in enumerate(images_ordered):
             if img not in poses_vio:
@@ -96,11 +103,13 @@ class PoseGraphOptimizer:
             T_init = abs_poses[img] if img in abs_poses else T_vio
             self._pg.add_init_estimate(key, _to_pose3(T_init))
 
-            if is_reference:
+            # anchor W0: only the first frame of the reference submap gets a PriorFactor
+            if is_reference and key == offset:
                 self._pg.add_prior_factor(key, _to_pose3(T_vio), _SIGMA_REF)
-            elif img in abs_poses:
-                self._pg.add_prior_factor(key, _to_pose3(abs_poses[img]), _SIGMA_PNP)
+                print(f"[PoseGraph] anchored W0 at ref frame key={key} (first frame of ref submap)")
 
+        # VIO odometry edges (intra-submap BetweenFactors)
+        n_odom = 0
         for i in range(len(images_ordered) - 1):
             img_a = images_ordered[i]
             img_b = images_ordered[i + 1]
@@ -111,6 +120,34 @@ class PoseGraphOptimizer:
                 offset + i + 1, _to_pose3(_vec_to_T(poses_vio[img_b])),
                 _SIGMA_ODOM,
             )
+            n_odom += 1
+
+        # Cross-submap PnP edges (inter-submap BetweenFactors, only for inc submaps)
+        # Pattern mirrors map_merge_pipeline.py L131-135:
+        #   add_odometry_factor(ref_key, I, inc_key, T_inc_w0)
+        #   → BetweenFactor delta = I.between(T_inc_w0) = T_inc_w0
+        #   → constraint: T_inc = T_ref ⊕ T_inc_w0
+        _I = _to_pose3(np.eye(4))
+        n_pnp_edges = 0
+        if not is_reference and pnp_refs:
+            for i, img in enumerate(images_ordered):
+                if img not in abs_poses or img not in pnp_refs:
+                    continue
+                ref_key = pnp_refs[img]
+                inc_key = offset + i
+                self._pg.add_odometry_factor(
+                    ref_key, _I,
+                    inc_key, _to_pose3(abs_poses[img]),
+                    _SIGMA_PNP,
+                )
+                n_pnp_edges += 1
+
+        submap_label = "ref" if is_reference else f"inc(offset={offset})"
+        print(f"[PoseGraph] add_submap {submap_label}: "
+              f"{len(images_ordered)} frames, {n_odom} VIO edges, "
+              f"{n_pnp_edges} PnP BetweenFactors")
+        logger.info(f"add_submap {submap_label}: {len(images_ordered)} frames, "
+                    f"{n_odom} odom edges, {n_pnp_edges} pnp edges")
 
         self._n_total += len(images_ordered)
         return offset
@@ -128,6 +165,8 @@ class PoseGraphOptimizer:
             {global_key: [qw,qx,qy,qz,tx,ty,tz]} optimized camera-to-world poses.
             Keys with no graph constraints may be absent.
         """
+        print(f"[PoseGraph] running GTSAM iSAM2 optimization on "
+              f"{len(all_frames)} frames...")
         pg_result = self._pg.perform_optimization()
         current_estimate = pg_result['current_estimate']
         optimized: Dict[int, np.ndarray] = {}
@@ -137,5 +176,6 @@ class PoseGraphOptimizer:
                 optimized[key] = _T_to_vec(T)
             except Exception:
                 pass
+        print(f"[PoseGraph] optimization done: {len(optimized)}/{len(all_frames)} poses recovered")
         logger.info(f"Pose graph optimized: {len(optimized)}/{len(all_frames)} poses")
         return optimized

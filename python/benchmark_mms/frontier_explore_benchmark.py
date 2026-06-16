@@ -46,7 +46,7 @@ FRONTIER_DIST_MIN = 75
 TOPO_SNAP_DIST_M = 3.0
 MAX_STEPS_COVERAGE_BUDGET = 0.1
 FRONTIER_TEMP_MIN = 0.5
-FRONTIER_TEMP_MAX = 5.0
+FRONTIER_TEMP_MAX = 3.0
 FRONTIER_TOP_N = 5
 PCD_HEIGHT_SLICE = 2.0
 PCD_HEIGHT_TOL = 0.3
@@ -61,35 +61,112 @@ DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "output" / "octa_maze"
 # ============================================================================
 # PCD Loading
 # ============================================================================
+def _parse_pcd_header(
+    pcd_path: str | Path,
+) -> tuple[int, int, bool]:
+    """Parse PCD header, return (header_byte_count, num_fields, is_binary)."""
+    with open(pcd_path, "rb") as f:
+        raw = f.read()
+    hdr_end = raw.find(b"DATA ")
+    if hdr_end < 0:
+        raise ValueError("PCD header not found")
+    next_nl = raw.find(b"\n", hdr_end)
+    header_bytes = next_nl + 1
+
+    header_text = raw[:header_bytes].decode()
+    is_binary = "binary" in header_text.split("DATA")[-1].lower() if "DATA" in header_text else False
+
+    num_fields = 3
+    for line in header_text.split("\n"):
+        if line.startswith("FIELDS"):
+            num_fields = len(line.split()) - 1
+            break
+    return header_bytes, num_fields, is_binary
+
+
+def _read_pcd_points(
+    pcd_path: str | Path, header_bytes: int, n_fields: int, is_binary: bool,
+) -> np.ndarray:
+    """Read point cloud data from PCD file."""
+    if is_binary:
+        data = np.fromfile(str(pcd_path), dtype=np.float32, offset=header_bytes)
+        n_points, _, _, _ = _parse_pcd_metadata(pcd_path, header_bytes)
+        return data[:n_points * n_fields].reshape(-1, n_fields)
+    else:
+        all_lines = Path(pcd_path).read_text().splitlines()
+        n_header = 0
+        for i, line in enumerate(all_lines):
+            n_header = i + 1
+            if line.strip().startswith("DATA"):
+                break
+        return np.loadtxt(str(pcd_path), skiprows=n_header)
+
+
+def _parse_pcd_metadata(
+    pcd_path: str | Path, header_bytes: int,
+) -> tuple[int, int, int, int]:
+    """Return (n_points, width, height, num_fields) from PCD header."""
+    with open(pcd_path, "rb") as f:
+        header = f.read(header_bytes).decode()
+    n_points = width = height = num_fields = 3
+    for line in header.split("\n"):
+        if line.startswith("POINTS"):
+            n_points = int(line.split()[1])
+        if line.startswith("WIDTH"):
+            width = int(line.split()[1])
+        if line.startswith("HEIGHT"):
+            height = int(line.split()[1])
+        if line.startswith("FIELDS"):
+            num_fields = len(line.split()) - 1
+    if n_points != width * height:
+        n_points = width * height
+    return n_points, width, height, num_fields
+
+
 def load_pcd_grid(
     pcd_path: str | Path,
     resolution: float = 0.5,
     height_slice: float = PCD_HEIGHT_SLICE,
     height_tolerance: float = PCD_HEIGHT_TOL,
     dilate: int = PCD_DILATE,
+    col_axis: int = 0,
+    row_axis: int = 2,
+    height_axis: int = 1,
 ) -> tuple[np.ndarray, tuple[float, float], tuple[float, float]]:
-    """Load ASCII PCD, crop Y-height slice, rasterize to 2D occupancy grid.
+    """Load ASCII or binary PCD, crop a height band, rasterize to 2D occupancy grid.
+
+    Args:
+        col_axis:  PCD field index used for grid columns (default 0 = X).
+        row_axis:  PCD field index used for grid rows    (default 2 = Z).
+        height_axis: PCD field index used for the height-slice filter (default 1 = Y).
 
     Returns:
         grid: uint8 (0=free, 1=obstacle)
-        x_range: (x_min, x_max) in meters
-        z_range: (z_min, z_max) in meters
+        col_range: (min, max) along col_axis
+        row_range: (min, max) along row_axis
     """
-    pts = np.loadtxt(pcd_path, skiprows=10)
-    x_min, x_max = pts[:, 0].min(), pts[:, 0].max()
-    z_min, z_max = pts[:, 2].min(), pts[:, 2].max()
+    hdr_bytes, n_fields, is_binary = _parse_pcd_header(pcd_path)
+    pts = _read_pcd_points(pcd_path, hdr_bytes, n_fields, is_binary)
 
-    mask = np.abs(pts[:, 1] - height_slice) <= height_tolerance
-    pts_slice = pts[mask]
-    print(f"  PCD height slice (Y={height_slice} +/-{height_tolerance}): "
-          f"{len(pts_slice)} / {len(pts)} points")
+    col_vals = pts[:, col_axis]
+    row_vals = pts[:, row_axis]
+    ht_vals = pts[:, height_axis]
 
-    nx_cells = int((x_max - x_min) / resolution) + 1
-    nz_cells = int((z_max - z_min) / resolution) + 1
-    grid = np.zeros((nz_cells, nx_cells), dtype=np.uint8)
-    xi = np.clip(((pts_slice[:, 0] - x_min) / resolution).astype(int), 0, nx_cells - 1)
-    zi = np.clip(((pts_slice[:, 2] - z_min) / resolution).astype(int), 0, nz_cells - 1)
-    grid[zi, xi] = 1
+    col_min, col_max = col_vals.min(), col_vals.max()
+    row_min, row_max = row_vals.min(), row_vals.max()
+
+    mask = np.abs(ht_vals - height_slice) <= height_tolerance
+    print(f"  PCD height slice (axis={height_axis} @{height_slice} +/-{height_tolerance}): "
+          f"{mask.sum()} / {len(pts)} points")
+    print(f"  col_range=[{col_min:.1f}, {col_max:.1f}]  row_range=[{row_min:.1f}, {row_max:.1f}]")
+
+    ncols = int((col_max - col_min) / resolution) + 1
+    nrows = int((row_max - row_min) / resolution) + 1
+    grid = np.zeros((nrows, ncols), dtype=np.uint8)
+
+    ci = np.clip(((col_vals[mask] - col_min) / resolution).astype(int), 0, ncols - 1)
+    ri = np.clip(((row_vals[mask] - row_min) / resolution).astype(int), 0, nrows - 1)
+    grid[ri, ci] = 1
 
     if dilate > 0:
         se = np.ones((2 * dilate + 1, 2 * dilate + 1), dtype=bool)
@@ -97,7 +174,7 @@ def load_pcd_grid(
 
     print(f"  Occupancy grid: {grid.shape}  "
           f"obstacle={grid.sum()}/{grid.size} ({100 * grid.sum() / grid.size:.1f}%)")
-    return grid, (x_min, x_max), (z_min, z_max)
+    return grid, (col_min, col_max), (row_min, row_max)
 
 
 # ============================================================================
@@ -141,14 +218,14 @@ def astar(
 
 
 def world_to_grid(
-    point_world: tuple[float, float, float],
-    x_range: tuple[float, float],
-    z_range: tuple[float, float],
+    col_val: float,
+    row_val: float,
+    col_range: tuple[float, float],
+    row_range: tuple[float, float],
     res: float = GRID_RES_M,
 ) -> tuple[int, int]:
-    x, _y, z = point_world
-    c = int((x - x_range[0]) / res)
-    r = int((z - z_range[0]) / res)
+    c = int((col_val - col_range[0]) / res)
+    r = int((row_val - row_range[0]) / res)
     return r, c
 
 
@@ -504,16 +581,17 @@ def frontier_explore_session(
     for _step in range(max_steps):
         r, c, yaw = traj[-1]
 
-        path_to_goal, _ = _try_goal(r, c)
-        if path_to_goal is not None and len(path_to_goal) > 1:
-            for nr, nc in path_to_goal[1:]:
-                ny = np.arctan2(nr - traj[-1][0], nc - traj[-1][1])
-                traj.append((nr, nc, float(ny)))
-                recently_visited.append((nr, nc))
-                if (nr, nc) not in visited_for_fov:
-                    visited_for_fov.add((nr, nc))
-                    _scan_position(nr, nc, float(ny))
-            break
+        if _step % 10 == 0:
+            path_to_goal, _ = _try_goal(r, c)
+            if path_to_goal is not None and len(path_to_goal) > 1:
+                for nr, nc in path_to_goal[1:]:
+                    ny = np.arctan2(nr - traj[-1][0], nc - traj[-1][1])
+                    traj.append((nr, nc, float(ny)))
+                    recently_visited.append((nr, nc))
+                    if (nr, nc) not in visited_for_fov:
+                        visited_for_fov.add((nr, nc))
+                        _scan_position(nr, nc, float(ny))
+                break
 
         frontiers, free_neighbors = find_frontiers(obs)
         if not frontiers:
@@ -891,13 +969,19 @@ def fig3_reachability_coverage(
 # ============================================================================
 def main():
     parser = argparse.ArgumentParser(
-        description="Frontier-Based Goal-Directed Exploration Benchmark — Octa Maze")
+        description="Frontier-Based Goal-Directed Exploration Benchmark")
     parser.add_argument("--start", type=int, nargs=2, required=False,
-                        default=[18, 12], metavar=("R", "C"),
-                        help="Fixed start cell (row, col, default=[18, 12])")
+                        default=None, metavar=("R", "C"),
+                        help="Grid start cell (row, col). Mutually exclusive with --start_world.")
     parser.add_argument("--goal", type=int, nargs=2, required=False,
-                        default=[155, 162], metavar=("R", "C"),
-                        help="Fixed goal cell (row, col, default=[155, 162])")
+                        default=None, metavar=("R", "C"),
+                        help="Grid goal cell (row, col). Mutually exclusive with --goal_world.")
+    parser.add_argument("--start_world", type=float, nargs=2, required=False,
+                        default=None, metavar=("COL", "ROW"),
+                        help="World start (col_val, row_val) along col_axis/row_axis.")
+    parser.add_argument("--goal_world", type=float, nargs=2, required=False,
+                        default=None, metavar=("COL", "ROW"),
+                        help="World goal (col_val, row_val) along col_axis/row_axis.")
     parser.add_argument("--res_m", type=float, default=GRID_RES_M,
                         help=f"Grid resolution (m/cell, default={GRID_RES_M})")
     parser.add_argument("--k", type=int, default=N_SESSIONS,
@@ -905,13 +989,26 @@ def main():
     parser.add_argument("--seed", type=int, default=MASTER_SEED,
                         help=f"Master random seed (default={MASTER_SEED})")
     parser.add_argument("--pcd", type=str, default=str(DEFAULT_PCD_PATH),
-                        help=f"Path to octa_maze.pcd (default={DEFAULT_PCD_PATH})")
+                        help=f"Path to PCD file (default={DEFAULT_PCD_PATH})")
     parser.add_argument("--output_dir", type=str, default=str(DEFAULT_OUTPUT_DIR),
                         help=f"Output directory (default={DEFAULT_OUTPUT_DIR})")
+    parser.add_argument("--col_axis", type=int, default=0,
+                        help="PCD field index for grid columns (default=0=X)")
+    parser.add_argument("--row_axis", type=int, default=2,
+                        help="PCD field index for grid rows (default=2=Z)")
+    parser.add_argument("--height_axis", type=int, default=1,
+                        help="PCD field index for height-slice filter (default=1=Y)")
+    parser.add_argument("--dilate", type=int, default=None,
+                        help=f"Obstacle dilation radius in pixels (default=PCD_DILATE={PCD_DILATE})")
+    parser.add_argument("--max_steps", type=int, default=None,
+                        help="Override max exploration steps per session (default=H*W*budget)")
     args = parser.parse_args()
 
-    start = (args.start[0], args.start[1])
-    goal = (args.goal[0], args.goal[1])
+    if args.start is not None and args.start_world is not None:
+        parser.error("--start and --start_world are mutually exclusive")
+    if args.goal is not None and args.goal_world is not None:
+        parser.error("--goal and --goal_world are mutually exclusive")
+
     K = args.k
     seed = args.seed
     pcd_path = Path(args.pcd)
@@ -919,21 +1016,53 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "data").mkdir(exist_ok=True)
     res = args.res_m
+    col_axis = args.col_axis
+    row_axis = args.row_axis
+    height_axis = args.height_axis
 
     # ------------------------------------------------------------------
-    print(f"=== Frontier Exploration Benchmark: Octa Maze ===")
-    print(f"  start={(start)}, goal={(goal)}, K={K}, seed={seed}")
+    print(f"=== Frontier Exploration Benchmark ===")
+    print(f"  K={K}, seed={seed}, res={res}m")
     print(f"  PCD: {pcd_path}")
+    print(f"  axes: col={col_axis} row={row_axis} height={height_axis}")
     print(f"  output: {output_dir}")
 
     # ------------------------------------------------------------------
     t0 = time.time()
     print(f"\n--- Loading PCD ---")
-    base_grid, x_range, z_range = load_pcd_grid(pcd_path, res)
+    base_grid, col_range, row_range = load_pcd_grid(
+        pcd_path, res, col_axis=col_axis, row_axis=row_axis, height_axis=height_axis,
+        dilate=args.dilate if args.dilate is not None else PCD_DILATE)
     np.save(output_dir / "base_map.npy", base_grid)
     H, W = base_grid.shape
 
+    # Resolve start / goal
+    if args.start_world is not None:
+        start = world_to_grid(args.start_world[0], args.start_world[1],
+                              col_range, row_range, res)
+    elif args.start is not None:
+        start = (args.start[0], args.start[1])
+    else:
+        print("ERROR: must specify --start or --start_world")
+        return 1
+    if args.goal_world is not None:
+        goal = world_to_grid(args.goal_world[0], args.goal_world[1],
+                             col_range, row_range, res)
+    elif args.goal is not None:
+        goal = (args.goal[0], args.goal[1])
+    else:
+        print("ERROR: must specify --goal or --goal_world")
+        return 1
+
+    print(f"  start={(start)}, goal={(goal)}, K={K}, seed={seed}")
+
     # Validate start / goal
+    if not (0 <= start[0] < H and 0 <= start[1] < W):
+        print(f"ERROR: start {start} out of bounds (grid {H}x{W})")
+        return 1
+    if not (0 <= goal[0] < H and 0 <= goal[1] < W):
+        print(f"ERROR: goal {goal} out of bounds (grid {H}x{W})")
+        return 1
     if base_grid[start] == 1:
         print(f"ERROR: start {start} is on obstacle")
         return 1
@@ -956,14 +1085,15 @@ def main():
     # Save fixed_pair.json
     fixed_pair = {
         "start": list(start), "goal": list(goal),
-        "world_start": [round(start[1] * res + float(x_range[0]), 1),
-                        2.0,
-                        round(start[0] * res + float(z_range[0]), 1)],
-        "world_goal":  [round(goal[1] * res + float(x_range[0]), 1),
-                        2.0,
-                        round(goal[0] * res + float(z_range[0]), 1)],
+        "world_start": [round(float(start[1] * res + col_range[0]), 1),
+                        round(float(start[0] * res + row_range[0]), 1)],
+        "world_goal":  [round(float(goal[1] * res + col_range[0]), 1),
+                        round(float(goal[0] * res + row_range[0]), 1)],
         "grid_shape": [H, W], "res_m": res,
-        "gt_len_m": round(gt_len, 3), "eucl_cells": round(eucl_cells, 1),
+        "col_range": [round(float(col_range[0]), 2), round(float(col_range[1]), 2)],
+        "row_range": [round(float(row_range[0]), 2), round(float(row_range[1]), 2)],
+        "col_axis": col_axis, "row_axis": row_axis, "height_axis": height_axis,
+        "gt_len_m": round(float(gt_len), 3), "eucl_cells": round(float(eucl_cells), 1),
     }
     with open(output_dir / "fixed_pair.json", "w") as f:
         json.dump(fixed_pair, f, indent=2)
@@ -984,8 +1114,7 @@ def main():
         initial_yaw = k * (2 * np.pi / K) + rng.uniform(-0.15, 0.15) * np.pi
         temperature = FRONTIER_TEMP_MIN + k * (FRONTIER_TEMP_MAX - FRONTIER_TEMP_MIN) / max(K - 1, 1)
         temperatures.append(temperature)
-        max_steps = int(H * W * MAX_STEPS_COVERAGE_BUDGET)
-
+        max_steps = args.max_steps if args.max_steps is not None else int(H * W * MAX_STEPS_COVERAGE_BUDGET)
         t1 = time.time()
         print(f"  Session {k}: yaw={np.degrees(initial_yaw):.0f}°, "
               f"T={temperature:.2f}, max_steps={max_steps}")
