@@ -125,11 +125,12 @@ def test_astar_uses_8_directions():
 def test_topo_subgraph_edge_weight_is_euclidean():
     """build_topometric_subgraph edge weight: Euclidean, not Manhattan."""
     import networkx as nx
+    # Use res=0.5 to keep grid coords within test dimensions
     poses = [(0, 0, 0.0), (12, 0, 0.0)]  # Euclidean = 12*0.5 = 6.0m > 5.0m TRANS_THRESH_M
-    G = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M)
+    G = feb.build_topometric_subgraph(poses, res=0.5)
     assert G.number_of_edges() == 1
     weight = list(G.edges(data=True))[0][2]["weight"]
-    expected = np.hypot(0, 12) * feb.GRID_RES_M
+    expected = np.hypot(0, 12) * 0.5
     assert abs(weight - expected) < 1e-9, f"Expected {expected}, got {weight}"
 
 
@@ -140,7 +141,7 @@ def test_merge_connects_nodes_through_obstacle():
     base_grid[2, 2] = 1
     G1 = nx.Graph(); G1.add_node(0, x=0.5, y=0.5, yaw=0.0)
     G2 = nx.Graph(); G2.add_node(0, x=1.5, y=1.5, yaw=0.0)
-    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
+    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=0.5)
     assert merged.number_of_edges() == 0, "Nodes across obstacle must NOT be connected via A*"
 
 
@@ -150,7 +151,7 @@ def test_merge_distance_threshold_is_5m():
     base_grid = np.zeros((20, 20), dtype=np.uint8)
     G1 = nx.Graph(); G1.add_node(0, x=0.0, y=0.0, yaw=0.0)
     G2 = nx.Graph(); G2.add_node(0, x=4.5, y=0.0, yaw=0.0)
-    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
+    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=0.5)
     assert merged.number_of_edges() >= 1, "Nodes 4.5 m apart must connect (threshold=5 m)"
 
 
@@ -160,18 +161,13 @@ def test_merge_does_not_connect_beyond_5m():
     base_grid = np.zeros((20, 20), dtype=np.uint8)
     G1 = nx.Graph(); G1.add_node(0, x=0.0, y=0.0, yaw=0.0)
     G2 = nx.Graph(); G2.add_node(0, x=5.5, y=0.0, yaw=0.0)
-    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=feb.GRID_RES_M)
+    merged = feb.merge_topometric_graphs([G1, G2], base_grid, res=0.5)
     assert merged.number_of_edges() == 0, "Nodes > 5 m apart must NOT be connected"
 
 
 def test_pcd_dilate_is_1():
     """PCD_DILATE must be 1 (walls expanded by 1 pixel on load)."""
     assert feb.PCD_DILATE == 1, f"Expected 1, got {feb.PCD_DILATE}"
-
-
-def test_inflate_radius_is_0():
-    """INFLATE_RADIUS must be 0 (dilated PCD already provides safety margin)."""
-    assert feb.INFLATE_RADIUS == 0, f"Expected 0, got {feb.INFLATE_RADIUS}"
 
 
 def test_topo_subgraph_condition2_last_visible():
@@ -183,8 +179,8 @@ def test_topo_subgraph_condition2_last_visible():
     # B=(0,9): LOS(A→B) clear (col 9 is free in base_grid)
     # B+1=(0,10): LOS(A→B+1) blocked by wall at col 10 → triggers condition 2
     poses = [(0, 0, 0.0)] + [(0, i, 0.0) for i in range(1, 13)]
-    G = feb.build_topometric_subgraph(poses, res=feb.GRID_RES_M, base_grid=grid)
-    node_cols = sorted([int(d["x"] / feb.GRID_RES_M) for _, d in G.nodes(data=True)])
+    G = feb.build_topometric_subgraph(poses, res=0.5, base_grid=grid)
+    node_cols = sorted([int(d["x"] / 0.5) for _, d in G.nodes(data=True)])
     assert 9 in node_cols, f"Col 9 must be a keyframe (last visible before wall). Got: {node_cols}"
 
 
@@ -194,7 +190,7 @@ def test_merge_edge_weight_uses_astar():
     grid = np.zeros((10, 10), dtype=np.uint8)
     G1 = nx.Graph(); G1.add_node(0, x=1.0, y=1.0, yaw=0.0)   # grid(r=2,c=2)
     G2 = nx.Graph(); G2.add_node(0, x=3.0, y=1.0, yaw=0.0)   # grid(r=2,c=6)
-    merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
+    merged = feb.merge_topometric_graphs([G1, G2], grid, res=0.5)
     assert merged.number_of_edges() >= 1
     edge_w = list(merged.edges(data=True))[0][2]["weight"]
     # Manhattan = 2.0m, A* on clear grid = 2.0m (identical with 8-dir Manhattan A*)
@@ -208,7 +204,7 @@ def test_merge_line_of_sight_required():
     grid[3:7, 4] = 1   # vertical partial wall blocking LOS
     G1 = nx.Graph(); G1.add_node(0, x=1.5, y=2.5, yaw=0.0)   # grid(r=5,c=3)
     G2 = nx.Graph(); G2.add_node(0, x=2.5, y=2.5, yaw=0.0)   # grid(r=5,c=5)
-    merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
+    merged = feb.merge_topometric_graphs([G1, G2], grid, res=0.5)
     assert merged.number_of_edges() == 0, "Wall must block cross-session edge"
 
 
@@ -219,5 +215,5 @@ def test_merge_no_edge_if_unreachable():
     grid[:, 4] = 1   # full vertical wall
     G1 = nx.Graph(); G1.add_node(0, x=1.5, y=1.5, yaw=0.0)
     G2 = nx.Graph(); G2.add_node(0, x=3.5, y=1.5, yaw=0.0)
-    merged = feb.merge_topometric_graphs([G1, G2], grid, res=feb.GRID_RES_M)
+    merged = feb.merge_topometric_graphs([G1, G2], grid, res=0.5)
     assert merged.number_of_edges() == 0, "Unreachable nodes must not be connected"

@@ -34,7 +34,7 @@ from scipy.ndimage import binary_dilation
 # ============================================================================
 # Constants (maze-specific, 71×71 grid @ 0.5 m/cell)
 # ============================================================================
-GRID_RES_M = 0.5
+GRID_RES_M = 0.2
 N_SESSIONS = 5
 FOV_HALF_DEG = 45.0
 FOV_HALF_RAD = np.radians(FOV_HALF_DEG)
@@ -42,10 +42,9 @@ FOV_RANGE_M = 8.0
 TRANS_THRESH_M = 5.0
 ROT_THRESH_RAD = np.radians(60)
 CROSS_DIST_M = 5.0
-INFLATE_RADIUS = 0
-FRONTIER_DIST_MIN = 30
+FRONTIER_DIST_MIN = 75
 TOPO_SNAP_DIST_M = 3.0
-MAX_STEPS_COVERAGE_BUDGET = 0.5
+MAX_STEPS_COVERAGE_BUDGET = 0.1
 FRONTIER_TEMP_MIN = 0.5
 FRONTIER_TEMP_MAX = 5.0
 FRONTIER_TOP_N = 5
@@ -104,11 +103,6 @@ def load_pcd_grid(
 # ============================================================================
 # Grid Utilities
 # ============================================================================
-def inflate_grid(grid: np.ndarray, radius: int = INFLATE_RADIUS) -> np.ndarray:
-    struct = np.ones((2 * radius + 1, 2 * radius + 1), bool)
-    return binary_dilation(grid.astype(bool), structure=struct).astype(np.uint8)
-
-
 def astar(
     grid: np.ndarray, start: tuple[int, int], goal: tuple[int, int], res: float = GRID_RES_M
 ) -> tuple[list | None, float]:
@@ -189,7 +183,6 @@ def add_fov_observation(
 
 def obs_to_planning_grid(
     obs: np.ndarray, start: tuple[int, int], goal: tuple[int, int],
-    inflate_radius: int = INFLATE_RADIUS,
     for_goal_check: bool = True,
 ) -> np.ndarray:
     """Build planning grid from partial observation.
@@ -203,10 +196,10 @@ def obs_to_planning_grid(
         pg = (obs == 1).astype(np.uint8)          # known obstacle=1, rest=0
 
     for pt in (start, goal):
-        r_lo = max(0, pt[0] - inflate_radius)
-        r_hi = min(pg.shape[0], pt[0] + inflate_radius + 1)
-        c_lo = max(0, pt[1] - inflate_radius)
-        c_hi = min(pg.shape[1], pt[1] + inflate_radius + 1)
+        r_lo = max(0, pt[0] - 1)
+        r_hi = min(pg.shape[0], pt[0] + 2)
+        c_lo = max(0, pt[1] - 1)
+        c_hi = min(pg.shape[1], pt[1] + 2)
         pg[r_lo:r_hi, c_lo:c_hi] = 0
     return pg
 
@@ -334,7 +327,7 @@ def build_topometric_subgraph(
     G.add_node(0, x=c0 * res, y=r0 * res, yaw=y0)
     node_idx = 0
     prev = (r0, c0, y0)
-    inf_grid = inflate_grid(base_grid) if base_grid is not None else None
+    inf_grid = base_grid
 
     for i in range(1, len(poses)):
         r, c, yaw = poses[i]
@@ -418,7 +411,6 @@ def merge_topometric_graphs(
         offset += G.number_of_nodes() + 1
 
     all_nodes = [(n, d["x"], d["y"]) for n, d in merged.nodes(data=True)]
-    inf_grid = inflate_grid(base_grid)
     for si in range(len(subgraph_node_sets)):
         for sj in range(si + 1, len(subgraph_node_sets)):
             ni_list = [(n, x, y) for n, x, y in all_nodes if n in subgraph_node_sets[si]]
@@ -429,8 +421,8 @@ def merge_topometric_graphs(
                     if d < cross_dist and not merged.has_edge(ni, nj):
                         ri, ci = int(yi / res), int(xi / res)
                         rj, cj = int(yj / res), int(xj / res)
-                        if _line_free(ri, ci, rj, cj, inf_grid):
-                            _, path_len = astar(inf_grid, (ri, ci), (rj, cj), res)
+                        if _line_free(ri, ci, rj, cj, base_grid):
+                            _, path_len = astar(base_grid, (ri, ci), (rj, cj), res)
                             if path_len < float("inf"):
                                 merged.add_edge(ni, nj, weight=path_len,
                                                 rel_pose=(xj - xi, yj - yi, 0.0))
@@ -481,7 +473,6 @@ def frontier_explore_session(
     res: float = GRID_RES_M,
     fov_range_m: float = FOV_RANGE_M,
     fov_half_rad: float = FOV_HALF_RAD,
-    inflate_radius: int = INFLATE_RADIUS,
     max_steps: int | None = None,
     top_n: int = FRONTIER_TOP_N,
     verbose: bool = False,
@@ -505,9 +496,8 @@ def frontier_explore_session(
         add_fov_observation(obs, pr, pc, pyaw, base_grid, fov_range_m, fov_half_rad, res)
 
     def _try_goal(pr: int, pc: int) -> tuple[list[tuple[int, int]] | None, np.ndarray]:
-        pg = obs_to_planning_grid(obs, start, goal, inflate_radius, for_goal_check=True)
-        inf_pg = inflate_grid(pg, inflate_radius)
-        return astar(inf_pg, (pr, pc), goal, res)
+        pg = obs_to_planning_grid(obs, start, goal, for_goal_check=True)
+        return astar(pg, (pr, pc), goal, res)
 
     _scan_position(traj[0][0], traj[0][1], traj[0][2])
 
@@ -537,7 +527,7 @@ def frontier_explore_session(
             frontiers = list(frontiers)
             free_neighbors = list(free_neighbors)
 
-        pg = obs_to_planning_grid(obs, start, goal, inflate_radius, for_goal_check=False)
+        pg = obs_to_planning_grid(obs, start, goal, for_goal_check=False)
         inf_pg = pg  # no inflation for frontier navigation — need to traverse into unknown
 
         next_f = select_frontier(frontiers, (r, c), obs, rng,
@@ -903,11 +893,11 @@ def main():
     parser = argparse.ArgumentParser(
         description="Frontier-Based Goal-Directed Exploration Benchmark — Octa Maze")
     parser.add_argument("--start", type=int, nargs=2, required=False,
-                        default=[7, 5], metavar=("R", "C"),
-                        help="Fixed start cell (row, col, default=[7, 5])")
+                        default=[18, 12], metavar=("R", "C"),
+                        help="Fixed start cell (row, col, default=[18, 12])")
     parser.add_argument("--goal", type=int, nargs=2, required=False,
-                        default=[62, 65], metavar=("R", "C"),
-                        help="Fixed goal cell (row, col, default=[62, 65])")
+                        default=[155, 162], metavar=("R", "C"),
+                        help="Fixed goal cell (row, col, default=[155, 162])")
     parser.add_argument("--res_m", type=float, default=GRID_RES_M,
                         help=f"Grid resolution (m/cell, default={GRID_RES_M})")
     parser.add_argument("--k", type=int, default=N_SESSIONS,
@@ -951,8 +941,7 @@ def main():
         print(f"ERROR: goal {goal} is on obstacle")
         return 1
 
-    inf_full = inflate_grid(base_grid)
-    gt_path, gt_len = astar(inf_full, start, goal, res)
+    gt_path, gt_len = astar(base_grid, start, goal, res)
     if gt_path is None:
         print(f"ERROR: start {start} → goal {goal} GT unreachable on base map")
         return 1
