@@ -34,23 +34,23 @@ Coordinates for `--start`, `--goal`, and `--obstacle_block` are world
 Run from the repository root:
 
 ```bash
-cd /Titan/code/robohike_ws/src/opennavmap
+cd python/benchmark_mms
 
-bash python/benchmark_mms/scripts/run_duplex_office.sh
-bash python/benchmark_mms/scripts/run_octa_maze.sh
-bash python/benchmark_mms/scripts/run_tunnel.sh
+bash scripts/run_duplex_office.sh
+bash scripts/run_octa_maze.sh
+bash scripts/run_tunnel.sh
 
-bash python/benchmark_mms/scripts/run_duplex_office_daychange.sh
-bash python/benchmark_mms/scripts/run_octa_maze_daychange.sh
-bash python/benchmark_mms/scripts/run_tunnel_daychange.sh
+bash scripts/run_duplex_office_daychange.sh
+bash scripts/run_octa_maze_daychange.sh
+bash scripts/run_tunnel_daychange.sh
 ```
 
 Direct example:
 
 ```bash
-python python/benchmark_mms/frontier_explore_benchmark.py \
-  --pcd python/benchmark_mms/data/duplex_office.pcd \
-  --output_dir python/benchmark_mms/output/duplex_office \
+python frontier_explore_benchmark.py \
+  --pcd data/duplex_office.pcd \
+  --output_dir output/duplex_office \
   --start 1.5 2.5 --goal 19 18 \
   --res_m 0.2 --k 5 --seed 42 --temperature 2.5
 ```
@@ -74,10 +74,9 @@ merged topometric maps recover reachability and improve the path ratio.
 
 ## Outputs
 
-Each run writes to `python/benchmark_mms/output/<run_name>/`:
+Each run writes to `output/<run_name>/`:
 
 - `fig1_session_exploration.png`: session observations, trajectories, topo maps,
-  and merged map.
 - `fig2_optimality_curve.png`: cumulative path ratio curve.
 - `fig3_reachability_coverage.png`: cumulative coverage in `m²`.
 - `data/metrics.json`, `data/ratios.json`, `data/coverage.json`: numeric results.
@@ -88,5 +87,5 @@ Generated output directories are ignored by git.
 ## Test
 
 ```bash
-pytest python/benchmark_mms/tests/test_frontier_benchmark.py -q
+pytest tests/test_frontier_benchmark.py -q
 ```
