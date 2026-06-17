@@ -2,13 +2,20 @@
 
 This benchmark evaluates goal-directed frontier exploration and multi-session
 topometric map merging on `octa_maze`, `duplex_office`, and `tunnel` point-cloud
-maps.
+maps. The current experiment compares normal repeated exploration with a
+day-change setting where an artificial obstacle blocks part of the map for the
+first sessions and is removed in later sessions.
 
 ## Overview
 
 Each environment runs `K` sessions from a fixed `(start, goal)` pair. Session
 diversity comes from different initial yaw values while the frontier softmax
 temperature is fixed by the run script, currently `--temperature 2.5`.
+
+The goal is to test whether cumulative topometric merging can recover useful
+navigation structure across sessions, improve the topometric shortest path
+toward the ground-truth path, and expose the impact of environment changes on
+reachability and explored area.
 
 The benchmark measures:
 
@@ -32,6 +39,19 @@ conda activate opennavmap
 pip install numpy matplotlib scipy networkx
 ```
 
+## Approach
+
+- Convert each PCD into a 2D occupancy grid using `X/Y` as the ground plane and
+  `Z` as height.
+- Run `K` frontier-exploration sessions from the same start/goal pair with fixed
+  temperature `2.5` and different initial yaw values.
+- Build a per-session topometric graph from the explored trajectory, then merge
+  graphs cumulatively using distance, line-of-sight, and A* reachability checks.
+- For day-change runs, inject a rectangular obstacle block in world coordinates
+  for day0 sessions and remove it from `--day_change` onward.
+- Plot cumulative path optimality, reachability, and explored free-space area in
+  `m²`; export all maps, ratios, coverage, and topometric graphs under `data/`.
+
 ## Recommended Runs
 
 Run from the repository root:
@@ -42,6 +62,10 @@ cd /Titan/code/robohike_ws/src/opennavmap
 bash python/benchmark_mms/scripts/run_duplex_office.sh
 bash python/benchmark_mms/scripts/run_octa_maze.sh
 bash python/benchmark_mms/scripts/run_tunnel.sh
+
+bash python/benchmark_mms/scripts/run_duplex_office_daychange.sh
+bash python/benchmark_mms/scripts/run_octa_maze_daychange.sh
+bash python/benchmark_mms/scripts/run_tunnel_daychange.sh
 ```
 
 Current script settings:
@@ -51,9 +75,33 @@ Current script settings:
 | `run_duplex_office.sh` | `0.2 m` | `5` | `(1.5, 2.5)` | `(19, 18)` | `2.5` |
 | `run_octa_maze.sh` | `0.2 m` | `5` | `(2.5, 4)` | `(30, 33)` | `2.5` |
 | `run_tunnel.sh` | `0.3 m` | `10` | `(-15, -5)` | `(201, 132)` | `2.5` |
+| `run_duplex_office_daychange.sh` | `0.2 m` | `5` | `(1.5, 2.5)` | `(19, 18)` | `2.5` |
+| `run_octa_maze_daychange.sh` | `0.2 m` | `5` | `(2.5, 4)` | `(30, 33)` | `2.5` |
+| `run_tunnel_daychange.sh` | `0.3 m` | `10` | `(-15, -5)` | `(201, 132)` | `2.5` |
 
-`run_tunnel.sh` also sets `--max_steps 8000` to avoid the area-based default
-step budget on the large tunnel map.
+`run_tunnel.sh` and `run_tunnel_daychange.sh` set `--max_steps 8000` to avoid
+the area-based default step budget on the large tunnel map.
+
+Day-change scripts use `--day_change 2`, so sessions `0` and `1` run on day0
+with the obstacle block, while later sessions run on the clear day1 map.
+
+## Latest Results
+
+Results from the current scripts after the merged-panel correction:
+
+| Run | Reachable | Final ratio | Final coverage |
+|-----|-----------|-------------|----------------|
+| `duplex_office` | `5/5` | `1.0377` | `259.00 m²` (`87.018%`) |
+| `duplex_office_daychange` | `3/5` | `1.0000` | `265.48 m²` (`89.195%`) |
+| `octa_maze` | `5/5` | `1.0584` | `663.72 m²` (`78.487%`) |
+| `octa_maze_daychange` | `3/5` | `1.0637` | `681.48 m²` (`80.587%`) |
+| `tunnel` | `10/10` | `1.0104` | `5111.19 m²` (`6.840%`) |
+| `tunnel_daychange` | `10/10` | `1.0104` | `5270.67 m²` (`7.054%`) |
+
+Day-change runs intentionally show early failures in `duplex_office` and
+`octa_maze` because the day0 obstacle blocks the route. After the obstacle is
+removed, cumulative merging recovers reachability and the topometric path ratio
+approaches the ground-truth path.
 
 ## Direct CLI Usage
 
@@ -86,6 +134,8 @@ python python/benchmark_mms/frontier_explore_benchmark.py \
 | `--height_axis` | PCD field index for height slice, default `2` (`Z`) |
 | `--dilate` | Obstacle dilation radius in pixels, default `PCD_DILATE=1` |
 | `--max_steps` | Optional per-session step limit |
+| `--obstacle_block COL_MIN ROW_MIN COL_MAX ROW_MAX` | Optional day0 obstacle block in world coordinates |
+| `--day_change` | First session index that switches from day0 blocked map to day1 clear map |
 
 ## Outputs
 
@@ -138,6 +188,9 @@ Generated result directories are ignored by git via `.gitignore`.
   cross-session merge edges.
 - `fig3_reachability_coverage.png` reports cumulative free-space coverage in
   square meters, with percentages retained in annotations and `coverage.json`.
+- Day-change `fig1_session_exploration.png` shows the blocked region on day0 and
+  the removed region on day1/merged panels; merged-panel display uses a clear
+  grid for visualization while stored metrics remain tied to the active grid.
 
 ## Tests
 
