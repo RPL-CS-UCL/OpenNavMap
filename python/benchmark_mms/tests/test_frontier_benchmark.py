@@ -140,6 +140,22 @@ def test_topomap_to_npz_arrays_exports_nodes_edges_weights():
     np.testing.assert_array_equal(arrays["goal_node"], np.array([1], dtype=np.int32))
 
 
+def test_apply_obstacle_block_uses_world_meter_coordinates():
+    base_grid = np.zeros((8, 10), dtype=np.uint8)
+    blocked_grid, block_cells = feb.apply_obstacle_block_world(
+        base_grid,
+        (2.0, 3.0, 4.0, 5.0),
+        col_range=(0.0, 9.0),
+        row_range=(0.0, 7.0),
+        res=1.0,
+    )
+
+    assert block_cells == (3, 2, 5, 4)
+    assert base_grid.sum() == 0
+    assert blocked_grid[3:6, 2:5].sum() == 9
+    assert blocked_grid.sum() == 9
+
+
 # ── Manhattan / graph-structure fixes ────────────────────────────────
 
 def test_astar_distance_is_euclidean():
@@ -283,8 +299,19 @@ def test_topo_subgraph_does_not_set_goal_node_before_reaching_goal():
     poses = [(0, 0, 0.0), (1, 0, 0.0), (2, 0, 0.0)]
     G = feb.build_topometric_subgraph(poses, res=1.0, trans_thresh=10.0, goal=(5, 0))
 
-    assert G.number_of_nodes() == 1
+    assert G.number_of_nodes() == 2
     assert G.graph["start_node"] == 0
+    assert "goal_node" not in G.graph
+
+
+def test_topo_subgraph_keeps_terminal_edge_without_reaching_goal():
+    poses = [(0, 0, 0.0), (0, 1, 0.0), (0, 2, 0.0)]
+    G = feb.build_topometric_subgraph(poses, res=1.0, trans_thresh=10.0, goal=(0, 5))
+
+    assert G.number_of_nodes() == 2
+    assert G.has_edge(0, 1)
+    assert G.nodes[1]["x"] == 2.0
+    assert G.nodes[1]["y"] == 0.0
     assert "goal_node" not in G.graph
 
 
@@ -370,3 +397,67 @@ def test_merge_no_edge_if_unreachable():
     G2 = nx.Graph(); G2.add_node(0, x=3.5, y=1.5, yaw=0.0)
     merged = feb.merge_topometric_graphs([G1, G2], grid, res=0.5)
     assert merged.number_of_edges() == 0, "Unreachable nodes must not be connected"
+
+
+def test_draw_topo_graph_downsamples_nodes_per_subgraph(tmp_path):
+    """_draw_topo_graph with max_nodes_per_subgraph=5 should draw at most 5 nodes
+    from a 20-node subgraph and all 3 nodes from a small subgraph."""
+    import networkx as nx
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    G = nx.Graph()
+    # subgraph 0: nodes 0-19
+    for i in range(20):
+        G.add_node(i, x=float(i), y=0.0, yaw=0.0)
+        if i > 0:
+            G.add_edge(i - 1, i, weight=1.0, rel_pose=(1.0, 0.0, 0.0))
+    # subgraph 1: nodes 20-22
+    for i in range(20, 23):
+        G.add_node(i, x=float(i - 20), y=5.0, yaw=0.0)
+        if i > 20:
+            G.add_edge(i - 1, i, weight=1.0, rel_pose=(1.0, 0.0, 0.0))
+
+    subgraph_node_sets = [set(range(20)), set(range(20, 23))]
+
+    fig, ax = plt.subplots()
+    feb._draw_topo_graph(
+        ax, G, res=1.0,
+        subgraph_node_sets=subgraph_node_sets,
+        max_nodes_per_subgraph=5,
+    )
+    # Count drawn scatter points (nodes_x len from the scatter call inside)
+    # The scatter PathCollection stores offsets
+    scatter = ax.collections[-1]
+    n_drawn = len(scatter.get_offsets())
+    plt.close(fig)
+
+    # subgraph 0 downsampled to 5, subgraph 1 kept at 3 → total = 8
+    assert n_drawn <= 8, f"Expected ≤8 drawn nodes, got {n_drawn}"
+    assert n_drawn >= 3, "All 3 nodes of small subgraph must be kept"
+
+
+def test_draw_merge_grid_produces_more_cross_edges():
+    """merge_topometric_graphs with clear grid should produce more edges than
+    with a blocked grid, confirming draw_merge_grid logic is sound.
+    Nodes are 4m apart (< CROSS_DIST_M=5m), wall blocks one grid, clear allows it."""
+    import networkx as nx
+
+    # res=1.0, nodes at (row=2,col=5) and (row=6,col=5), world distance = 4.0m < 5.0m
+    grid_blocked = np.zeros((10, 10), dtype=np.uint8)
+    grid_blocked[4:5, :] = 1   # horizontal wall at row 4 between the two nodes
+    grid_clear = np.zeros((10, 10), dtype=np.uint8)
+
+    G1 = nx.Graph()
+    G1.add_node(0, x=5.0, y=2.0, yaw=0.0)  # col=5, row=2
+    G1.graph["start_node"] = 0
+    G2 = nx.Graph()
+    G2.add_node(0, x=5.0, y=6.0, yaw=0.0)  # col=5, row=6
+    G2.graph["start_node"] = 0
+
+    merged_blocked = feb.merge_topometric_graphs([G1, G2], grid_blocked, res=1.0)
+    merged_clear = feb.merge_topometric_graphs([G1, G2], grid_clear, res=1.0)
+
+    assert merged_blocked.number_of_edges() == 0, "Wall must block cross-session edge"
+    assert merged_clear.number_of_edges() >= 1, "Clear grid must allow cross-session edge"

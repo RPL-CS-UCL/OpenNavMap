@@ -27,6 +27,7 @@ from collections import deque
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import numpy as np
 import networkx as nx
 from scipy.ndimage import binary_dilation
@@ -317,6 +318,30 @@ def world_to_grid(
     return r, c
 
 
+def apply_obstacle_block_world(
+    base_grid: np.ndarray,
+    obstacle_block_world: tuple[float, float, float, float],
+    col_range: tuple[float, float],
+    row_range: tuple[float, float],
+    res: float = GRID_RES_M,
+) -> tuple[np.ndarray, tuple[int, int, int, int]]:
+    col_min_m, row_min_m, col_max_m, row_max_m = obstacle_block_world
+    row_a, col_a = world_to_grid(col_min_m, row_min_m, col_range, row_range, res)
+    row_b, col_b = world_to_grid(col_max_m, row_max_m, col_range, row_range, res)
+    row_min, row_max = sorted((row_a, row_b))
+    col_min, col_max = sorted((col_a, col_b))
+    rows_count, cols_count = base_grid.shape
+    row_min = max(0, row_min)
+    row_max = min(rows_count - 1, row_max)
+    col_min = max(0, col_min)
+    col_max = min(cols_count - 1, col_max)
+    if row_min > row_max or col_min > col_max:
+        raise ValueError("obstacle_block is outside the occupancy grid")
+    blocked_grid = base_grid.copy()
+    blocked_grid[row_min:row_max + 1, col_min:col_max + 1] = 1
+    return blocked_grid, (row_min, col_min, row_max, col_max)
+
+
 # ============================================================================
 # FOV Observation
 # ============================================================================
@@ -548,7 +573,7 @@ def build_topometric_subgraph(
     last_r, last_c, last_yaw = poses[-1]
     prev_r, prev_c, prev_yaw = prev
     reached_goal = goal is None or (last_r, last_c) == goal
-    if force_end_node and reached_goal and (last_r, last_c) != (prev_r, prev_c):
+    if force_end_node and (last_r, last_c) != (prev_r, prev_c):
         node_idx += 1
         G.add_node(node_idx, x=last_c * res, y=last_r * res, yaw=last_yaw)
         if inf_grid is not None:
@@ -859,6 +884,9 @@ COLOR_COV_HIST = _PALETTE[0]
 COLOR_COV_NEW = _PALETTE[9]
 COLOR_TRAJ = "#FFFFFF"
 STYLE_UNKNOWN = np.array([107, 114, 128]) / 255.0
+MAX_TOPO_EDGES_DRAW = 8000
+MAX_TOPO_EDGES_PER_NODE_DRAW = 20
+MAX_NODES_DRAW_PER_SUBGRAPH = 600
 # Pre-convert for RGBA overlay usage
 _COV_HIST_RGB = tuple(float(v) for v in COLOR_COV_HIST)
 _COV_NEW_RGB = tuple(float(v) for v in COLOR_COV_NEW)
@@ -889,14 +917,58 @@ def _draw_base_grid(ax, base_grid):
 
 
 def _draw_topo_graph(ax, G, node_color=COLOR_TOPO_NODE, edge_color=COLOR_TOPO_EDGE_INTRA,
-                     edge_alpha=0.5, node_size=15, edge_lw=0.6, res=GRID_RES_M):
-    for u, v in G.edges():
+                     edge_alpha=0.5, node_size=15, edge_lw=0.6, res=GRID_RES_M,
+                     max_edges=MAX_TOPO_EDGES_DRAW,
+                     subgraph_node_sets: list[set[int]] | None = None,
+                     max_nodes_per_subgraph: int | None = None):
+    # --- Step 1: determine which nodes to draw ---
+    if subgraph_node_sets is not None and max_nodes_per_subgraph is not None:
+        rng_draw = np.random.default_rng(42)
+        keep_nodes: set[int] = set()
+        for node_set in subgraph_node_sets:
+            nodes_list = sorted(node_set & set(G.nodes()))
+            if len(nodes_list) > max_nodes_per_subgraph:
+                chosen = rng_draw.choice(
+                    len(nodes_list), max_nodes_per_subgraph, replace=False
+                )
+                keep_nodes |= {nodes_list[i] for i in chosen}
+            else:
+                keep_nodes |= set(nodes_list)
+    else:
+        keep_nodes = set(G.nodes())
+
+    # --- Step 2: determine which edges to draw (only between kept nodes) ---
+    candidate_edges = [(u, v) for u, v in G.edges() if u in keep_nodes and v in keep_nodes]
+    if max_edges > 0 and len(candidate_edges) > max_edges:
+        node_positions = {
+            n: (float(G.nodes[n]["x"]), float(G.nodes[n]["y"]))
+            for n in keep_nodes
+        }
+        edges_to_draw: set[tuple[int, int]] = set()
+        for node in keep_nodes:
+            node_x, node_y = node_positions[node]
+            nearest: list[tuple[float, int]] = []
+            for nbr in G.neighbors(node):
+                if nbr not in keep_nodes:
+                    continue
+                nbr_x, nbr_y = node_positions[nbr]
+                nearest.append((np.hypot(node_x - nbr_x, node_y - nbr_y), nbr))
+            for _, nbr in sorted(nearest)[:MAX_TOPO_EDGES_PER_NODE_DRAW]:
+                edges_to_draw.add(tuple(sorted((node, nbr))))
+        edge_iter: object = edges_to_draw
+    else:
+        edge_iter = candidate_edges
+
+    # --- Step 3: draw edges ---
+    for u, v in edge_iter:
         xu, yu = G.nodes[u]["x"], G.nodes[u]["y"]
         xv, yv = G.nodes[v]["x"], G.nodes[v]["y"]
         ax.plot([xu / res, xv / res], [yu / res, yv / res],
                 color=edge_color, alpha=edge_alpha, linewidth=edge_lw)
-    xs = [d["x"] / res for _, d in G.nodes(data=True)]
-    ys = [d["y"] / res for _, d in G.nodes(data=True)]
+
+    # --- Step 4: draw kept nodes ---
+    xs = [G.nodes[n]["x"] / res for n in keep_nodes]
+    ys = [G.nodes[n]["y"] / res for n in keep_nodes]
     ax.scatter(xs, ys, color=node_color, s=node_size, zorder=5)
 
 
@@ -918,6 +990,30 @@ def _draw_gt_path(ax, gt_path, lw=1.5, res=GRID_RES_M):
                 linestyle="--", alpha=0.7, zorder=4)
 
 
+def _draw_obstacle_block(ax, obstacle_block_cells, label: str, active: bool) -> None:
+    if obstacle_block_cells is None:
+        return
+    row_min, col_min, row_max, col_max = obstacle_block_cells
+    color = "#EF4444" if active else "#9CA3AF"
+    linestyle = "-" if active else "--"
+    alpha = 0.35 if active else 0.18
+    rect = Rectangle(
+        (col_min - 0.5, row_min - 0.5),
+        col_max - col_min + 1,
+        row_max - row_min + 1,
+        linewidth=1.5,
+        edgecolor=color,
+        facecolor=color,
+        alpha=alpha,
+        linestyle=linestyle,
+        zorder=6,
+    )
+    ax.add_patch(rect)
+    ax.text(col_min, max(0, row_min - 2), label, color=color, fontsize=8,
+            bbox={"facecolor": BG_COLOR, "edgecolor": color, "alpha": 0.8},
+            zorder=10)
+
+
 def fig1_session_exploration(
     base_grid: np.ndarray,
     all_poses: list[list[tuple[int, int, float]]],
@@ -931,6 +1027,9 @@ def fig1_session_exploration(
     temperatures: list[float],
     res: float = GRID_RES_M,
     output_path: str | Path = "fig1_session_exploration.png",
+    obstacle_block_cells: tuple[int, int, int, int] | None = None,
+    day_change: int | None = None,
+    draw_merge_grid: np.ndarray | None = None,
 ) -> None:
     _setting_font(fontsize=12, titlesize=12, legend_fontsize=10)
     K = len(subgraphs)
@@ -944,6 +1043,12 @@ def fig1_session_exploration(
         ax = axes[k]
         ax.set_facecolor(BG_COLOR)
         ax.imshow(obs_to_rgb(all_obs[k]), origin="upper", interpolation="none")
+        if obstacle_block_cells is not None and day_change is not None:
+            _draw_obstacle_block(
+                ax, obstacle_block_cells,
+                "day0 block" if k < day_change else "removed",
+                active=k < day_change,
+            )
 
         traj = all_poses[k]
         if traj:
@@ -984,12 +1089,26 @@ def fig1_session_exploration(
     ax = axes[K]
     ax.set_facecolor(BG_COLOR)
     ax.imshow(obs_to_rgb(merged_obs), origin="upper", interpolation="none")
+    if obstacle_block_cells is not None and day_change is not None:
+        _draw_obstacle_block(ax, obstacle_block_cells, "removed", active=False)
     if merged_topo.number_of_nodes() > 0:
-        _draw_topo_graph(ax, merged_topo,
-                         edge_color=COLOR_TOPO_EDGE_INTRA, res=res)
-        nodes_x = [d["x"] / res for _, d in merged_topo.nodes(data=True)]
-        nodes_y = [d["y"] / res for _, d in merged_topo.nodes(data=True)]
-        ax.scatter(nodes_x, nodes_y, color=COLOR_TOPO_NODE, s=15, zorder=5)
+        # For visualization only: re-merge with draw_merge_grid (e.g. day1 clear map)
+        # so cross-session edges span the obstacle block. Metric values use merged_topo.
+        vis_merged = (
+            merge_topometric_graphs(subgraphs, draw_merge_grid, res=res)
+            if draw_merge_grid is not None else merged_topo
+        )
+        # Compute per-subgraph node sets in vis_merged (offset mirrors merge_topometric_graphs)
+        vis_subgraph_node_sets: list[set[int]] = []
+        offset = 0
+        for Gk in subgraphs:
+            vis_subgraph_node_sets.append({n + offset for n in Gk.nodes()})
+            offset += Gk.number_of_nodes() + 1
+        _draw_topo_graph(ax, vis_merged,
+                         edge_color=COLOR_TOPO_EDGE_INTRA, res=res,
+                         subgraph_node_sets=vis_subgraph_node_sets,
+                         max_nodes_per_subgraph=MAX_NODES_DRAW_PER_SUBGRAPH)
+        # Path and ratio always computed from original merged_topo (data unchanged)
         tlen, sn, gn = topo_path_length(merged_topo, start, goal, res)
         if sn is not None and gn is not None:
             try:
@@ -1004,10 +1123,11 @@ def fig1_session_exploration(
                edgecolors="white", linewidths=1.5, zorder=7)
     _draw_gt_path(ax, gt_path, res=res)
     ratio = tlen / gt_len if gt_len > 0 and tlen < float("inf") else float("inf")
-    title = (f"Merged (k=0..{K - 1})  "
-             f"topo={tlen:.1f}m  GT={gt_len:.1f}m  "
-             f"ratio={ratio:.2f}" if ratio < float("inf") else
-             f"Merged (k=0..{K - 1})  unreachable")
+    title = (
+        f"Merged (k=0..{K - 1})  topo={tlen:.1f}m  GT={gt_len:.1f}m  ratio={ratio:.2f}"
+        if ratio < float("inf") else
+        f"Merged (k=0..{K - 1})  unreachable"
+    )
     ax.set_title(title, color="white", fontsize=10)
     ax.set_xticks([])
     ax.set_yticks([])
@@ -1026,6 +1146,7 @@ def fig2_optimality_curve(
     gt_len: float,
     res: float = GRID_RES_M,
     output_path: str | Path = "fig2_optimality_curve.png",
+    day_change: int | None = None,
 ) -> None:
     _setting_font(fontsize=12, titlesize=14, legend_fontsize=10)
     fig, ax = plt.subplots(figsize=(8, 5), facecolor=BG_COLOR)
@@ -1052,6 +1173,11 @@ def fig2_optimality_curve(
 
     ax.axhline(y=1.0, color=COLOR_GOAL, linestyle=_LINESTYLES[1],
                linewidth=1.5, label="GT optimal (1.0)")
+    if day_change is not None and 0 < day_change < len(ratios):
+        ax.axvline(x=day_change + 0.5, color="#9CA3AF", linestyle=_LINESTYLES[1],
+                   linewidth=1.2, label="day1 starts")
+        ax.text(day_change + 0.55, 1.02, "day1 starts", color="#9CA3AF",
+                fontsize=9, rotation=90, va="bottom")
     ax.set_xlabel("Number of Sessions (k)", color="white", fontsize=12)
     ax.set_ylabel("Optimality Ratio (topo_len / GT_len)", color="white", fontsize=12)
     ax.set_title("Path Optimality vs. Number of Sessions", color="white", fontsize=14)
@@ -1205,6 +1331,11 @@ def main():
                         help="Override max exploration steps per session (default=H*W*budget)")
     parser.add_argument("--temperature", type=float, default=FRONTIER_TEMP_FIXED,
                         help=f"Frontier softmax temperature for all sessions (default={FRONTIER_TEMP_FIXED})")
+    parser.add_argument("--obstacle_block", type=float, nargs=4, default=None,
+                        metavar=("COL_MIN_M", "ROW_MIN_M", "COL_MAX_M", "ROW_MAX_M"),
+                        help="Optional day0 obstacle rectangle in world coordinates [m]")
+    parser.add_argument("--day_change", type=int, default=None,
+                        help="Session index where day1 starts and obstacle is removed (default=K//2)")
     args = parser.parse_args()
 
     if args.start is not None and args.goal is not None:
@@ -1264,6 +1395,30 @@ def main():
         return 1
     print(f"  GT path length: {gt_len:.1f} m, cells={len(gt_path)}")
 
+    day_change = args.day_change if args.day_change is not None else K // 2
+    obstacle_block_cells = None
+    base_grid_day0 = base_grid
+    if args.obstacle_block is not None:
+        try:
+            base_grid_day0, obstacle_block_cells = apply_obstacle_block_world(
+                base_grid,
+                tuple(float(v) for v in args.obstacle_block),
+                col_range,
+                row_range,
+                res,
+            )
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            return 1
+        if base_grid_day0[start] == 1:
+            print(f"ERROR: start {start} is inside day0 obstacle block")
+            return 1
+        if base_grid_day0[goal] == 1:
+            print(f"ERROR: goal {goal} is inside day0 obstacle block")
+            return 1
+        print(f"  day0 obstacle block cells={obstacle_block_cells}, "
+              f"day1 starts at session {day_change}")
+
     # Validate distance constraint
     eucl_cells = np.hypot(start[0] - goal[0], start[1] - goal[1])
     if eucl_cells < FRONTIER_DIST_MIN:
@@ -1283,6 +1438,10 @@ def main():
         "col_axis": col_axis, "row_axis": row_axis, "height_axis": height_axis,
         "gt_len_m": round(float(gt_len), 3), "eucl_cells": round(float(eucl_cells), 1),
     }
+    if args.obstacle_block is not None:
+        fixed_pair["obstacle_block_world"] = [round(float(v), 3) for v in args.obstacle_block]
+        fixed_pair["obstacle_block_cells"] = list(obstacle_block_cells)
+        fixed_pair["day_change_session"] = day_change
     with open(output_dir / "fixed_pair.json", "w") as f:
         json.dump(fixed_pair, f, indent=2)
     print(f"  fixed_pair.json saved")
@@ -1303,22 +1462,24 @@ def main():
         temperature = args.temperature
         temperatures.append(temperature)
         max_steps = args.max_steps if args.max_steps is not None else int(H * W * MAX_STEPS_COVERAGE_BUDGET)
+        active_grid = base_grid_day0 if obstacle_block_cells is not None and k < day_change else base_grid
+        day_label = "day0" if active_grid is base_grid_day0 and obstacle_block_cells is not None else "day1"
         t1 = time.time()
         print(f"  Session {k}: yaw={np.degrees(initial_yaw):.0f}°, "
-              f"T={temperature:.2f}, max_steps={max_steps}")
+              f"T={temperature:.2f}, max_steps={max_steps}, map={day_label}")
 
         traj, obs = frontier_explore_session(
-            start, goal, base_grid, rng, initial_yaw, temperature,
+            start, goal, active_grid, rng, initial_yaw, temperature,
             res=res, max_steps=max_steps, verbose=False)
         dt = time.time() - t1
 
-        subgraph = build_topometric_subgraph(traj, res=res, base_grid=base_grid, goal=goal)
-        add_intra_session_loop_edges(subgraph, base_grid, res=res)
+        subgraph = build_topometric_subgraph(traj, res=res, base_grid=active_grid, goal=goal)
+        add_intra_session_loop_edges(subgraph, active_grid, res=res)
         all_poses.append(traj)
         all_obs.append(obs)
         subgraphs.append(subgraph)  # solo subgraph for session k
 
-        merged = merge_topometric_graphs(subgraphs, base_grid, res=res) if subgraphs else nx.Graph()
+        merged = merge_topometric_graphs(subgraphs, active_grid, res=res) if subgraphs else nx.Graph()
         merged_topo_list.append(merged)
 
         tlen, _, _ = topo_path_length(merged, start, goal, res=res)
@@ -1372,6 +1533,10 @@ def main():
         "merged_node_counts": [G.number_of_nodes() for G in merged_topo_list],
         "traj_lengths": [len(p) for p in all_poses],
     }
+    if args.obstacle_block is not None:
+        metrics["obstacle_block_world"] = [round(float(v), 3) for v in args.obstacle_block]
+        metrics["obstacle_block_cells"] = list(obstacle_block_cells)
+        metrics["day_change_session"] = day_change
     with open(output_dir / "data" / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
     with open(output_dir / "data" / "ratios.json", "w") as f:
@@ -1382,9 +1547,13 @@ def main():
     fig1_session_exploration(
         base_grid, all_poses, all_obs, subgraphs, merged_topo_list[-1],
         start, goal, gt_path, gt_len, temperatures, res=res,
-        output_path=output_dir / "fig1_session_exploration.png")
+        output_path=output_dir / "fig1_session_exploration.png",
+        obstacle_block_cells=obstacle_block_cells,
+        day_change=day_change if obstacle_block_cells is not None else None,
+        draw_merge_grid=base_grid if obstacle_block_cells is not None else None)
     fig2_optimality_curve(ratios, gt_len, res=res,
-                          output_path=output_dir / "fig2_optimality_curve.png")
+                          output_path=output_dir / "fig2_optimality_curve.png",
+                          day_change=day_change if obstacle_block_cells is not None else None)
     coverage_data = fig3_reachability_coverage(
         base_grid, all_poses, all_obs, start, goal, res=res,
         output_path=output_dir / "fig3_reachability_coverage.png")
