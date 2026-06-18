@@ -1,0 +1,257 @@
+import json
+from pathlib import Path
+from types import SimpleNamespace
+from typing import List
+
+import numpy as np
+
+import benchmark_map_merge.run_baseline as run_baseline
+from benchmark_map_merge.run_baseline import (
+    _build_sfm_summary,
+    _has_colmap_model_files,
+    _write_sfm_summary,
+)
+
+
+class _FakeModel:
+    images = {1: object(), 2: object()}
+    points3D = {1: object(), 2: object(), 3: object()}
+
+
+def test_build_sfm_summary_includes_result_files(tmp_path: Path) -> None:
+    rrd_path = tmp_path / "sfm_reconstruction.rrd"
+    topdown_path = tmp_path / "topdown_poses.png"
+    pairs_path = tmp_path / "pairs-sfm.txt"
+    rrd_path.write_bytes(b"rrd")
+    topdown_path.write_bytes(b"png-data")
+    pairs_path.write_text("a b\nb c\n")
+
+    summary = _build_sfm_summary(
+        _FakeModel(),
+        sampled_frames=11,
+        total_frames=20,
+        sfm_pairs_path=pairs_path,
+        sfm_rrd_path=rrd_path,
+        topdown_path=topdown_path,
+    )
+
+    assert summary["num_registered_images"] == 2
+    assert summary["num_points3D"] == 3
+    assert summary["num_sampled_frames"] == 11
+    assert summary["num_total_ref_frames"] == 20
+    assert summary["num_sfm_pairs"] == 2
+    assert summary["sfm_reconstruction_rrd"]["size_bytes"] == 3
+    assert summary["topdown_poses_png"]["size_bytes"] == 8
+
+
+def test_write_sfm_summary_writes_json(tmp_path: Path) -> None:
+    output_path = tmp_path / "logs" / "sfm_summary.json"
+    _write_sfm_summary({"num_registered_images": 2}, output_path)
+
+    assert json.loads(output_path.read_text()) == {"num_registered_images": 2}
+
+
+def test_has_colmap_model_files_requires_all_binary_files(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing"
+    empty_dir = tmp_path / "empty"
+    partial_dir = tmp_path / "partial"
+    complete_dir = tmp_path / "complete"
+    directory_file_dir = tmp_path / "directory_file"
+
+    empty_dir.mkdir()
+    partial_dir.mkdir()
+    complete_dir.mkdir()
+    directory_file_dir.mkdir()
+    for file_name in ("cameras.bin", "images.bin"):
+        (partial_dir / file_name).write_bytes(b"")
+    for file_name in ("cameras.bin", "images.bin", "points3D.bin"):
+        (complete_dir / file_name).write_bytes(b"")
+    for file_name in ("cameras.bin", "images.bin"):
+        (directory_file_dir / file_name).write_bytes(b"")
+    (directory_file_dir / "points3D.bin").mkdir()
+
+    assert not _has_colmap_model_files(missing_dir)
+    assert not _has_colmap_model_files(empty_dir)
+    assert not _has_colmap_model_files(partial_dir)
+    assert not _has_colmap_model_files(directory_file_dir)
+    assert _has_colmap_model_files(complete_dir)
+
+
+def test_sfm_result_root_includes_sfm_ba_suffix() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in_2sub",
+        "hloc_sfm_netvlad_splg",
+        "s00000_aria_full_data",
+        sfm_ba_iter=5,
+    )
+
+    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_full_data_sba5"
+
+
+def test_sfm_only_result_root_uses_compact_name() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in_2sub",
+        "hloc_sfm_netvlad_splg",
+        "s00000_aria_full_data",
+        sfm_ba_iter=0,
+        sfm_only=True,
+    )
+
+    assert result_root.name == "s00000_sfm_full_data_sba0"
+
+
+def test_result_root_default_full_data() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in_2sub",
+        "hloc_sfm_netvlad_splg",
+        "s00000_aria_full_data",
+    )
+
+    assert "full_data" in result_root.name
+    assert "sba0" in result_root.name
+
+
+def test_cli_has_submap_sfm_and_submap_merge_flags() -> None:
+    import subprocess
+    import sys
+    result = subprocess.run(
+        [sys.executable, "run_baseline.py", "--help"],
+        capture_output=True, text=True,
+        cwd=str(Path(__file__).parent.parent),
+    )
+    assert "--submap-sfm" in result.stdout
+    assert "--submap-merge" in result.stdout
+    assert "--sfm-ba-iter" in result.stdout
+    assert "--only-build-sfm" not in result.stdout
+    assert "--vio-ba-iter" not in result.stdout
+
+
+def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    data_root = dataset_root / "s00000_aria_full_data"
+    ref_dir = data_root / "s0"
+    inc_dir = data_root / "s1"
+    for submap_dir in (ref_dir, inc_dir):
+        (submap_dir / "seq").mkdir(parents=True)
+
+    (dataset_root / "s00000_orders.txt").write_text("s0 s1\n")
+
+    result_root = dataset_root / "s00000_results_in_2sub_hloc_sfm_netvlad_splg_full_data_sba0"
+    cached_merge_dir = result_root / "merge_s0_s1" / "submap_disc_0"
+    cached_sfm_dir = cached_merge_dir / "sfm"
+    cached_sfm_dir.mkdir(parents=True)
+    for file_name in ("cameras.bin", "images.bin", "points3D.bin"):
+        (cached_sfm_dir / file_name).write_bytes(b"cache")
+    (cached_merge_dir / "poses.txt").write_text(
+        "seq/000000.color.jpg 1 0 0 0 0 0 0\n"
+        "seq/000001.color.jpg 1 0 0 0 1 0 0\n"
+        "seq/000002.color.jpg 1 0 0 0 2 0 0\n"
+        "seq/000003.color.jpg 1 0 0 0 3 0 0\n"
+        "seq/000004.color.jpg 1 0 0 0 4 0 0\n"
+        "seq/000005.color.jpg 1 0 0 0 5 0 0\n"
+    )
+    merge_stats_path = result_root / "logs" / "submap1_merge_stats.json"
+    merge_stats_path.parent.mkdir(parents=True)
+    merge_stats_path.write_text(json.dumps({
+        "num_pnp_success": 5,
+        "sampled_inc_images": [f"seq/{i:06d}.color.jpg" for i in range(5)],
+        "model_name_to_orig": {},
+    }))
+
+    def fake_get_image_list(submap_dir: Path) -> List[str]:
+        if submap_dir == ref_dir:
+            return ["seq/000000.color.jpg"]
+        return [f"seq/{i:06d}.color.jpg" for i in range(5)]
+
+    fake_pose = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    monkeypatch.setattr(run_baseline, "_get_image_list", fake_get_image_list)
+    monkeypatch.setattr(
+        run_baseline,
+        "read_poses",
+        lambda path: {
+            f"seq/{i:06d}.color.jpg": fake_pose + np.array([0, 0, 0, 0, i, 0, 0])
+            for i in range(6)
+        },
+    )
+    monkeypatch.setattr(
+        run_baseline,
+        "read_timestamps",
+        lambda path: {f"seq/{i:06d}.color.jpg": float(i) for i in range(5)},
+    )
+    monkeypatch.setattr(
+        run_baseline,
+        "read_intrinsics",
+        lambda path: {f"seq/{i:06d}.color.jpg": np.ones(6) for i in range(5)},
+    )
+    monkeypatch.setattr(
+        run_baseline,
+        "read_gps",
+        lambda path: {f"seq/{i:06d}.color.jpg": np.ones(5) for i in range(5)},
+    )
+    monkeypatch.setattr(run_baseline, "read_edges_odom", lambda path: [])
+    monkeypatch.setattr(run_baseline, "save_sfm_vis", lambda *args, **kwargs: args[1].write_bytes(b"rrd"))
+    monkeypatch.setattr(run_baseline, "save_topdown_pose_viz", lambda *args, **kwargs: args[2].write_bytes(b"png"))
+    monkeypatch.setattr(run_baseline, "export_to_eval_structure", lambda *args, **kwargs: None)
+
+    class FakeImage:
+        registered = True
+        image_id = 1
+        name = "seq/000000.color.jpg"
+
+    class FakeReconstruction:
+        read_paths: List[str] = []
+        write_paths: List[str] = []
+
+        def __init__(self) -> None:
+            self.images = {1: FakeImage()}
+            self.points3D = {}
+
+        def read_binary(self, path: str) -> None:
+            self.read_paths.append(path)
+
+        def write_binary(self, path: str) -> None:
+            self.write_paths.append(path)
+
+    class FakeSfmMerger:
+        last_sfm_sampled_frames = 1
+
+        def __init__(self, work_dir: Path) -> None:
+            self.work_dir = work_dir
+
+        def build_submap_sfm(self, *args, **kwargs) -> FakeReconstruction:
+            return FakeReconstruction()
+
+        def merge_model_with_se3(self, *args, **kwargs):
+            raise AssertionError("merge_model_with_se3 should not run on cache hit")
+
+        @staticmethod
+        def extract_w2c_vec_from_image(image: FakeImage) -> np.ndarray:
+            return fake_pose
+
+    monkeypatch.setattr(run_baseline, "HlocSfmMapMerger", FakeSfmMerger)
+    monkeypatch.setattr(
+        run_baseline,
+        "pycolmap",
+        SimpleNamespace(Reconstruction=FakeReconstruction),
+        raising=False,
+    )
+
+    run_baseline.run_order(
+        dataset_root=dataset_root,
+        method="hloc_sfm_netvlad_splg",
+        order_index=0,
+        max_submaps=2,
+        skip_eval_export=True,
+        overwrite=False,
+        submap_merge=True,
+    )
+
+    assert FakeReconstruction.read_paths == [str(cached_sfm_dir)]
+    assert "loaded cached SfM reconstruction" in (
+        result_root / "logs" / "pipeline.log"
+    ).read_text()
+    summary = json.loads(merge_stats_path.read_text())
+    assert summary["num_pnp_success"] == 5
