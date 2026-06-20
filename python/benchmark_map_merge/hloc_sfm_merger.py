@@ -41,7 +41,7 @@ _LOC_CONF = {
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
 }
 _NUM_RETRIEVAL = 10  # top-10 ref frames per query (vs 20; SfM DB is rich enough)
-_GEO_VERIFY_MIN_MATCHES = 100
+_GEO_VERIFY_MIN_MATCHES = 150
 _PNP_MIN_INLIERS = 50
 
 
@@ -187,6 +187,16 @@ def _cam_pos_from_vec(vec: np.ndarray) -> np.ndarray:
         [q_wxyz[1], q_wxyz[2], q_wxyz[3], q_wxyz[0]]
     ).as_matrix()
     return -r_w2c.T @ t_w2c
+
+
+def _r_c2w_from_vec(vec: np.ndarray) -> np.ndarray:
+    """Return 3x3 C2W rotation matrix from a dataset W2C vec7 [qw,qx,qy,qz,tx,ty,tz]."""
+    from scipy.spatial.transform import Rotation
+    q_wxyz = vec[0:4]
+    r_w2c = Rotation.from_quat(
+        [q_wxyz[1], q_wxyz[2], q_wxyz[3], q_wxyz[0]]
+    ).as_matrix()
+    return r_w2c.T  # C2W rotation = R_w2c^T
 
 
 def _c2w_to_rigid3d(T_c2w: np.ndarray) -> pycolmap.Rigid3d:
@@ -823,6 +833,8 @@ class HlocSfmMapMerger:
         intrinsics: Tuple[float, float, float, float, int, int],
         submap_idx: int,
         submap_tag: str,
+        gt_poses_ref: Optional[Dict[str, np.ndarray]] = None,
+        gt_poses_inc: Optional[Dict[str, np.ndarray]] = None,
     ) -> Tuple[
         Optional[pycolmap.Reconstruction],
         Optional[Dict[str, np.ndarray]],
@@ -912,6 +924,46 @@ class HlocSfmMapMerger:
             loc_pairs, feats_merged, loc_matches, verified_pairs,
             min_inliers=_GEO_VERIFY_MIN_MATCHES,
         )
+
+        # --- Annotate GV pairs_detail with GT TP/FP (pair level, f_inliers >= threshold) ---
+        if gt_poses_ref is not None and gt_poses_inc is not None:
+            _tp = _fp = _no_gt = 0
+            for _pair in gv_stats["pairs_detail"]:
+                if _pair["f_inliers"] < _GEO_VERIFY_MIN_MATCHES:
+                    continue
+                _q_orig = prefixed_to_orig.get(_pair["query"], _pair["query"])
+                _db_name = _pair["db"]
+                if _q_orig not in gt_poses_inc or _db_name not in gt_poses_ref:
+                    _pair["gv_label"] = "NO_GT"
+                    _no_gt += 1
+                    continue
+                _c_inc = _cam_pos_from_vec(gt_poses_inc[_q_orig])
+                _c_ref = _cam_pos_from_vec(gt_poses_ref[_db_name])
+                _t_rel = float(np.linalg.norm(_c_inc - _c_ref))
+                # relative rotation (C2W frames): R_rel = R_inc_c2w.T @ R_ref_c2w
+                _R_inc_c2w = _r_c2w_from_vec(gt_poses_inc[_q_orig])
+                _R_ref_c2w = _r_c2w_from_vec(gt_poses_ref[_db_name])
+                _R_rel = _R_inc_c2w.T @ _R_ref_c2w
+                _theta = float(np.degrees(np.arccos(np.clip((np.trace(_R_rel) - 1.0) / 2.0, -1.0, 1.0))))
+                _pair["gt_trans_m"] = round(_t_rel, 4)
+                _pair["gt_rot_deg"] = round(_theta, 2)
+                if _t_rel < 7.0 and _theta < 90.0:
+                    _pair["gv_label"] = "TP"
+                    _tp += 1
+                else:
+                    _pair["gv_label"] = "FP"
+                    _fp += 1
+            _n_above = _tp + _fp + _no_gt
+            gv_stats["geo_verify_tp_fp"] = {
+                "threshold_f_inliers": _GEO_VERIFY_MIN_MATCHES,
+                "num_pairs_above_thresh": _n_above,
+                "num_tp": _tp,
+                "num_fp": _fp,
+                "num_no_gt": _no_gt,
+                "tp_ratio": round(_tp / _n_above, 4) if _n_above else None,
+                "fp_ratio": round(_fp / _n_above, 4) if _n_above else None,
+            }
+
         pnp_results, pnp_ref_frames, pnp_logs, failure_samples = self._run_pnp(
             model0, inc_prefixed, prefixed_to_orig,
             verified_pairs, feats_merged, loc_matches, intrinsics,
@@ -1019,6 +1071,12 @@ class HlocSfmMapMerger:
             model_name_to_orig[new_name] = orig_name
             next_image_id += 1
 
+        # --- Pre-compute model0 C2W dict for per-frame PnP error (best_db anchor) ---
+        _model0_c2w: Dict[str, np.ndarray] = {}
+        if gt_poses_ref is not None and gt_poses_inc is not None:
+            for _img in model0.images.values():
+                _model0_c2w[_img.name] = _image_c2w_matrix(_img)
+
         # --- Build per-frame PnP match log ---
         pnp_per_frame: List[dict] = []
         for orig_name in sfm_sampled_i:
@@ -1026,12 +1084,31 @@ class HlocSfmMapMerger:
             if orig_name in pnp_results:
                 log = pnp_logs.get(orig_name, {})
                 best_db = pnp_ref_frames.get(orig_name, "")
+                # compute PnP trans_error_m using 4x4 transform:
+                #   delta_T_est = T_db_w0^{-1} @ T_query_w0  (W0 frame, relative to best_db)
+                #   delta_T_gt  = T_db_gt^{-1} @ T_query_gt  (GT frame, relative to best_db)
+                #   delta_T_err = delta_T_gt^{-1} @ delta_T_est
+                #   trans_error_m = ||delta_T_err[:3, 3]||
+                trans_error_m = None
+                if (gt_poses_ref is not None and gt_poses_inc is not None
+                        and orig_name in gt_poses_inc
+                        and best_db in _model0_c2w
+                        and best_db in gt_poses_ref):
+                    T_query_w0 = pnp_results[orig_name]
+                    T_db_w0    = _model0_c2w[best_db]
+                    T_query_gt = _w2c_vec_to_c2w_matrix(gt_poses_inc[orig_name])
+                    T_db_gt    = _w2c_vec_to_c2w_matrix(gt_poses_ref[best_db])
+                    delta_T_est = np.linalg.inv(T_db_w0) @ T_query_w0
+                    delta_T_gt  = np.linalg.inv(T_db_gt) @ T_query_gt
+                    delta_T_err = np.linalg.inv(delta_T_gt) @ delta_T_est
+                    trans_error_m = float(np.linalg.norm(delta_T_err[:3, 3]))
                 pnp_per_frame.append({
                     "frame": prefixed,
                     "best_db": best_db,
                     "num_2d3d": int(len(log.get("points3D_ids", []))),
                     "inliers": int(log.get("num_inliers", 0)),
                     "status": "SUCCESS",
+                    "trans_error_m": trans_error_m,
                 })
             else:
                 failure = next(
@@ -1045,6 +1122,25 @@ class HlocSfmMapMerger:
                     "status": f"FAIL({failure.get('reason', 'unknown')})",
                 })
 
+        pnp_errors = [
+            e["trans_error_m"] for e in pnp_per_frame
+            if e["status"] == "SUCCESS" and e.get("trans_error_m") is not None
+        ]
+        # pnp_error_stats: only count frames with inliers >= 10 as real success
+        _inliers_thresh = 10
+        real_success = [
+            e for e in pnp_per_frame
+            if e["status"] == "SUCCESS" and e.get("inliers", 0) >= _inliers_thresh
+        ]
+        _n_real = len(real_success)
+        _n_lt2 = sum(
+            1 for e in real_success
+            if e.get("trans_error_m") is not None and e["trans_error_m"] < 2.0
+        )
+        _n_ge2 = sum(
+            1 for e in real_success
+            if e.get("trans_error_m") is not None and e["trans_error_m"] >= 2.0
+        )
         merge_stats = {
             "submap_idx": int(submap_idx),
             "num_pnp_sampled": len(sfm_sampled_i),
@@ -1062,6 +1158,21 @@ class HlocSfmMapMerger:
             "sampled_inc_images": sfm_sampled_i,
             "sample_pnp_failures": failure_samples,
             "pnp_per_frame": pnp_per_frame,
+            "pnp_trans_error_m": {
+                "mean": float(np.mean(pnp_errors)) if pnp_errors else None,
+                "median": float(np.median(pnp_errors)) if pnp_errors else None,
+                "max": float(np.max(pnp_errors)) if pnp_errors else None,
+                "num_valid": len(pnp_errors),
+            },
+            "pnp_error_stats": {
+                "inliers_threshold": _inliers_thresh,
+                "num_success_total": len(pnp_results),
+                "num_real_success": _n_real,
+                "num_error_lt2m": _n_lt2,
+                "num_error_ge2m": _n_ge2,
+                "ratio_lt2m": round(_n_lt2 / _n_real, 4) if _n_real else None,
+                "ratio_ge2m": round(_n_ge2 / _n_real, 4) if _n_real else None,
+            },
         }
         self._append_features(feats_inc, self.out_dir / "feats-ref.h5")
         self._append_features(global_feats_inc, global_feats)
@@ -1169,7 +1280,7 @@ class HlocSfmMapMerger:
             results[orig_name] = np.linalg.inv(w2c)
             # record primary reference frame (first db image = top retrieval result)
             pnp_ref_frames[orig_name] = id_to_name[db_ids[0]]
-            pnp_logs[orig_name] = log
+            pnp_logs[orig_name] = ret  # store ret (contains num_inliers) not hloc log
 
         print(f"[PnP] done: {len(results)}/{len(inc_prefixed)} localized, {n_failed} failed")
         logger.info(f"PnP: {len(results)}/{len(inc_prefixed)} localized, {n_failed} failed")

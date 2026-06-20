@@ -66,7 +66,7 @@ def test_geometric_verify_pairs_drops_query_below_threshold(tmp_path: Path) -> N
     _write_matches(matches_path, query, db, np.arange(99, dtype=np.int32))
     _write_pairs(loc_pairs_path, ((query, db),))
 
-    stats = _geometric_verify_pairs(loc_pairs_path, features_path, matches_path, out_pairs_path)
+    stats = _geometric_verify_pairs(loc_pairs_path, features_path, matches_path, out_pairs_path, min_inliers=100)
 
     assert out_pairs_path.read_text() == ""
     assert stats == {
@@ -110,7 +110,7 @@ def test_geometric_verify_pairs_reranks_by_fundamental_inliers(tmp_path: Path) -
         np.arange(120, dtype=np.int32),
     )
 
-    stats = _geometric_verify_pairs(loc_pairs_path, features_path, matches_path, out_pairs_path)
+    stats = _geometric_verify_pairs(loc_pairs_path, features_path, matches_path, out_pairs_path, min_inliers=100)
 
     assert strong_inliers >= 100
     assert strong_inliers - weak_inliers >= 40

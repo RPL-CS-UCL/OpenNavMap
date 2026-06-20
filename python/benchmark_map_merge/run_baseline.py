@@ -183,10 +183,10 @@ def _save_submap_sfm_outputs(
         intrinsics=intrinsics,
     )
 
-    registered_images = [
-        img.name for img_id, img in model.images.items()
-        if _is_registered(model, img_id, img)
-    ]
+    registered_images = sorted(
+        [img.name for img_id, img in model.images.items()
+         if _is_registered(model, img_id, img)]
+    )
     sfm_poses = {
         img.name: sfm_merger.extract_w2c_vec_from_image(img)
         for img_id, img in model.images.items()
@@ -279,6 +279,11 @@ def _run_only_build_sfm(
             f"{summary['time_sec']:.1f}s",
             log_file,
         )
+        # clean up h5 intermediate files to free disk space
+        tag_work_dir = result_root / "_work" / tag
+        for h5_file in tag_work_dir.glob("*.h5"):
+            h5_file.unlink(missing_ok=True)
+        _log(f"  cleaned h5 intermediates for {tag}", log_file)
 
     total_time = time.time() - total_start
     write_summary_json(
@@ -315,6 +320,7 @@ def run_order(
     overwrite: bool = False,
     submap_sfm: bool = False,
     submap_merge: bool = False,
+    dataset_name: str = None,
 ):
     if not submap_sfm and not submap_merge:
         raise ValueError("Specify exactly one of --submap-sfm or --submap-merge")
@@ -486,10 +492,10 @@ def run_order(
             if _copy_src_global.exists():
                 shutil.copy2(str(_copy_src_global), str(work_dir / "global-feats-netvlad.h5"))
 
-        sampled_ref_images = [
-            img.name for img_id, img in sfm_model.images.items()
-            if _is_registered(sfm_model, img_id, img)
-        ]
+        sampled_ref_images = sorted(
+            [img.name for img_id, img in sfm_model.images.items()
+             if _is_registered(sfm_model, img_id, img)]
+        )
         ref_sfm_poses = {
             img.name: sfm_merger.extract_w2c_vec_from_image(img)
             for img_id, img in sfm_model.images.items()
@@ -520,7 +526,7 @@ def run_order(
         global_offset += len(sampled_ref_images)
 
         # save SfM reconstruction visualization
-        sub0_sfm_dir = result_root / "submaps_sfm" / "submap_0"
+        sub0_sfm_dir = result_root / "submaps_sfm" / submap_ids[0]
         sub0_sfm_dir.mkdir(parents=True, exist_ok=True)
         (sub0_sfm_dir / "sfm").mkdir(parents=True, exist_ok=True)
         sfm_model.write_binary(str(sub0_sfm_dir / "sfm"))
@@ -534,7 +540,7 @@ def run_order(
             merged_poses,
             merged_gt,
             sub0_sfm_dir / "topdown_poses.png",
-            title="submap_0",
+            title=f"submap_{submap_ids[0]}",
         )
 
         current_model = sfm_model
@@ -643,11 +649,11 @@ def run_order(
                     })
                     continue
 
-                sampled_inc_images = [
-                    img.name for img_id, img in sfm_model_i.images.items()
-                    if _is_registered(sfm_model_i, img_id, img)
-                ]
-                sub_i_sfm_dir = result_root / "submaps_sfm" / f"submap_{i}"
+                sampled_inc_images = sorted(
+                    [img.name for img_id, img in sfm_model_i.images.items()
+                     if _is_registered(sfm_model_i, img_id, img)]
+                )
+                sub_i_sfm_dir = result_root / "submaps_sfm" / sid
                 sub_i_sfm_dir.mkdir(parents=True, exist_ok=True)
                 (sub_i_sfm_dir / "sfm").mkdir(parents=True, exist_ok=True)
                 sfm_model_i.write_binary(str(sub_i_sfm_dir / "sfm"))
@@ -674,7 +680,7 @@ def run_order(
                         0,
                     ),
                     sub_i_sfm_dir / "topdown_poses.png",
-                    title=f"submap_{i}",
+                    title=f"submap_{sid}",
                 )
 
                 current_model, inc_poses_w2c, model_name_to_orig, merge_stats = sfm_merger.merge_model_with_se3(
@@ -687,6 +693,9 @@ def run_order(
                      intr_tuple,
                      submap_idx=i,
                      submap_tag=f"sub{i}",
+                     gt_poses_ref=ref_gt,
+                     gt_poses_inc=read_poses(str(sdir / "poses_abs_gt.txt"))
+                     if (sdir / "poses_abs_gt.txt").exists() else None,
                  )
                 if merge_stats is None:
                     merge_stats = {}
@@ -974,7 +983,8 @@ def run_order(
         )
 
     if not skip_eval_export and traj_eval_data_root:
-        dataset_order_name = f"ucl_campus_aria_s00000_{ORDER_TAGS[order_index]}"
+        _dataset_name = dataset_name or f"{dataset_root.name}_s00000"
+        dataset_order_name = f"{_dataset_name}_{ORDER_TAGS[order_index]}"
         try:
             gt_path, est_path = export_to_eval_structure(
                 merge_dir, traj_eval_data_root, dataset_order_name, method
@@ -1025,6 +1035,9 @@ if __name__ == "__main__":
                         "Reads from result_root/submaps_sfm/{submap_id}/sfm/")
     p.add_argument("--overwrite", action="store_true",
                    help="Remove the result directory before running")
+    p.add_argument("--dataset-name", type=str, default=None,
+                   help="Dataset name for TUM eval export, e.g. 'vineyard_s00000'. "
+                        "Defaults to <dataset_root.name>_s00000")
     args = p.parse_args()
 
     run_order(
@@ -1041,4 +1054,5 @@ if __name__ == "__main__":
         overwrite=args.overwrite,
         submap_sfm=args.submap_sfm,
         submap_merge=args.submap_merge,
+        dataset_name=args.dataset_name,
     )

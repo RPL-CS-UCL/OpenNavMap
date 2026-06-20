@@ -159,21 +159,6 @@ def create_finalmap_symlink(result_root: Path, merge_name: str):
     logger.info(f"merge_finalmap -> {merge_name}")
 
 
-def copy_ref_data(ref_submap_dir: Path, result_merge_dir: Path, images: List[str]):
-    poses = read_poses(str(ref_submap_dir / "poses.txt"))
-    poses_gt = read_poses(str(ref_submap_dir / "poses_abs_gt.txt"))
-    timestamps = read_timestamps(str(ref_submap_dir / "timestamps.txt"))
-
-    ref_poses = {img: poses[img] for img in images if img in poses}
-    ref_gt = {img: poses_gt[img] for img in images if img in poses_gt}
-    ref_ts = {img: timestamps[img] for img in images if img in timestamps}
-
-    write_poses_txt(ref_poses, result_merge_dir / "poses.txt")
-    write_poses_txt(ref_gt, result_merge_dir / "poses_abs_gt.txt")
-    write_timestamps_txt(ref_ts, result_merge_dir / "timestamps.txt")
-    return ref_poses, ref_gt, ref_ts
-
-
 def reindex_dict(
     data: Dict[str, np.ndarray],
     images_ordered: List[str],
