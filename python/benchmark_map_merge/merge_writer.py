@@ -159,33 +159,6 @@ def create_finalmap_symlink(result_root: Path, merge_name: str):
     logger.info(f"merge_finalmap -> {merge_name}")
 
 
-def reindex_dict(
-    data: Dict[str, np.ndarray],
-    images_ordered: List[str],
-    global_offset: int,
-) -> Dict[str, np.ndarray]:
-    """Rename image keys from local seq/XXXXXX to global seq/YYYYYY.
-
-    Args:
-        data: {img_name: value} dict using local seq/XXXXXX naming
-        images_ordered: ordered list of local image names for this submap
-        global_offset: number of frames already in the merged map before this submap
-
-    Returns:
-        New dict with keys renamed to seq/{global_offset+i:06d}.color.jpg
-    """
-    result = {}
-    local_to_global = {
-        img: f"seq/{global_offset + i:06d}.color.jpg"
-        for i, img in enumerate(images_ordered)
-    }
-    for local_name, value in data.items():
-        if local_name in local_to_global:
-            result[local_to_global[local_name]] = value
-        else:
-            logger.warning("reindex_dict: %s not in images_ordered, dropped", local_name)
-    return result
-
 
 def read_intrinsics(file_path: str) -> Dict[str, np.ndarray]:
     """Read intrinsics file. Returns {img_name: array([fx,fy,cx,cy,w,h])}."""

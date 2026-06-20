@@ -42,7 +42,7 @@ from benchmark_map_merge.merge_writer import (
     read_poses, read_timestamps,
     apply_transform, merge_poses, write_poses_txt, write_timestamps_txt,
     write_summary_json, create_merge_dir, create_finalmap_symlink,
-    reindex_dict, read_intrinsics, read_gps, read_edges_odom,
+    read_intrinsics, read_gps, read_edges_odom,
     write_intrinsics_txt, write_gps_txt, write_edges_odom_txt,
     merge_edges_with_offset,
 )
@@ -195,12 +195,9 @@ def _save_submap_sfm_outputs(
         if _is_registered(model, img_id, img)
     }
     save_topdown_pose_viz(
-        reindex_dict(sfm_poses, registered_images, 0),
-        reindex_dict(
-            {img: gt_poses[img] for img in registered_images if img in gt_poses},
-            registered_images,
-            0,
-        ),
+        [sfm_poses],
+        [{img: gt_poses[img] for img in registered_images if img in gt_poses}],
+        [registered_images],
         topdown_path,
         title=f"submap_{submap_label}",
     )
@@ -402,8 +399,6 @@ def run_order(
     ref_images = _get_image_list(submap_dirs[0])
     ref_dir = submap_dirs[0]
 
-    global_offset = 0
-
     ref_poses = read_poses(str(ref_dir / "poses.txt"))
     ref_gt    = read_poses(str(ref_dir / "poses_abs_gt.txt"))
     ref_ts    = read_timestamps(str(ref_dir / "timestamps.txt"))
@@ -420,28 +415,42 @@ def run_order(
         ref_gt_local    = {img: ref_gt[img]    for img in ref_images if img in ref_gt}
         ref_ts_local    = {img: ref_ts[img]    for img in ref_images if img in ref_ts}
 
-        merged_poses = reindex_dict(ref_poses_local, ref_images, global_offset)
-        merged_gt    = reindex_dict(ref_gt_local,    ref_images, global_offset)
-        merged_ts    = reindex_dict(ref_ts_local,    ref_images, global_offset)
-        merged_intrinsics = reindex_dict(ref_intr, ref_images, global_offset)
-        merged_gps        = reindex_dict(ref_gps,  ref_images, global_offset)
-        merged_edges      = list(ref_edges)
+        submap_poses          = [ref_poses_local]
+        submap_gt             = [ref_gt_local]
+        submap_ts             = [ref_ts_local]
+        submap_intrinsics     = [{img: ref_intr[img] for img in ref_images if img in ref_intr}]
+        submap_gps            = [{img: ref_gps[img]  for img in ref_images if img in ref_gps}]
+        submap_images_ordered = [ref_images]
+        merged_edges          = list(ref_edges)
 
-        write_poses_txt(merged_poses, merge_dir / "poses.txt")
-        write_poses_txt(merged_gt,    merge_dir / "poses_abs_gt.txt")
-        write_timestamps_txt(merged_ts, merge_dir / "timestamps.txt")
-        write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
-        write_gps_txt(merged_gps,              merge_dir / "gps_data.txt")
-        write_edges_odom_txt(merged_edges,     merge_dir / "edges_odom.txt")
-
-        global_offset += len(ref_images)
+        flat_poses, flat_gt, flat_ts, flat_intr, flat_gps = {}, {}, {}, {}, {}
+        _off = 0
+        for _imgs, _po, _gt, _ts, _intr, _gps in zip(
+            submap_images_ordered, submap_poses, submap_gt,
+            submap_ts, submap_intrinsics, submap_gps,
+        ):
+            for _j, _img in enumerate(_imgs):
+                _k = f"seq/{_off + _j:06d}.color.jpg"
+                if _img in _po:   flat_poses[_k] = _po[_img]
+                if _img in _gt:   flat_gt[_k]    = _gt[_img]
+                if _img in _ts:   flat_ts[_k]    = _ts[_img]
+                if _img in _intr: flat_intr[_k]  = _intr[_img]
+                if _img in _gps:  flat_gps[_k]   = _gps[_img]
+            _off += len(_imgs)
+        write_poses_txt(flat_poses, merge_dir / "poses.txt")
+        write_poses_txt(flat_gt,    merge_dir / "poses_abs_gt.txt")
+        write_timestamps_txt(flat_ts, merge_dir / "timestamps.txt")
+        write_intrinsics_txt(flat_intr, merge_dir / "intrinsics.txt")
+        write_gps_txt(flat_gps,         merge_dir / "gps_data.txt")
+        write_edges_odom_txt(merged_edges, merge_dir / "edges_odom.txt")
     else:
-        merged_poses = {}
-        merged_gt = {}
-        merged_ts = {}
-        merged_intrinsics = {}
-        merged_gps = {}
-        merged_edges = []
+        submap_poses          = []
+        submap_gt             = []
+        submap_ts             = []
+        submap_intrinsics     = []
+        submap_gps            = []
+        submap_images_ordered = []
+        merged_edges          = []
     _log(f"  reference submap: {len(ref_images)} images", log_file)
 
     # ---- SfM path: build reference map and prepare incremental BA ----
@@ -517,29 +526,15 @@ def run_order(
             for img_id, img in sfm_model.images.items()
             if _is_registered(sfm_model, img_id, img)
         }
-        merged_poses = reindex_dict(ref_sfm_poses, sampled_ref_images, 0)
-        merged_gt = reindex_dict(
-            {img: ref_gt[img] for img in sampled_ref_images if img in ref_gt},
-            sampled_ref_images,
-            0,
-        )
-        merged_ts = reindex_dict(
-            {img: ref_ts[img] for img in sampled_ref_images if img in ref_ts},
-            sampled_ref_images,
-            0,
-        )
-        merged_intrinsics = reindex_dict(
-            {img: ref_intr[img] for img in sampled_ref_images if img in ref_intr},
-            sampled_ref_images,
-            0,
-        )
-        merged_gps = reindex_dict(
-            {img: ref_gps[img] for img in sampled_ref_images if img in ref_gps},
-            sampled_ref_images,
-            0,
-        )
-        merged_edges = []
-        global_offset += len(sampled_ref_images)
+        submap_poses          = [ref_sfm_poses]
+        submap_gt             = [{img: ref_gt[img]   for img in sampled_ref_images if img in ref_gt}]
+        submap_ts             = [{img: ref_ts[img]   for img in sampled_ref_images if img in ref_ts}]
+        submap_intrinsics     = [{img: ref_intr[img] for img in sampled_ref_images if img in ref_intr}]
+        submap_gps            = [{img: ref_gps[img]  for img in sampled_ref_images if img in ref_gps}]
+        submap_images_ordered = [sampled_ref_images]
+        merged_edges          = []
+        # model_name -> (submap_idx, local_name) for pose refinement tracking
+        model_name_to_submap_local = {name: (0, name) for name in sampled_ref_images}
 
         # save SfM reconstruction visualization
         sub0_sfm_dir = result_root / "submaps_sfm" / submap_ids[0]
@@ -553,8 +548,9 @@ def run_order(
             intrinsics=intr_tuple,
         )
         save_topdown_pose_viz(
-            merged_poses,
-            merged_gt,
+            submap_poses,
+            submap_gt,
+            submap_images_ordered,
             sub0_sfm_dir / "topdown_poses.png",
             title=f"submap_{submap_ids[0]}",
         )
@@ -563,11 +559,26 @@ def run_order(
         merge_sfm_dir = merge_dir / "sfm"
         merge_sfm_dir.mkdir(parents=True, exist_ok=True)
         current_model.write_binary(str(merge_sfm_dir))
-        write_poses_txt(merged_poses, merge_dir / "poses.txt")
-        write_poses_txt(merged_gt, merge_dir / "poses_abs_gt.txt")
-        write_timestamps_txt(merged_ts, merge_dir / "timestamps.txt")
-        write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
-        write_gps_txt(merged_gps, merge_dir / "gps_data.txt")
+
+        flat_poses, flat_gt, flat_ts, flat_intr, flat_gps = {}, {}, {}, {}, {}
+        _off = 0
+        for _imgs, _po, _gt, _ts, _intr, _gps in zip(
+            submap_images_ordered, submap_poses, submap_gt,
+            submap_ts, submap_intrinsics, submap_gps,
+        ):
+            for _j, _img in enumerate(_imgs):
+                _k = f"seq/{_off + _j:06d}.color.jpg"
+                if _img in _po:   flat_poses[_k] = _po[_img]
+                if _img in _gt:   flat_gt[_k]    = _gt[_img]
+                if _img in _ts:   flat_ts[_k]    = _ts[_img]
+                if _img in _intr: flat_intr[_k]  = _intr[_img]
+                if _img in _gps:  flat_gps[_k]   = _gps[_img]
+            _off += len(_imgs)
+        write_poses_txt(flat_poses, merge_dir / "poses.txt")
+        write_poses_txt(flat_gt,    merge_dir / "poses_abs_gt.txt")
+        write_timestamps_txt(flat_ts, merge_dir / "timestamps.txt")
+        write_intrinsics_txt(flat_intr, merge_dir / "intrinsics.txt")
+        write_gps_txt(flat_gps,         merge_dir / "gps_data.txt")
         write_edges_odom_txt(merged_edges, merge_dir / "edges_odom.txt")
         _log(f"  SfM model: {len(sfm_model.images)} images, "
              f"{len(sfm_model.points3D)} 3D points", log_file)
@@ -575,11 +586,11 @@ def run_order(
         # write merge_0 preds
         _preds0_dir = merge_dir.parent / "preds"
         _preds0_dir.mkdir(parents=True, exist_ok=True)
-        write_poses_txt(ref_sfm_poses,
-                        _preds0_dir / "s0_pred.txt")
+        write_poses_txt(ref_sfm_poses, _preds0_dir / "s0_pred.txt")
         save_topdown_pose_viz(
-            merged_poses,
-            merged_gt,
+            submap_poses,
+            submap_gt,
+            submap_images_ordered,
             _preds0_dir / "topdown_merge_0.png",
             title="merge_0",
         )
@@ -601,7 +612,6 @@ def run_order(
         )
 
     failures = []
-    full_model_name_to_global_key = {key: key for key in merged_poses.keys()}
     total_start = time.time()
 
     for i in range(1, len(submap_dirs)):
@@ -629,10 +639,11 @@ def run_order(
                 with open(merge_stats_path) as f:
                     merge_stats = json.load(f)
                 sampled_inc_images = merge_stats.get("sampled_inc_images", [])
+                _cache_offset = sum(len(x) for x in submap_images_ordered)
                 inc_poses_w2c = {
-                    img: cached_poses[f"seq/{global_offset + idx:06d}.color.jpg"]
+                    img: cached_poses[f"seq/{_cache_offset + idx:06d}.color.jpg"]
                     for idx, img in enumerate(sampled_inc_images)
-                    if f"seq/{global_offset + idx:06d}.color.jpg" in cached_poses
+                    if f"seq/{_cache_offset + idx:06d}.color.jpg" in cached_poses
                 }
                 model_name_to_orig = merge_stats.get("model_name_to_orig", {})
                 _log(f"  loaded cached SfM reconstruction: {next_sfm_dir}", log_file)
@@ -689,12 +700,10 @@ def run_order(
                     if _is_registered(sfm_model_i, img_id, img)
                 }
                 save_topdown_pose_viz(
-                    reindex_dict(sfm_poses_i, sampled_inc_images, 0),
-                    reindex_dict(
-                        {img: inc_gt_for_topdown[img] for img in sampled_inc_images if img in inc_gt_for_topdown},
-                        sampled_inc_images,
-                        0,
-                    ),
+                    [sfm_poses_i],
+                    [{img: inc_gt_for_topdown[img] for img in sampled_inc_images
+                      if img in inc_gt_for_topdown}],
+                    [sampled_inc_images],
                     sub_i_sfm_dir / "topdown_poses.png",
                     title=f"submap_{sid}",
                 )
@@ -794,41 +803,38 @@ def run_order(
                 log_file,
             )
 
+            # update model_name_to_submap_local for inc submap frames
             for model_name, orig_name in model_name_to_orig.items():
                 if orig_name in sampled_inc_images:
-                    idx = sampled_inc_images.index(orig_name)
-                    full_model_name_to_global_key[model_name] = (
-                        f"seq/{global_offset + idx:06d}.color.jpg"
-                    )
+                    model_name_to_submap_local[model_name] = (i, orig_name)
 
+            # refine poses per-submap (Bug 1 fix: no cross-submap pollution)
             for img in current_model.images.values():
                 if not _is_registered(current_model, img.image_id, img):
                     continue
-                global_key = full_model_name_to_global_key.get(img.name)
-                if global_key is None and img.name in merged_poses:
-                    global_key = img.name
-                if global_key is not None and global_key in merged_poses:
-                    merged_poses[global_key] = sfm_merger.extract_w2c_vec_from_image(img)
+                mapping = model_name_to_submap_local.get(img.name)
+                if mapping is not None:
+                    sub_idx, local_name = mapping
+                    submap_poses[sub_idx][local_name] = sfm_merger.extract_w2c_vec_from_image(img)
 
-            merged_poses.update(reindex_dict(inc_poses_w2c, sampled_inc_images, global_offset))
+            # append inc submap data (no reindex_dict, keep local names)
+            submap_poses.append(inc_poses_w2c)
+            submap_images_ordered.append(sampled_inc_images)
 
-            # GT / timestamps / intrinsics / gps / edges (same as v1 path)
             inc_gt_dict = read_poses(str(sdir / "poses_abs_gt.txt"))
-            inc_gt_local = {img: inc_gt_dict[img] for img in sampled_inc_images
-                            if img in inc_gt_dict}
-            merged_gt.update(reindex_dict(inc_gt_local, sampled_inc_images, global_offset))
+            submap_gt.append({img: inc_gt_dict[img] for img in sampled_inc_images
+                               if img in inc_gt_dict})
 
             inc_ts_dict = read_timestamps(str(sdir / "timestamps.txt"))
-            inc_ts_local = {img: inc_ts_dict[img] for img in sampled_inc_images
-                            if img in inc_ts_dict}
-            merged_ts.update(reindex_dict(inc_ts_local, sampled_inc_images, global_offset))
+            submap_ts.append({img: inc_ts_dict[img] for img in sampled_inc_images
+                               if img in inc_ts_dict})
 
-            inc_intr  = read_intrinsics(str(sdir / "intrinsics.txt"))
-            inc_gps   = read_gps(str(sdir / "gps_data.txt"))
-            merged_intrinsics.update(reindex_dict(inc_intr, sampled_inc_images, global_offset))
-            merged_gps.update(reindex_dict(inc_gps, sampled_inc_images, global_offset))
-
-            global_offset += len(sampled_inc_images)
+            inc_intr = read_intrinsics(str(sdir / "intrinsics.txt"))
+            inc_gps  = read_gps(str(sdir / "gps_data.txt"))
+            submap_intrinsics.append({img: inc_intr[img] for img in sampled_inc_images
+                                      if img in inc_intr})
+            submap_gps.append({img: inc_gps[img] for img in sampled_inc_images
+                                if img in inc_gps})
 
             merge_ids.append(sid)
             merge_name = next_merge_name
@@ -837,21 +843,36 @@ def run_order(
             merge_sfm_dir = merge_dir / "sfm"
             merge_sfm_dir.mkdir(parents=True, exist_ok=True)
             current_model.write_binary(str(merge_sfm_dir))
-            write_poses_txt(merged_poses,           merge_dir / "poses.txt")
-            write_poses_txt(merged_gt,              merge_dir / "poses_abs_gt.txt")
-            write_timestamps_txt(merged_ts,         merge_dir / "timestamps.txt")
-            write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
-            write_gps_txt(merged_gps,               merge_dir / "gps_data.txt")
-            write_edges_odom_txt(merged_edges,      merge_dir / "edges_odom.txt")
+
+            flat_poses, flat_gt, flat_ts, flat_intr, flat_gps = {}, {}, {}, {}, {}
+            _off = 0
+            for _imgs, _po, _gt, _ts, _intr, _gps in zip(
+                submap_images_ordered, submap_poses, submap_gt,
+                submap_ts, submap_intrinsics, submap_gps,
+            ):
+                for _j, _img in enumerate(_imgs):
+                    _k = f"seq/{_off + _j:06d}.color.jpg"
+                    if _img in _po:   flat_poses[_k] = _po[_img]
+                    if _img in _gt:   flat_gt[_k]    = _gt[_img]
+                    if _img in _ts:   flat_ts[_k]    = _ts[_img]
+                    if _img in _intr: flat_intr[_k]  = _intr[_img]
+                    if _img in _gps:  flat_gps[_k]   = _gps[_img]
+                _off += len(_imgs)
+            write_poses_txt(flat_poses, merge_dir / "poses.txt")
+            write_poses_txt(flat_gt,    merge_dir / "poses_abs_gt.txt")
+            write_timestamps_txt(flat_ts, merge_dir / "timestamps.txt")
+            write_intrinsics_txt(flat_intr, merge_dir / "intrinsics.txt")
+            write_gps_txt(flat_gps,         merge_dir / "gps_data.txt")
+            write_edges_odom_txt(merged_edges, merge_dir / "edges_odom.txt")
 
             # write per-submap predicted poses
             preds_dir = merge_dir.parent / "preds"
             preds_dir.mkdir(parents=True, exist_ok=True)
-            write_poses_txt(merged_poses, preds_dir / "merged_pred.txt")
-            # top-down trajectory visualization (SE3-aligned to GT)
+            write_poses_txt(flat_poses, preds_dir / "merged_pred.txt")
             save_topdown_pose_viz(
-                merged_poses,
-                merged_gt,
+                submap_poses,
+                submap_gt,
+                submap_images_ordered,
                 preds_dir / f"topdown_{merge_name}.png",
                 title=merge_name,
             )
@@ -874,7 +895,7 @@ def run_order(
             )
 
             elapsed = time.time() - t_start
-            _log(f"  merged in {elapsed:.0f}s, total {len(merged_poses)} poses", log_file)
+            _log(f"  merged in {elapsed:.0f}s, total {sum(len(x) for x in submap_images_ordered)} poses", log_file)
             continue   # skip the existing v1 path below
 
         ref_poses_dict = read_poses(str(ref_dir / "poses.txt"))
@@ -916,50 +937,58 @@ def run_order(
         inc_poses_local = {img: inc_poses_dict[img] for img in incoming_images
                            if img in inc_poses_dict}
         transformed_local = apply_transform(inc_poses_local, T_ref_incoming)
-        transformed = reindex_dict(transformed_local, incoming_images, global_offset)
-        merged_poses = merge_poses(merged_poses, transformed)
+
+        submap_poses.append(transformed_local)
+        submap_images_ordered.append(incoming_images)
 
         inc_gt_dict = read_poses(str(sdir / "poses_abs_gt.txt"))
-        inc_gt_local = {img: inc_gt_dict[img] for img in incoming_images
-                        if img in inc_gt_dict}
-        inc_gt = reindex_dict(inc_gt_local, incoming_images, global_offset)
-        merged_gt = merge_poses(merged_gt, inc_gt)
+        submap_gt.append({img: inc_gt_dict[img] for img in incoming_images
+                          if img in inc_gt_dict})
 
         inc_ts_dict = read_timestamps(str(sdir / "timestamps.txt"))
-        inc_ts_local = {img: inc_ts_dict[img] for img in incoming_images
-                        if img in inc_ts_dict}
-        inc_ts = reindex_dict(inc_ts_local, incoming_images, global_offset)
-        merged_ts = merge_poses(merged_ts, inc_ts)
+        submap_ts.append({img: inc_ts_dict[img] for img in incoming_images
+                          if img in inc_ts_dict})
 
         inc_intr  = read_intrinsics(str(sdir / "intrinsics.txt"))
         inc_gps   = read_gps(str(sdir / "gps_data.txt"))
         _inc_odom_path2 = sdir / "edges_odom.txt"
         inc_edges = read_edges_odom(str(_inc_odom_path2)) if _inc_odom_path2.exists() else []
-
-        inc_intr_reindexed = reindex_dict(inc_intr, incoming_images, global_offset)
-        inc_gps_reindexed  = reindex_dict(inc_gps,  incoming_images, global_offset)
-
-        merged_intrinsics.update(inc_intr_reindexed)
-        merged_gps.update(inc_gps_reindexed)
-        merged_edges = merge_edges_with_offset(merged_edges, inc_edges, offset=global_offset)
-
-        global_offset += len(incoming_images)
+        submap_intrinsics.append({img: inc_intr[img] for img in incoming_images
+                                  if img in inc_intr})
+        submap_gps.append({img: inc_gps[img] for img in incoming_images
+                           if img in inc_gps})
+        _edges_offset = sum(len(x) for x in submap_images_ordered[:-1])
+        merged_edges = merge_edges_with_offset(merged_edges, inc_edges, offset=_edges_offset)
 
         merge_ids.append(sid)
         merge_name = f"merge_{'_'.join(merge_ids)}"
         merge_dir = create_merge_dir(result_root, merge_name)
         create_finalmap_symlink(result_root, merge_name)
 
-        write_poses_txt(merged_poses,     merge_dir / "poses.txt")
-        write_poses_txt(merged_gt,        merge_dir / "poses_abs_gt.txt")
-        write_timestamps_txt(merged_ts,   merge_dir / "timestamps.txt")
-        write_intrinsics_txt(merged_intrinsics, merge_dir / "intrinsics.txt")
-        write_gps_txt(merged_gps,               merge_dir / "gps_data.txt")
-        write_edges_odom_txt(merged_edges,       merge_dir / "edges_odom.txt")
+        flat_poses, flat_gt, flat_ts, flat_intr, flat_gps = {}, {}, {}, {}, {}
+        _off = 0
+        for _imgs, _po, _gt, _ts, _intr, _gps in zip(
+            submap_images_ordered, submap_poses, submap_gt,
+            submap_ts, submap_intrinsics, submap_gps,
+        ):
+            for _j, _img in enumerate(_imgs):
+                _k = f"seq/{_off + _j:06d}.color.jpg"
+                if _img in _po:   flat_poses[_k] = _po[_img]
+                if _img in _gt:   flat_gt[_k]    = _gt[_img]
+                if _img in _ts:   flat_ts[_k]    = _ts[_img]
+                if _img in _intr: flat_intr[_k]  = _intr[_img]
+                if _img in _gps:  flat_gps[_k]   = _gps[_img]
+            _off += len(_imgs)
+        write_poses_txt(flat_poses,   merge_dir / "poses.txt")
+        write_poses_txt(flat_gt,      merge_dir / "poses_abs_gt.txt")
+        write_timestamps_txt(flat_ts, merge_dir / "timestamps.txt")
+        write_intrinsics_txt(flat_intr, merge_dir / "intrinsics.txt")
+        write_gps_txt(flat_gps,         merge_dir / "gps_data.txt")
+        write_edges_odom_txt(merged_edges, merge_dir / "edges_odom.txt")
 
         elapsed = time.time() - t_start
         _log(f"  merged successfully in {elapsed:.0f}s, "
-             f"total {len(merged_poses)} poses", log_file)
+             f"total {sum(len(x) for x in submap_images_ordered)} poses", log_file)
 
     total_elapsed = time.time() - total_start
     num_success = len(submap_ids) - 1 - len(failures)
@@ -972,7 +1001,7 @@ def run_order(
     _log(f"Failures: {len(failures)}", log_file)
     if failures:
         _log(f"  {failures}", log_file)
-    _log(f"Final merged poses: {len(merged_poses)}", log_file)
+    _log(f"Final merged poses: {sum(len(x) for x in submap_images_ordered)}", log_file)
 
     summary = {
         "method": method,
@@ -986,7 +1015,7 @@ def run_order(
         "num_merged_success": num_success,
         "num_failed": len(failures),
         "submap_success_rate": num_success / num_requested if num_requested > 0 else 0,
-        "total_poses": len(merged_poses),
+        "total_poses": sum(len(x) for x in submap_images_ordered),
         "total_time_sec": total_elapsed,
         "failures": failures,
     }
