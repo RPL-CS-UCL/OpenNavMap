@@ -35,6 +35,8 @@ from benchmark_map_merge.hloc_sfm_merger import (
     HlocSfmMapMerger,
     _GEO_VERIFY_MIN_MATCHES,
     _PNP_MIN_INLIERS,
+    _FEATURE_CONF,
+    _RETRIEVAL_CONF,
 )
 from benchmark_map_merge.merge_writer import (
     read_poses, read_timestamps,
@@ -321,6 +323,7 @@ def run_order(
     submap_sfm: bool = False,
     submap_merge: bool = False,
     dataset_name: str = None,
+    prebuilt_sfm_root: Path = None,
 ):
     if not submap_sfm and not submap_merge:
         raise ValueError("Specify exactly one of --submap-sfm or --submap-merge")
@@ -443,6 +446,7 @@ def run_order(
 
     # ---- SfM path: build reference map and prepare incremental BA ----
     if method in _SFM_METHODS:
+        _sfm_root = prebuilt_sfm_root if prebuilt_sfm_root is not None else result_root
         try:
             with open(ref_dir / "intrinsics.txt") as _f:
                 _tok = _f.readline().strip().split()
@@ -452,12 +456,12 @@ def run_order(
         except Exception:
             intr_tuple = (444.492708, 444.492708, 511.5, 287.5, 1024, 576)
 
-        prebuilt_sub0 = result_root / "submaps_sfm" / submap_ids[0] / "sfm"
+        prebuilt_sub0 = _sfm_root / "submaps_sfm" / submap_ids[0] / "sfm"
         if submap_merge and _has_colmap_model_files(prebuilt_sub0):
             _log(f"  loading pre-built SfM for sub0 from {prebuilt_sub0}", log_file)
             sfm_model = pycolmap.Reconstruction()
             sfm_model.read_binary(str(prebuilt_sub0))
-            # copy features if present
+            # copy features if present (may have been cleaned up after --submap-sfm)
             _prebuilt_tag = result_root / "_work" / "sub0"
             for _feat_name, _dst_name in [
                 ("feats-sp.h5", "feats-ref.h5"),
@@ -467,6 +471,18 @@ def run_order(
                 _dst = work_dir / _dst_name
                 if _src.exists() and not _dst.exists():
                     shutil.copy2(str(_src), str(_dst))
+            # re-extract features if missing (e.g. cleaned up after --submap-sfm)
+            from hloc import extract_features as _ef
+            _feats_ref = work_dir / "feats-ref.h5"
+            _feats_global = work_dir / "global-feats-netvlad.h5"
+            if not _feats_ref.exists():
+                _log("  feats-ref.h5 missing, re-extracting SuperPoint for sub0...", log_file)
+                _ef.main(_FEATURE_CONF, ref_dir, image_list=ref_images,
+                         feature_path=_feats_ref, overwrite=False)
+            if not _feats_global.exists():
+                _log("  global-feats-netvlad.h5 missing, re-extracting NetVLAD for sub0...", log_file)
+                _ef.main(_RETRIEVAL_CONF, ref_dir, image_list=ref_images,
+                         feature_path=_feats_global, overwrite=False)
         else:
             _log(f"  building SfM map from submap 0...", log_file)
             ref_vio = read_poses(str(ref_dir / "poses.txt"))
@@ -622,7 +638,7 @@ def run_order(
                 _log(f"  loaded cached SfM reconstruction: {next_sfm_dir}", log_file)
             else:
                 # check pre-built SfM from --submap-sfm step
-                prebuilt_sub_i = result_root / "submaps_sfm" / sid / "sfm"
+                prebuilt_sub_i = _sfm_root / "submaps_sfm" / sid / "sfm"
                 if submap_merge and _has_colmap_model_files(prebuilt_sub_i):
                     _log(f"  loading pre-built SfM for sub{i} from {prebuilt_sub_i}", log_file)
                     sfm_model_i = pycolmap.Reconstruction()
@@ -984,10 +1000,15 @@ def run_order(
 
     if not skip_eval_export and traj_eval_data_root:
         _dataset_name = dataset_name or f"{dataset_root.name}_s00000"
-        dataset_order_name = f"{_dataset_name}_{ORDER_TAGS[order_index]}"
+        # if dataset_name is explicitly given, use it as-is; otherwise append order tag
+        dataset_order_name = _dataset_name if dataset_name else f"{_dataset_name}_{ORDER_TAGS[order_index]}"
+        # eval algorithm directory name mirrors result_root naming: method + data_suffix + sba_suffix
+        _data_suffix = f"_{data_dir.replace('s00000_aria_', '')}" if data_dir != "s00000_aria_data" else ""
+        _sba_suffix = f"_sba{sfm_ba_iter}" if method == "hloc_sfm_netvlad_splg" else ""
+        eval_method_name = f"{method}{_data_suffix}{_sba_suffix}"
         try:
             gt_path, est_path = export_to_eval_structure(
-                merge_dir, traj_eval_data_root, dataset_order_name, method
+                merge_dir, traj_eval_data_root, dataset_order_name, eval_method_name
             )
             _log(f"\nEvaluation trajectories exported:", log_file)
             _log(f"  GT: {gt_path}", log_file)
@@ -1035,6 +1056,11 @@ if __name__ == "__main__":
                         "Reads from result_root/submaps_sfm/{submap_id}/sfm/")
     p.add_argument("--overwrite", action="store_true",
                    help="Remove the result directory before running")
+    p.add_argument("--prebuilt-sfm-root", type=Path, default=None,
+                   help="Directory containing pre-built submap SfM results "
+                        "(submaps_sfm/{submap_id}/sfm/) from a prior --submap-sfm run. "
+                        "When set, --submap-merge loads SfM from here instead of "
+                        "result_root, avoiding redundant SfM reconstruction.")
     p.add_argument("--dataset-name", type=str, default=None,
                    help="Dataset name for TUM eval export, e.g. 'vineyard_s00000'. "
                         "Defaults to <dataset_root.name>_s00000")
@@ -1055,4 +1081,5 @@ if __name__ == "__main__":
         submap_sfm=args.submap_sfm,
         submap_merge=args.submap_merge,
         dataset_name=args.dataset_name,
+        prebuilt_sfm_root=args.prebuilt_sfm_root,
     )

@@ -64,33 +64,6 @@ def _get_image_list(submap_dir: Path) -> List[str]:
     seq_dir = submap_dir / "seq"
     return sorted([f"seq/{p.name}" for p in seq_dir.glob("*.color.jpg")])
 
-
-def _read_intrinsics_str(submap_dir: Path) -> str:
-    with open(submap_dir / "intrinsics.txt") as f:
-        tokens = f.readline().strip().split()
-    fx, fy, cx, cy = tokens[0:4]
-    return f"{fx},{fy},{cx},{cy}"
-
-
-def _vec_to_matrix(trans: np.ndarray, quat: np.ndarray, mode: str = "wxyz") -> np.ndarray:
-    from scipy.spatial.transform import Rotation
-    if mode == "wxyz":
-        quat = np.array([quat[1], quat[2], quat[3], quat[0]])
-    T = np.eye(4)
-    T[:3, :3] = Rotation.from_quat(quat).as_matrix()
-    T[:3, 3] = trans
-    return T
-
-
-def _matrix_to_quat_trans(T: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    from scipy.spatial.transform import Rotation
-    R = T[:3, :3]
-    t = T[:3, 3]
-    q_xyzw = Rotation.from_matrix(R).as_quat()
-    q_wxyz = np.array([q_xyzw[3], q_xyzw[0], q_xyzw[1], q_xyzw[2]])
-    return q_wxyz, t
-
-
 class HlocMapMerger:
     def __init__(self, method: str, out_dir: Path):
         self.method = method
@@ -259,4 +232,3 @@ class HlocMapMerger:
                     f"det(R)={np.linalg.det(R_submap):.3f}, "
                     f"from {len(R_submap_votes)} pairs")
         return T
-
