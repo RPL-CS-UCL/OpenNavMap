@@ -27,6 +27,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
+PYTHON=/root/miniconda3/envs/traj_evaluation/bin/python
 TRAJ_PATH=/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data
 EVAL_PROJ=/Titan/code/robohike_ws/src/slam_trajectory_evaluation
 EVAL_SCRIPT_PATH="$EVAL_PROJ/evaluation/rpg_trajectory_evaluation"
@@ -58,14 +59,14 @@ done
 # Step 1: ensure eval_cfg.yaml (align_type: se3, align_num_frames: -1)
 #         exists under every algorithms/<alg>/laptop/traj/ directory
 # ---------------------------------------------------------------------------
-python "$EVAL_SCRIPT_PATH/scripts/add_eval_cfg_recursive.py" \
+"$PYTHON" "$EVAL_SCRIPT_PATH/scripts/add_eval_cfg_recursive.py" \
   "$TRAJ_PATH/algorithms/" se3 -1
 
 # ---------------------------------------------------------------------------
 # Step 2: run evaluation
 # ---------------------------------------------------------------------------
 EVAL_CMD=(
-  python "$EVAL_SCRIPT_PATH/scripts/analyze_trajectories_FusionPortable_dataset.py"
+  "$PYTHON" "$EVAL_SCRIPT_PATH/scripts/analyze_trajectories_FusionPortable_dataset.py"
   --groundtruth_dir="$TRAJ_PATH/groundtruth"
   --results_dir="$TRAJ_PATH/algorithms"
   --output_dir="$TRAJ_PATH/report"
