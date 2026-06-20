@@ -15,7 +15,7 @@
 #   --sfm-ba-iter N       SfM bundle-adjustment iterations (default: 0)
 #   --order-index N       Order index: 0=in, 1=r0, ..., 9=r8 (default: 0)
 #   --eval-config NAME    yaml config for run_evaluation.sh
-#                         (default: map_merge_ucl.yaml)
+#                         (default: map_merge.yaml)
 #   --overwrite           Remove existing result dir before running
 #
 # Examples:
@@ -61,7 +61,7 @@ MODE=
 ORDER_INDEX=0
 MAX_SUBMAPS=
 SFM_BA_ITER=0
-EVAL_CONFIG=map_merge_ucl.yaml
+EVAL_CONFIG=map_merge.yaml
 OVERWRITE=
 
 # ---------------------------------------------------------------------------

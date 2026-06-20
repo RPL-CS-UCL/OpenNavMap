@@ -10,7 +10,7 @@
 #
 # Options:
 #   --config NAME    yaml config under analyze_trajectories_config/
-#                    (default: map_merge_ucl.yaml)
+#                    (default: map_merge.yaml)
 #   --recalculate    Force recalculate errors, ignore cached results
 #                    (default: always on; pass --no-recalculate to disable)
 #   --no-recalculate Use cached results if available
@@ -18,7 +18,7 @@
 # Examples:
 #   bash run_evaluation.sh
 #   bash run_evaluation.sh --config map_merge.yaml
-#   bash run_evaluation.sh --config map_merge_ucl.yaml --no-recalculate
+#   bash run_evaluation.sh --config map_merge.yaml --no-recalculate
 #
 # This script can also be called from run_baseline.sh (--mode merge).
 
@@ -35,7 +35,7 @@ EVAL_SCRIPT_PATH="$EVAL_PROJ/evaluation/rpg_trajectory_evaluation"
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
-CONFIG=map_merge_ucl.yaml
+CONFIG=map_merge.yaml
 RECALCULATE=1   # on by default to avoid stale cached results
 
 # ---------------------------------------------------------------------------

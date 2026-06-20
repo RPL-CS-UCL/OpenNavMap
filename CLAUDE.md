@@ -153,7 +153,7 @@ Note:
 
 ## benchmark_map_merge
 
-- 评估统一使用 `/Titan/code/robohike_ws/src/slam_trajectory_evaluation`，不使用 `evo`。流程：(1) `run_baseline.py --submap-merge` 执行合并，pipeline 结尾自动调用 `export_to_eval_structure()` 将 TUM 轨迹写入默认路径 `/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data`（GT 覆盖 `_in.txt`，不加 `_2sub` 后缀）；(2) 运行 `evaluation/script/run_traj_eval_map_merge.sh` 计算 ATE（se3 对齐，`map_merge.yaml` 或 `map_merge_ucl.yaml`）。
+- 评估统一使用 `/Titan/code/robohike_ws/src/slam_trajectory_evaluation`，不使用 `evo`。流程：(1) `run_baseline.py --submap-merge` 执行合并，pipeline 结尾自动调用 `export_to_eval_structure()` 将 TUM 轨迹写入默认路径 `/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data`（GT 覆盖 `_in.txt`，不加 `_2sub` 后缀）；(2) 运行 `evaluation/script/run_traj_eval_map_merge.sh` 计算 ATE（se3 对齐，`map_merge.yaml`）。
 
 - 脚本入口（`python/benchmark_map_merge/scripts/`）：
   ```bash
@@ -166,11 +166,11 @@ Note:
   # Step 2: 合并 sub0+sub1，覆写，并自动运行轨迹评估
   bash run_baseline.sh --mode merge --max-submaps 2 --overwrite
 
-  # Step 2: 合并，指定评估 yaml（默认 map_merge_ucl.yaml）
+  # Step 2: 合并，指定评估 yaml（默认 map_merge.yaml）
   bash run_baseline.sh --mode merge --max-submaps 2 --eval-config map_merge.yaml
 
   # 单独运行轨迹评估（不跑合并）
-  bash run_evaluation.sh --config map_merge_ucl.yaml
+  bash run_evaluation.sh --config map_merge.yaml
   ```
 
 ## 配置系统
