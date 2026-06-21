@@ -35,8 +35,8 @@ from benchmark_map_merge.hloc_sfm_merger import (
     HlocSfmMapMerger,
     _GEO_VERIFY_MIN_MATCHES,
     _PNP_MIN_INLIERS,
-    _FEATURE_CONF,
-    _RETRIEVAL_CONF,
+    extract_features,
+    match_features,
 )
 from benchmark_map_merge.merge_writer import (
     read_poses, read_timestamps,
@@ -53,6 +53,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("run_baseline")
 
 ORDER_TAGS = ["in", "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]
+_SFM_METHODS = {"hloc_sfm_netvlad_splg", "hloc_sfm_netvlad_disk_dilg"}
+
+
+def _sfm_tag_from_method(method: str) -> str:
+    prefix = "hloc_sfm_"
+    if method.startswith(prefix):
+        return method[len(prefix):]
+    return method
+
+
+def _create_sfm_merger(method: str, work_dir: Path) -> HlocSfmMapMerger:
+    if method == "hloc_sfm_netvlad_disk_dilg":
+        return HlocSfmMapMerger(
+            work_dir,
+            feature_conf=extract_features.confs["disk"],
+            matcher_conf=match_features.confs["disk+lightglue"],
+            local_feature_name="feats-disk.h5",
+        )
+    return HlocSfmMapMerger(work_dir)
 
 
 def _has_colmap_model_files(model_dir: Path) -> bool:
@@ -145,7 +164,8 @@ def _build_result_root(
 ) -> Path:
     dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
     if sfm_only:
-        return dataset_root / f"s00000_sfm_netvlad_splg{dist_tag}"
+        sfm_tag = _sfm_tag_from_method(method)
+        return dataset_root / f"s00000_sfm_{sfm_tag}{dist_tag}"
     return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}"
 
 
@@ -364,9 +384,8 @@ def run_order(
 
     work_dir = result_root / "_work"
     work_dir.mkdir(parents=True, exist_ok=True)
-    _SFM_METHODS = {"hloc_sfm_netvlad_splg"}
     if method in _SFM_METHODS:
-        sfm_merger = HlocSfmMapMerger(work_dir)
+        sfm_merger = _create_sfm_merger(method, work_dir)
         merger = None
     else:
         sfm_merger = None
@@ -374,7 +393,7 @@ def run_order(
 
     if submap_sfm:
         if method not in _SFM_METHODS:
-            raise ValueError("--submap-sfm is only supported with hloc_sfm_netvlad_splg")
+            raise ValueError("--submap-sfm is only supported with SfM-based methods")
         _run_only_build_sfm(
             submap_ids,
             submap_dirs,
@@ -469,8 +488,9 @@ def run_order(
             sfm_model.read_binary(str(prebuilt_sub0))
             # copy features if present (may have been cleaned up after --submap-sfm)
             _prebuilt_tag = result_root / "_work" / "sub0"
+            _local_feature_name = getattr(sfm_merger, "local_feature_name", "feats-sp.h5")
             for _feat_name, _dst_name in [
-                ("feats-sp.h5", "feats-ref.h5"),
+                (_local_feature_name, "feats-ref.h5"),
                 ("feats-netvlad.h5", "global-feats-netvlad.h5"),
             ]:
                 _src = _prebuilt_tag / _feat_name
@@ -482,12 +502,14 @@ def run_order(
             _feats_ref = work_dir / "feats-ref.h5"
             _feats_global = work_dir / "global-feats-netvlad.h5"
             if not _feats_ref.exists():
-                _log("  feats-ref.h5 missing, re-extracting SuperPoint for sub0...", log_file)
-                _ef.main(_FEATURE_CONF, ref_dir, image_list=ref_images,
+                _log("  feats-ref.h5 missing, re-extracting local features for sub0...", log_file)
+                _ef.main(getattr(sfm_merger, "feature_conf", extract_features.confs["superpoint_max"]),
+                         ref_dir, image_list=ref_images,
                          feature_path=_feats_ref, overwrite=False)
             if not _feats_global.exists():
                 _log("  global-feats-netvlad.h5 missing, re-extracting NetVLAD for sub0...", log_file)
-                _ef.main(_RETRIEVAL_CONF, ref_dir, image_list=ref_images,
+                _ef.main(getattr(sfm_merger, "retrieval_conf", extract_features.confs["netvlad"]),
+                         ref_dir, image_list=ref_images,
                          feature_path=_feats_global, overwrite=False)
         else:
             _log(f"  building SfM map from submap 0...", log_file)
@@ -507,7 +529,7 @@ def run_order(
                 )
                 return
 
-            _copy_src_sp = work_dir / "sub0" / "feats-sp.h5"
+            _copy_src_sp = work_dir / "sub0" / getattr(sfm_merger, "local_feature_name", "feats-sp.h5")
             _copy_src_global = work_dir / "sub0" / "feats-netvlad.h5"
             if _copy_src_sp.exists():
                 shutil.copy2(str(_copy_src_sp), str(work_dir / "feats-ref.h5"))
@@ -1001,9 +1023,10 @@ if __name__ == "__main__":
     p.add_argument("--dataset-root", type=Path, required=True,
                    help="Path to dataset root, e.g. .../ucl_campus_aria")
     p.add_argument("--method", type=str, required=True,
-                   choices=["hloc_superpoint_splg", "hloc_disk_dilg",
-                            "hloc_sfm_netvlad_splg"],
-                   help="HLoc feature+matcher combination")
+                    choices=["hloc_superpoint_splg", "hloc_disk_dilg",
+                             "hloc_sfm_netvlad_splg",
+                             "hloc_sfm_netvlad_disk_dilg"],
+                    help="HLoc feature+matcher combination")
     p.add_argument("--order-index", type=int, required=True,
                    help="Order index in orders file (0=in, 1=r0, ...)")
     p.add_argument("--max-submaps", type=int, default=None,

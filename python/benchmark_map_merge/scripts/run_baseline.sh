@@ -11,6 +11,7 @@
 #
 # Options:
 #   --mode sfm|merge        Required. sfm=build only, merge=merge+eval
+#   --method NAME           HLoc SfM method (default: hloc_sfm_netvlad_splg)
 #   --env NAME              Dataset environment: ucl_campus_aria,
 #                           hkust_campus, vineyard (default: ucl_campus_aria)
 #   --max-submaps N         Limit to first N submaps (default: 2)
@@ -61,6 +62,7 @@ Usage:
 
 Options:
   --mode sfm|merge        Required. sfm=build only, merge=merge+eval
+  --method NAME           HLoc SfM method (default: hloc_sfm_netvlad_splg)
   --env NAME              Dataset environment: ucl_campus_aria, hkust_campus, vineyard
                            (default: ucl_campus_aria)
   --max-submaps N         Limit to first N submaps
@@ -113,6 +115,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --help|-h)          usage; exit 0 ;;
     --mode)             MODE=$2; shift ;;
+    --method)           METHOD=$2; shift ;;
     --env)              ENV=$2; shift ;;
     --max-submaps)      MAX_SUBMAPS=$2; shift ;;
     --sfm-sample-dist)  SFM_SAMPLE_DIST=$2; shift ;;
@@ -138,6 +141,13 @@ if [[ "$MODE" != "sfm" && "$MODE" != "merge" ]]; then
   echo "Error: --mode must be 'sfm' or 'merge', got '$MODE'."
   exit 1
 fi
+case "$METHOD" in
+  hloc_sfm_netvlad_splg|hloc_sfm_netvlad_disk_dilg) ;;
+  *)
+    echo "Error: --method must be one of: hloc_sfm_netvlad_splg, hloc_sfm_netvlad_disk_dilg. Got '$METHOD'."
+    exit 1
+    ;;
+esac
 
 case "$ENV" in
   ucl_campus_aria|hkust_campus|vineyard) ;;
@@ -166,7 +176,8 @@ else
 fi
 
 if [[ "$MODE" == "sfm" ]]; then
-  RESULT_DIR="${DATASET_ROOT}/s00000_sfm_netvlad_splg${DIST_TAG}"
+  SFM_TAG="${METHOD#hloc_sfm_}"
+  RESULT_DIR="${DATASET_ROOT}/s00000_sfm_${SFM_TAG}${DIST_TAG}"
 else
   RESULT_DIR="${DATASET_ROOT}/s00000_results_${ORDER_TAG}_${METHOD}${DIST_TAG}"
 fi

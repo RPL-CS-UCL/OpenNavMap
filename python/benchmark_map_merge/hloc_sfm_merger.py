@@ -3,7 +3,7 @@
 Provides HlocSfmMapMerger with two public methods:
   build_ref_map()    – build a pycolmap.Reconstruction from reference submap images
   localize_submap()  – localize incoming submap images against the reference SfM map
-                       using NetVLAD retrieval + SuperPoint+LightGlue + PnP
+                       using NetVLAD retrieval + local features + LightGlue + PnP
 """
 import sys
 import time
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 _FEATURE_CONF   = extract_features.confs["superpoint_max"]
 _RETRIEVAL_CONF = extract_features.confs["netvlad"]
 _MATCHER_CONF   = match_features.confs["superpoint+lightglue"]
+_LOCAL_FEATURE_NAME = "feats-sp.h5"
 _LOC_CONF = {
     "estimation": {},   # use pycolmap defaults; abs_pose_min_num_inliers not in 0.6.0
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
@@ -694,13 +695,28 @@ def _copy_if_newer(src: Path, dst: Path) -> None:
 class HlocSfmMapMerger:
     """SfM-based submap merging using NetVLAD retrieval and PnP localization."""
 
-    def __init__(self, out_dir: Path) -> None:
+    def __init__(
+        self,
+        out_dir: Path,
+        feature_conf: Optional[dict] = None,
+        retrieval_conf: Optional[dict] = None,
+        matcher_conf: Optional[dict] = None,
+        local_feature_name: str = _LOCAL_FEATURE_NAME,
+    ) -> None:
         """
         Args:
             out_dir: scratch directory for all hloc intermediate files (_work/)
+            feature_conf: local feature extractor config.
+            retrieval_conf: global retrieval feature config.
+            matcher_conf: local feature matcher config.
+            local_feature_name: h5 filename for cached submap local features.
         """
         self.out_dir = out_dir
         self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.feature_conf = feature_conf or _FEATURE_CONF
+        self.retrieval_conf = retrieval_conf or _RETRIEVAL_CONF
+        self.matcher_conf = matcher_conf or _MATCHER_CONF
+        self.local_feature_name = local_feature_name
         self.last_sfm_sampled_frames = 0
 
     @staticmethod
@@ -746,7 +762,7 @@ class HlocSfmMapMerger:
         """
         tag_dir      = self.out_dir / submap_tag
         sfm_dir      = tag_dir / "sfm"
-        features_ref = tag_dir / "feats-sp.h5"
+        features_ref = tag_dir / self.local_feature_name
         sfm_pairs    = tag_dir / "pairs-sfm.txt"
         sfm_matches  = tag_dir / "matches-sfm.h5"
         global_feats = tag_dir / "feats-netvlad.h5"
@@ -774,10 +790,10 @@ class HlocSfmMapMerger:
             sfm_images = submap_images
         self.last_sfm_sampled_frames = len(sfm_images)
 
-        print(f"[build_submap_sfm] extracting SuperPoint features for "
+        print(f"[build_submap_sfm] extracting local features for "
               f"{len(submap_images)} images (SfM on {len(sfm_images)} sampled)...")
         extract_features.main(
-            _FEATURE_CONF, submap_dir, image_list=submap_images,
+            self.feature_conf, submap_dir, image_list=submap_images,
             feature_path=features_ref, overwrite=False,
         )
 
@@ -795,7 +811,7 @@ class HlocSfmMapMerger:
 
         print(f"[build_submap_sfm] running LightGlue matching...")
         match_features.main(
-            _MATCHER_CONF, sfm_pairs,
+            self.matcher_conf, sfm_pairs,
             features=features_ref, matches=sfm_matches, overwrite=False,
         )
 
@@ -844,7 +860,7 @@ class HlocSfmMapMerger:
 
         print(f"[build_submap_sfm] extracting NetVLAD global features for retrieval...")
         extract_features.main(
-            _RETRIEVAL_CONF, submap_dir, image_list=submap_images,
+            self.retrieval_conf, submap_dir, image_list=submap_images,
             feature_path=global_feats, overwrite=False,
         )
         print(f"[build_submap_sfm] done.")
@@ -877,7 +893,7 @@ class HlocSfmMapMerger:
             overwrite=overwrite,
             submap_tag="sub0",
         )
-        _copy_if_newer(self.out_dir / "sub0" / "feats-sp.h5", self.out_dir / "feats-ref.h5")
+        _copy_if_newer(self.out_dir / "sub0" / self.local_feature_name, self.out_dir / "feats-ref.h5")
         _copy_if_newer(
             self.out_dir / "sub0" / "feats-netvlad.h5",
             self.out_dir / "global-feats-netvlad.h5",
@@ -944,11 +960,11 @@ class HlocSfmMapMerger:
                 dst.symlink_to(src)
 
         extract_features.main(
-            _FEATURE_CONF, tmp_inc_dir, image_list=inc_prefixed,
+            self.feature_conf, tmp_inc_dir, image_list=inc_prefixed,
             feature_path=feats_inc, overwrite=False,
         )
         extract_features.main(
-            _RETRIEVAL_CONF, tmp_inc_dir, image_list=inc_prefixed,
+            self.retrieval_conf, tmp_inc_dir, image_list=inc_prefixed,
             feature_path=global_feats_inc, overwrite=False,
         )
 
@@ -986,7 +1002,7 @@ class HlocSfmMapMerger:
                     src.copy(key, dst)
 
         match_features.main(
-            _MATCHER_CONF, loc_pairs,
+            self.matcher_conf, loc_pairs,
             features=feats_merged, matches=loc_matches, overwrite=False,
         )
         verified_pairs = loc_dir / "pairs-loc-verified.txt"

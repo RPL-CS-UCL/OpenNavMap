@@ -102,6 +102,18 @@ def test_sfm_only_result_root_uses_compact_name() -> None:
     assert result_root.name == "s00000_sfm_netvlad_splg_025"
 
 
+def test_sfm_only_disk_result_root_uses_method_tag() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in_2sub",
+        "hloc_sfm_netvlad_disk_dilg",
+        sfm_sample_dist=0.25,
+        sfm_only=True,
+    )
+
+    assert result_root.name == "s00000_sfm_netvlad_disk_dilg_025"
+
+
 def test_result_root_default_full_data() -> None:
     result_root = run_baseline._build_result_root(
         Path("/tmp/dataset"),
@@ -174,6 +186,39 @@ def test_run_baseline_script_uses_env_dataset_root(tmp_path: Path) -> None:
 
     assert "--dataset-root /Titan/dataset/data_opennavmap/map_multisession_eval/hkust_campus" in result.stdout
     assert "--dataset-name" not in result.stdout
+
+
+def test_run_baseline_script_supports_disk_sfm_method(tmp_path: Path) -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_baseline.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_bc = fake_bin / "bc"
+    fake_bc.write_text("#!/bin/sh\nprintf '25\\n'\n")
+    fake_bc.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--mode",
+            "sfm",
+            "--method",
+            "hloc_sfm_netvlad_disk_dilg",
+            "--env",
+            "vineyard",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert "s00000_sfm_netvlad_disk_dilg_025" in result.stdout
+    assert "--method hloc_sfm_netvlad_disk_dilg" in result.stdout
 
 
 def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) -> None:
