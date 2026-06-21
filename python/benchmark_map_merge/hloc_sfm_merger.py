@@ -41,8 +41,65 @@ _LOC_CONF = {
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
 }
 _NUM_RETRIEVAL = 10  # top-10 ref frames per query (vs 20; SfM DB is rich enough)
-_GEO_VERIFY_MIN_MATCHES = 150
-_PNP_MIN_INLIERS = 50
+_GEO_VERIFY_MIN_MATCHES = 100
+_PNP_MIN_INLIERS = 25
+
+
+def _build_pnp_per_frame_log(
+    submap_idx: int,
+    sfm_sampled_i: List[str],
+    pnp_results: Dict[str, np.ndarray],
+    pnp_ref_frames: Dict[str, str],
+    pnp_logs: Dict[str, dict],
+    failure_samples: List[dict],
+    gt_poses_ref: Optional[Dict[str, np.ndarray]] = None,
+    gt_poses_inc: Optional[Dict[str, np.ndarray]] = None,
+    model0_c2w: Optional[Dict[str, np.ndarray]] = None,
+) -> List[dict]:
+    failure_by_frame = {failure.get("frame"): failure for failure in failure_samples}
+    pnp_per_frame: List[dict] = []
+
+    for orig_name in sfm_sampled_i:
+        prefixed = f"inc{submap_idx}/{orig_name}"
+        if orig_name in pnp_results:
+            log = pnp_logs.get(orig_name, {})
+            best_db = pnp_ref_frames.get(orig_name, "")
+            trans_error_m = None
+            if (gt_poses_ref is not None and gt_poses_inc is not None
+                    and model0_c2w is not None
+                    and orig_name in gt_poses_inc
+                    and best_db in model0_c2w
+                    and best_db in gt_poses_ref):
+                T_query_w0 = pnp_results[orig_name]
+                T_db_w0 = model0_c2w[best_db]
+                T_query_gt = _w2c_vec_to_c2w_matrix(gt_poses_inc[orig_name])
+                T_db_gt = _w2c_vec_to_c2w_matrix(gt_poses_ref[best_db])
+                delta_T_est = np.linalg.inv(T_db_w0) @ T_query_w0
+                delta_T_gt = np.linalg.inv(T_db_gt) @ T_query_gt
+                delta_T_err = np.linalg.inv(delta_T_gt) @ delta_T_est
+                trans_error_m = float(np.linalg.norm(delta_T_err[:3, 3]))
+
+            pnp_per_frame.append({
+                "frame": prefixed,
+                "best_db": best_db,
+                "num_2d3d": int(len(log.get("points3D_ids", []))),
+                "num_inliers": int(log.get("num_inliers", 0)),
+                "status": "SUCCESS",
+                "trans_error_m": trans_error_m,
+            })
+        else:
+            failure = failure_by_frame.get(
+                orig_name,
+                {"reason": "unknown", "num_inliers": 0, "num_db": 0},
+            )
+            pnp_per_frame.append({
+                "frame": prefixed,
+                "num_db": int(failure.get("num_db", 0)),
+                "num_inliers": int(failure.get("num_inliers", 0)),
+                "status": f"FAIL({failure.get('reason', 'unknown')})",
+            })
+
+    return pnp_per_frame
 
 
 def _h5_image_group(h5_file: h5py.File, image_name: str) -> h5py.Group:
@@ -104,6 +161,7 @@ def _geometric_verify_pairs(
         str,
         List[Tuple[int, int, int, Tuple[str, str]]],
     ] = {}
+    all_pair_details: List[dict] = []
     total_matches = 0
     with h5py.File(features, "r") as features_h5, h5py.File(matches, "r") as matches_h5:
         for pair_index, (query_name, db_name) in enumerate(pairs):
@@ -114,6 +172,13 @@ def _geometric_verify_pairs(
             valid_count = int(np.count_nonzero(matches0 >= 0))
             total_matches += valid_count
             if valid_count < min_inliers:
+                all_pair_details.append({
+                    "query": query_name,
+                    "db": db_name,
+                    "feat_matches": valid_count,
+                    "f_inliers": None,
+                    "status": "FAIL",
+                })
                 continue
 
             inlier_count = _fundamental_inlier_count(
@@ -121,28 +186,30 @@ def _geometric_verify_pairs(
                 np.asarray(db_group["keypoints"]),
                 matches0,
             )
-            query_to_scored_pairs.setdefault(query_name, []).append(
-                (inlier_count, valid_count, -pair_index, (query_name, db_name))
-            )
+            status = "SUCCESS" if inlier_count >= min_inliers else "FAIL"
+            all_pair_details.append({
+                "query": query_name,
+                "db": db_name,
+                "feat_matches": valid_count,
+                "f_inliers": inlier_count,
+                "status": status,
+            })
+            if status == "SUCCESS":
+                query_to_scored_pairs.setdefault(query_name, []).append(
+                    (inlier_count, valid_count, -pair_index, (query_name, db_name))
+                )
 
     queries = list(dict.fromkeys(query for query, _ in pairs))
     written_pairs: List[Tuple[str, str]] = []
-    pair_details: List[dict] = []
     num_query_kept = 0
     for query_name in dict.fromkeys(query for query, _ in pairs):
         scored_pairs = query_to_scored_pairs.get(query_name, [])
         scored_pairs.sort(reverse=True)
-        if not scored_pairs or scored_pairs[0][0] < min_inliers:
+        if not scored_pairs:
             continue
         num_query_kept += 1
-        for inlier_count, valid_count, _, pair in scored_pairs:
+        for _, _, _, pair in scored_pairs:
             written_pairs.append(pair)
-            pair_details.append({
-                "query": pair[0],
-                "db": pair[1],
-                "feat_matches": int(valid_count),
-                "f_inliers": int(inlier_count),
-            })
 
     out_pairs.parent.mkdir(parents=True, exist_ok=True)
     with open(out_pairs, "w") as out_file:
@@ -156,7 +223,7 @@ def _geometric_verify_pairs(
         "num_pairs_total": len(pairs),
         "num_pairs_written": len(written_pairs),
         "num_total_matches": total_matches,
-        "pairs_detail": pair_details,
+        "pairs_detail": all_pair_details,
         "min_inliers": min_inliers,
     }
 
@@ -322,6 +389,8 @@ def _build_vio_reference_model(
         else:
             image.cam_from_world = cam_from_world
             model.add_image(image)
+            if hasattr(model, "register_image"):
+                model.register_image(image_id)
         image_id += 1
 
     return model
@@ -344,6 +413,7 @@ def _run_light_bundle_adjustment(
     options.refine_focal_length = False
     options.refine_principal_point = False
     options.refine_extra_params = False
+    options.refine_extrinsics = False
     if hasattr(options, "refine_points3D"):
         options.refine_points3D = True
     if hasattr(options, "refine_rig_from_world"):
@@ -929,7 +999,8 @@ class HlocSfmMapMerger:
         if gt_poses_ref is not None and gt_poses_inc is not None:
             _tp = _fp = _no_gt = 0
             for _pair in gv_stats["pairs_detail"]:
-                if _pair["f_inliers"] < _GEO_VERIFY_MIN_MATCHES:
+                _f_inliers = _pair["f_inliers"]
+                if _f_inliers is None or _f_inliers < _GEO_VERIFY_MIN_MATCHES:
                     continue
                 _q_orig = prefixed_to_orig.get(_pair["query"], _pair["query"])
                 _db_name = _pair["db"]
@@ -970,6 +1041,22 @@ class HlocSfmMapMerger:
         )
         refinement_stats = {"num_pose_refined": 0, "pose_refinement_change_mm": {"mean": 0.0, "max": 0.0}}
 
+        model0_c2w: Dict[str, np.ndarray] = {}
+        if gt_poses_ref is not None and gt_poses_inc is not None:
+            for _img in model0.images.values():
+                model0_c2w[_img.name] = _image_c2w_matrix(_img)
+        pnp_per_frame = _build_pnp_per_frame_log(
+            submap_idx=submap_idx,
+            sfm_sampled_i=sfm_sampled_i,
+            pnp_results=pnp_results,
+            pnp_ref_frames=pnp_ref_frames,
+            pnp_logs=pnp_logs,
+            failure_samples=failure_samples,
+            gt_poses_ref=gt_poses_ref,
+            gt_poses_inc=gt_poses_inc,
+            model0_c2w=model0_c2w,
+        )
+
         model_i_by_name = {img.name: img for img in model_i.images.values()}
         src_pts: List[np.ndarray] = []
         dst_pts: List[np.ndarray] = []
@@ -998,7 +1085,9 @@ class HlocSfmMapMerger:
                 "geometric_verification": gv_stats,
                 "num_pose_refined": refinement_stats["num_pose_refined"],
                 "pose_refinement_change_mm": refinement_stats["pose_refinement_change_mm"],
+                "sampled_inc_images": sfm_sampled_i,
                 "sample_pnp_failures": failure_samples,
+                "pnp_per_frame": pnp_per_frame,
             }
 
         transformed_anchors = (T_i_to_0[:3, :3] @ np.asarray(src_pts).T + T_i_to_0[:3, 3:4]).T
@@ -1071,57 +1160,6 @@ class HlocSfmMapMerger:
             model_name_to_orig[new_name] = orig_name
             next_image_id += 1
 
-        # --- Pre-compute model0 C2W dict for per-frame PnP error (best_db anchor) ---
-        _model0_c2w: Dict[str, np.ndarray] = {}
-        if gt_poses_ref is not None and gt_poses_inc is not None:
-            for _img in model0.images.values():
-                _model0_c2w[_img.name] = _image_c2w_matrix(_img)
-
-        # --- Build per-frame PnP match log ---
-        pnp_per_frame: List[dict] = []
-        for orig_name in sfm_sampled_i:
-            prefixed = f"inc{submap_idx}/{orig_name}"
-            if orig_name in pnp_results:
-                log = pnp_logs.get(orig_name, {})
-                best_db = pnp_ref_frames.get(orig_name, "")
-                # compute PnP trans_error_m using 4x4 transform:
-                #   delta_T_est = T_db_w0^{-1} @ T_query_w0  (W0 frame, relative to best_db)
-                #   delta_T_gt  = T_db_gt^{-1} @ T_query_gt  (GT frame, relative to best_db)
-                #   delta_T_err = delta_T_gt^{-1} @ delta_T_est
-                #   trans_error_m = ||delta_T_err[:3, 3]||
-                trans_error_m = None
-                if (gt_poses_ref is not None and gt_poses_inc is not None
-                        and orig_name in gt_poses_inc
-                        and best_db in _model0_c2w
-                        and best_db in gt_poses_ref):
-                    T_query_w0 = pnp_results[orig_name]
-                    T_db_w0    = _model0_c2w[best_db]
-                    T_query_gt = _w2c_vec_to_c2w_matrix(gt_poses_inc[orig_name])
-                    T_db_gt    = _w2c_vec_to_c2w_matrix(gt_poses_ref[best_db])
-                    delta_T_est = np.linalg.inv(T_db_w0) @ T_query_w0
-                    delta_T_gt  = np.linalg.inv(T_db_gt) @ T_query_gt
-                    delta_T_err = np.linalg.inv(delta_T_gt) @ delta_T_est
-                    trans_error_m = float(np.linalg.norm(delta_T_err[:3, 3]))
-                pnp_per_frame.append({
-                    "frame": prefixed,
-                    "best_db": best_db,
-                    "num_2d3d": int(len(log.get("points3D_ids", []))),
-                    "inliers": int(log.get("num_inliers", 0)),
-                    "status": "SUCCESS",
-                    "trans_error_m": trans_error_m,
-                })
-            else:
-                failure = next(
-                    (f for f in failure_samples if f.get("frame") == orig_name),
-                    {"reason": "unknown", "num_inliers": 0, "num_db": 0},
-                )
-                pnp_per_frame.append({
-                    "frame": prefixed,
-                    "num_db": int(failure.get("num_db", 0)),
-                    "num_inliers": int(failure.get("num_inliers", 0)),
-                    "status": f"FAIL({failure.get('reason', 'unknown')})",
-                })
-
         pnp_errors = [
             e["trans_error_m"] for e in pnp_per_frame
             if e["status"] == "SUCCESS" and e.get("trans_error_m") is not None
@@ -1130,7 +1168,7 @@ class HlocSfmMapMerger:
         _inliers_thresh = 10
         real_success = [
             e for e in pnp_per_frame
-            if e["status"] == "SUCCESS" and e.get("inliers", 0) >= _inliers_thresh
+            if e["status"] == "SUCCESS" and e.get("num_inliers", 0) >= _inliers_thresh
         ]
         _n_real = len(real_success)
         _n_lt2 = sum(

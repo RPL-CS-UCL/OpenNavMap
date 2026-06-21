@@ -3,6 +3,7 @@ from scipy.spatial.transform import Rotation
 
 from benchmark_map_merge.hloc_sfm_merger import (
     _build_vio_reference_model,
+    _build_pnp_per_frame_log,
     _estimate_se3_umeyama,
     _image_cam_from_world,
     _run_light_bundle_adjustment,
@@ -84,3 +85,43 @@ def test_light_bundle_adjustment_keeps_rig_pose_constant(monkeypatch) -> None:
     assert options.refine_points3D is True
     assert options.refine_rig_from_world is False
     assert options.ceres.solver_options.max_num_iterations == 5
+
+
+def test_build_pnp_per_frame_log_records_success_and_failure_inliers() -> None:
+    pnp_per_frame = _build_pnp_per_frame_log(
+        submap_idx=1,
+        sfm_sampled_i=["seq/000000.color.jpg", "seq/000001.color.jpg"],
+        pnp_results={"seq/000000.color.jpg": np.eye(4)},
+        pnp_ref_frames={"seq/000000.color.jpg": "seq/ref.color.jpg"},
+        pnp_logs={
+            "seq/000000.color.jpg": {
+                "num_inliers": 72,
+                "points3D_ids": [1, 2, 3],
+            },
+        },
+        failure_samples=[
+            {
+                "frame": "seq/000001.color.jpg",
+                "reason": "insufficient_inliers",
+                "num_inliers": 41,
+                "num_db": 10,
+            }
+        ],
+    )
+
+    assert pnp_per_frame == [
+        {
+            "frame": "inc1/seq/000000.color.jpg",
+            "best_db": "seq/ref.color.jpg",
+            "num_2d3d": 3,
+            "num_inliers": 72,
+            "status": "SUCCESS",
+            "trans_error_m": None,
+        },
+        {
+            "frame": "inc1/seq/000001.color.jpg",
+            "num_db": 10,
+            "num_inliers": 41,
+            "status": "FAIL(insufficient_inliers)",
+        },
+    ]

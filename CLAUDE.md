@@ -153,7 +153,14 @@ Note:
 
 ## benchmark_map_merge
 
-- 评估统一使用 `/Titan/code/robohike_ws/src/slam_trajectory_evaluation`，不使用 `evo`。流程：(1) `run_baseline.py --submap-merge` 执行合并，pipeline 结尾自动调用 `export_to_eval_structure()` 将 TUM 轨迹写入默认路径 `/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data`（GT 覆盖 `_in.txt`，不加 `_2sub` 后缀）；(2) 运行 `evaluation/script/run_traj_eval_map_merge.sh` 计算 ATE（se3 对齐，`map_merge.yaml`）。
+- **目录命名规则**：
+  - 数据目录：`s00000_aria_data_000`（全量数据，无采样过滤）
+  - SfM 建图结果：`s00000_sfm_netvlad_splg_{dist}`（`dist = f"{int(sfm_sample_dist*100):03d}"`，例如 `sfm_sample_dist=0.25` → `_025`）
+  - Merge 结果：`s00000_results_{order_tag}_{method}_{dist}`（无 `_sba{n}` 后缀）
+  - 示例（`sfm_sample_dist=0.25`）：`s00000_results_in_hloc_sfm_netvlad_splg_025`
+  - `dist=0` 时不追加后缀
+
+- 评估统一使用 `/Titan/code/robohike_ws/src/slam_trajectory_evaluation`，不使用 `evo`。流程：(1) `run_baseline.py --submap-merge` 执行合并，pipeline 结尾自动调用 `export_to_eval_structure()` 将 TUM 轨迹写入默认路径 `/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data`；(2) 运行 `scripts/run_evaluation.sh` 计算 ATE（se3 对齐，`map_merge.yaml`）。
 
 - 脚本入口（`python/benchmark_map_merge/scripts/`）：
   ```bash

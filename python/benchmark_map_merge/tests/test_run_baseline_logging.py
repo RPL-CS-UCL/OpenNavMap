@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List
@@ -82,11 +84,10 @@ def test_sfm_result_root_includes_sfm_ba_suffix() -> None:
         Path("/tmp/dataset"),
         "in_2sub",
         "hloc_sfm_netvlad_splg",
-        "s00000_aria_full_data",
-        sfm_ba_iter=5,
+        sfm_sample_dist=0.25,
     )
 
-    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_full_data_sba5"
+    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025"
 
 
 def test_sfm_only_result_root_uses_compact_name() -> None:
@@ -94,12 +95,11 @@ def test_sfm_only_result_root_uses_compact_name() -> None:
         Path("/tmp/dataset"),
         "in_2sub",
         "hloc_sfm_netvlad_splg",
-        "s00000_aria_full_data",
-        sfm_ba_iter=0,
+        sfm_sample_dist=0.25,
         sfm_only=True,
     )
 
-    assert result_root.name == "s00000_sfm_full_data_sba0"
+    assert result_root.name == "s00000_sfm_netvlad_splg_025"
 
 
 def test_result_root_default_full_data() -> None:
@@ -107,15 +107,13 @@ def test_result_root_default_full_data() -> None:
         Path("/tmp/dataset"),
         "in_2sub",
         "hloc_sfm_netvlad_splg",
-        "s00000_aria_full_data",
+        sfm_sample_dist=0.25,
     )
 
-    assert "full_data" in result_root.name
-    assert "sba0" in result_root.name
+    assert "025" in result_root.name
 
 
 def test_cli_has_submap_sfm_and_submap_merge_flags() -> None:
-    import subprocess
     import sys
     result = subprocess.run(
         [sys.executable, "run_baseline.py", "--help"],
@@ -129,9 +127,58 @@ def test_cli_has_submap_sfm_and_submap_merge_flags() -> None:
     assert "--vio-ba-iter" not in result.stdout
 
 
+def test_run_baseline_script_help_lists_supported_envs() -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_baseline.sh"
+
+    result = subprocess.run(
+        ["bash", str(script_path), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "--env" in result.stdout
+    assert "ucl_campus_aria" in result.stdout
+    assert "hkust_campus" in result.stdout
+    assert "vineyard" in result.stdout
+
+
+def test_run_baseline_script_uses_env_dataset_root(tmp_path: Path) -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_baseline.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_bc = fake_bin / "bc"
+    fake_bc.write_text("#!/bin/sh\nprintf '25\\n'\n")
+    fake_bc.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--mode",
+            "merge",
+            "--env",
+            "hkust_campus",
+            "--prebuilt-sfm-root",
+            str(tmp_path / "sfm"),
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert "--dataset-root /Titan/dataset/data_opennavmap/map_multisession_eval/hkust_campus" in result.stdout
+    assert "--dataset-name" not in result.stdout
+
+
 def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    data_root = dataset_root / "s00000_aria_full_data"
+    data_root = dataset_root / "s00000_aria_data_000"
     ref_dir = data_root / "s0"
     inc_dir = data_root / "s1"
     for submap_dir in (ref_dir, inc_dir):
@@ -139,7 +186,7 @@ def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) ->
 
     (dataset_root / "s00000_orders.txt").write_text("s0 s1\n")
 
-    result_root = dataset_root / "s00000_results_in_2sub_hloc_sfm_netvlad_splg_full_data_sba0"
+    result_root = dataset_root / "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025"
     cached_merge_dir = result_root / "merge_s0_s1" / "submap_disc_0"
     cached_sfm_dir = cached_merge_dir / "sfm"
     cached_sfm_dir.mkdir(parents=True)
@@ -193,7 +240,7 @@ def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) ->
     )
     monkeypatch.setattr(run_baseline, "read_edges_odom", lambda path: [])
     monkeypatch.setattr(run_baseline, "save_sfm_vis", lambda *args, **kwargs: args[1].write_bytes(b"rrd"))
-    monkeypatch.setattr(run_baseline, "save_topdown_pose_viz", lambda *args, **kwargs: args[2].write_bytes(b"png"))
+    monkeypatch.setattr(run_baseline, "save_topdown_pose_viz", lambda *args, **kwargs: args[3].write_bytes(b"png"))
     monkeypatch.setattr(run_baseline, "export_to_eval_structure", lambda *args, **kwargs: None)
 
     class FakeImage:
@@ -250,7 +297,7 @@ def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) ->
     )
 
     assert FakeReconstruction.read_paths == [str(cached_sfm_dir)]
-    assert "loaded cached SfM reconstruction" in (
+    assert "[Cache]" in (
         result_root / "logs" / "pipeline.log"
     ).read_text()
     summary = json.loads(merge_stats_path.read_text())

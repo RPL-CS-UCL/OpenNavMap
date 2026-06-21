@@ -76,7 +76,15 @@ def test_geometric_verify_pairs_drops_query_below_threshold(tmp_path: Path) -> N
         "num_pairs_total": 1,
         "num_pairs_written": 0,
         "num_total_matches": 99,
-        "pairs_detail": [],
+        "pairs_detail": [
+            {
+                "query": query,
+                "db": db,
+                "feat_matches": 99,
+                "f_inliers": None,
+                "status": "FAIL",
+            }
+        ],
         "min_inliers": 100,
     }
 
@@ -116,27 +124,28 @@ def test_geometric_verify_pairs_reranks_by_fundamental_inliers(tmp_path: Path) -
     assert strong_inliers - weak_inliers >= 40
     assert out_pairs_path.read_text().splitlines() == [
         f"{query} {high_inlier_db}",
-        f"{query} {low_inlier_db}",
     ]
     assert stats == {
         "num_query_total": 1,
         "num_query_kept": 1,
         "num_query_dropped": 0,
         "num_pairs_total": 2,
-        "num_pairs_written": 2,
+        "num_pairs_written": 1,
         "num_total_matches": 240,
         "pairs_detail": [
-            {
-                "query": query,
-                "db": high_inlier_db,
-                "feat_matches": 120,
-                "f_inliers": strong_inliers,
-            },
             {
                 "query": query,
                 "db": low_inlier_db,
                 "feat_matches": 120,
                 "f_inliers": weak_inliers,
+                "status": "FAIL" if weak_inliers < 100 else "SUCCESS",
+            },
+            {
+                "query": query,
+                "db": high_inlier_db,
+                "feat_matches": 120,
+                "f_inliers": strong_inliers,
+                "status": "SUCCESS",
             },
         ],
         "min_inliers": 100,

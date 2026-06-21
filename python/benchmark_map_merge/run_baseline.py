@@ -140,16 +140,13 @@ def _build_result_root(
     dataset_root: Path,
     order_tag: str,
     method: str,
-    data_dir: str,
-    sfm_ba_iter: int = 0,
+    sfm_sample_dist: float = 0.25,
     sfm_only: bool = False,
 ) -> Path:
+    dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
     if sfm_only:
-        data_label = data_dir.replace("s00000_aria_", "")
-        return dataset_root / f"s00000_sfm_{data_label}_sba{sfm_ba_iter}"
-    data_suffix = f"_{data_dir.replace('s00000_aria_', '')}" if data_dir != "s00000_aria_data" else ""
-    sba_suffix = f"_sba{sfm_ba_iter}" if method == "hloc_sfm_netvlad_splg" else ""
-    return dataset_root / f"s00000_results_{order_tag}_{method}{data_suffix}{sba_suffix}"
+        return dataset_root / f"s00000_sfm_netvlad_splg{dist_tag}"
+    return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}"
 
 
 def _read_intr_tuple(submap_dir: Path) -> tuple:
@@ -295,7 +292,7 @@ def _run_only_build_sfm(
             "sfm_ba_iter": sfm_ba_iter,
             "total_time_sec": total_time,
             "submaps": summaries,
-            "failures": failures,
+            "unmerged_submaps": failures,
         },
         result_root / "metrics" / "summary.json",
     )
@@ -312,7 +309,7 @@ def run_order(
     max_submaps: int = None,
     traj_eval_data_root: Path = None,
     skip_eval_export: bool = False,
-    data_dir: str = "s00000_aria_full_data",
+    data_dir: str = "s00000_aria_data_000",
     pnp_sample_dist: float = 0.5,
     sfm_sample_dist: float = 0.25,
     sfm_ba_iter: int = 0,
@@ -340,7 +337,7 @@ def run_order(
         order_tag = f"{order_tag}_{max_submaps}sub"
 
     result_root = _build_result_root(
-        dataset_root, order_tag, method, data_dir, sfm_ba_iter,
+        dataset_root, order_tag, method, sfm_sample_dist,
         sfm_only=submap_sfm,
     )
     if overwrite and result_root.exists():
@@ -633,6 +630,7 @@ def run_order(
 
             if (not overwrite and _has_colmap_model_files(next_sfm_dir)
                     and next_poses_path.exists() and merge_stats_path.exists()):
+                _prev_model = current_model
                 current_model = pycolmap.Reconstruction()
                 current_model.read_binary(str(next_sfm_dir))
                 cached_poses = read_poses(str(next_poses_path))
@@ -646,12 +644,12 @@ def run_order(
                     if f"seq/{_cache_offset + idx:06d}.color.jpg" in cached_poses
                 }
                 model_name_to_orig = merge_stats.get("model_name_to_orig", {})
-                _log(f"  loaded cached SfM reconstruction: {next_sfm_dir}", log_file)
+                _log(f"  [Cache] sub{i} hit", log_file)
             else:
                 # check pre-built SfM from --submap-sfm step
                 prebuilt_sub_i = _sfm_root / "submaps_sfm" / sid / "sfm"
                 if submap_merge and _has_colmap_model_files(prebuilt_sub_i):
-                    _log(f"  loading pre-built SfM for sub{i} from {prebuilt_sub_i}", log_file)
+                    _log(f"  [SfM] sub{i}: loading pre-built", log_file)
                     sfm_model_i = pycolmap.Reconstruction()
                     sfm_model_i.read_binary(str(prebuilt_sub_i))
                 else:
@@ -708,6 +706,7 @@ def run_order(
                     title=f"submap_{sid}",
                 )
 
+                _prev_model = current_model
                 current_model, inc_poses_w2c, model_name_to_orig, merge_stats = sfm_merger.merge_model_with_se3(
                     current_model,
                     sfm_model_i,
@@ -731,58 +730,25 @@ def run_order(
             if merge_stats:
                 rv = merge_stats.get("retrieval", {})
                 gv = merge_stats.get("geometric_verification", {})
-                if log_file:
-                    with open(log_file, "a") as log_handle:
-                        log_handle.write(
-                            f"  [Retrieval] queries={rv.get('num_queries', 0)}, "
-                            f"db={rv.get('num_db', 0)}, "
-                            f"top_k={rv.get('top_k', 0)}, "
-                            f"raw_pairs={rv.get('num_pairs', 0)} | "
-                            f"[FeatMatch] total_matches={gv.get('num_total_matches', 0)} | "
-                            f"[GeoVerify] queries_kept={gv.get('num_query_kept', 0)}/"
-                            f"{gv.get('num_query_total', 0)} "
-                            f"(>={_GEO_VERIFY_MIN_MATCHES} F-inliers), "
-                            f"pairs_written={gv.get('num_pairs_written', 0)}/"
-                            f"{gv.get('num_pairs_total', 0)}\n"
-                        )
-                        for pair_item in gv.get("pairs_detail", []):
-                            log_handle.write(
-                                f"  [Pair] {pair_item['query']} <-> {pair_item['db']} "
-                                f"feat_matches={pair_item['feat_matches']}, "
-                                f"f_inliers={pair_item['f_inliers']}\n"
-                            )
                 _log(
-                    f"  [PnP] sampled: {merge_stats.get('num_pnp_sampled', 0)}, "
-                    f"success: {merge_stats.get('num_pnp_success', 0)}, "
-                    f"threshold: inliers>={_PNP_MIN_INLIERS}",
-                    log_file,
-                )
-                if log_file:
-                    with open(log_file, "a") as _lh:
-                        for pf in merge_stats.get("pnp_per_frame", []):
-                            if pf["status"] == "SUCCESS":
-                                _lh.write(
-                                    f"  [PnP-match] {pf['frame']} <- db: {pf.get('best_db', '')} | "
-                                    f"num_2d3d: {pf.get('num_2d3d', 0)} | "
-                                    f"inliers: {pf.get('inliers', 0)} | "
-                                    f"status: SUCCESS\n"
-                                )
-                            else:
-                                _lh.write(
-                                    f"  [PnP-match] {pf['frame']} | "
-                                    f"num_db: {pf.get('num_db', 0)} | "
-                                    f"inliers: {pf.get('num_inliers', 0)} | "
-                                    f"status: {pf['status']}\n"
-                                )
-                _log(
-                    f"  [SE(3)] inliers: {merge_stats.get('num_se3_inliers', 0)}, "
-                    f"residual mean: {merge_stats.get('se3_residual_mean_m', 0.0):.3f}m, "
-                    f"max: {merge_stats.get('se3_residual_max_m', 0.0):.3f}m",
+                    f"  [Retrieval] queries={rv.get('num_queries', 0)}, db={rv.get('num_db', 0)}, "
+                    f"top_k={rv.get('top_k', 0)}, pairs={rv.get('num_pairs', 0)} | "
+                    f"[GeoVerify] kept={gv.get('num_query_kept', 0)}/{gv.get('num_query_total', 0)}, "
+                    f"written={gv.get('num_pairs_written', 0)}/{gv.get('num_pairs_total', 0)}",
                     log_file,
                 )
                 _log(
-                    f"  [Merge] images: {merge_stats.get('num_images_merged', 0)}, "
-                    f"points3D: {merge_stats.get('num_points3D_merged', 0)}",
+                    f"  [PnP] sampled={merge_stats.get('num_pnp_sampled', 0)}, "
+                    f"success={merge_stats.get('num_pnp_success', 0)}, "
+                    f"threshold=inliers>={_PNP_MIN_INLIERS} | "
+                    f"[SE(3)] inliers={merge_stats.get('num_se3_inliers', 0)}, "
+                    f"mean={merge_stats.get('se3_residual_mean_m', 0.0):.3f}m, "
+                    f"max={merge_stats.get('se3_residual_max_m', 0.0):.3f}m",
+                    log_file,
+                )
+                _log(
+                    f"  [Merge] images={merge_stats.get('num_images_merged', 0)}, "
+                    f"points3D={merge_stats.get('num_points3D_merged', 0)}",
                     log_file,
                 )
 
@@ -793,15 +759,8 @@ def run_order(
                     "stage": "localization",
                     "error": "no PnP success or SE(3) estimation failed",
                 })
+                current_model = _prev_model  # restore so subsequent submaps can still merge
                 continue
-
-            _log(
-                f"  SfM merge summary: {merge_stats.get('num_pnp_success', 0)} PnP success, "
-                f"{merge_stats.get('num_se3_inliers', 0)} SE(3) inliers, "
-                f"{merge_stats.get('num_images_merged', 0)} images merged, "
-                f"{merge_stats.get('num_points3D_merged', 0)} points merged",
-                log_file,
-            )
 
             # update model_name_to_submap_local for inc submap frames
             for model_name, orig_name in model_name_to_orig.items():
@@ -887,11 +846,6 @@ def run_order(
                     f"{len(current_model.points3D)} pts"
                 ),
                 intrinsics=intr_tuple,
-            )
-            _log(
-                f"  SfM visualization: {sfm_rrd_path} "
-                f"({sfm_rrd_path.stat().st_size} bytes)",
-                log_file,
             )
 
             elapsed = time.time() - t_start
@@ -1017,24 +971,17 @@ def run_order(
         "submap_success_rate": num_success / num_requested if num_requested > 0 else 0,
         "total_poses": sum(len(x) for x in submap_images_ordered),
         "total_time_sec": total_elapsed,
-        "failures": failures,
+        "unmerged_submaps": failures,
     }
     write_summary_json(summary, result_root / "metrics" / "summary.json")
-    unmerged_ids = [f["submap"] for f in failures if f.get("stage") == "localization"]
-    if unmerged_ids:
-        write_summary_json(
-            {"unmerged_submap_ids": unmerged_ids},
-            result_root / "metrics" / "unmerged_submaps.json",
-        )
 
     if not skip_eval_export and traj_eval_data_root:
         _dataset_name = dataset_name or f"{dataset_root.name}_s00000"
         # if dataset_name is explicitly given, use it as-is; otherwise append order tag
         dataset_order_name = _dataset_name if dataset_name else f"{_dataset_name}_{ORDER_TAGS[order_index]}"
-        # eval algorithm directory name mirrors result_root naming: method + data_suffix + sba_suffix
-        _data_suffix = f"_{data_dir.replace('s00000_aria_', '')}" if data_dir != "s00000_aria_data" else ""
-        _sba_suffix = f"_sba{sfm_ba_iter}" if method == "hloc_sfm_netvlad_splg" else ""
-        eval_method_name = f"{method}{_data_suffix}{_sba_suffix}"
+        # eval algorithm directory name mirrors result_root naming: method + dist_tag
+        _dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
+        eval_method_name = f"{method}{_dist_tag}"
         try:
             gt_path, est_path = export_to_eval_structure(
                 merge_dir, traj_eval_data_root, dataset_order_name, eval_method_name
@@ -1046,6 +993,7 @@ def run_order(
             _log(f"  warning: eval export failed: {e}", log_file)
 
     return summary
+
 if __name__ == "__main__":
     import argparse
 
@@ -1065,9 +1013,9 @@ if __name__ == "__main__":
                    help="Root for slam_trajectory_evaluation output")
     p.add_argument("--skip-eval-export", action="store_true",
                     help="Skip exporting TUM trajectories for evaluation")
-    p.add_argument("--data-dir", type=str, default="s00000_aria_full_data",
+    p.add_argument("--data-dir", type=str, default="s00000_aria_data_000",
                    help="Submap data directory name under dataset-root "
-                        "(e.g. s00000_aria_full_data)")
+                        "(e.g. s00000_aria_data_000)")
     p.add_argument("--pnp-sample-dist", type=float, default=0.5,
                    help="VIO distance sampling for PnP localization frames "
                         "(e.g. 1.0 = one frame per meter). 0 = all frames.")
