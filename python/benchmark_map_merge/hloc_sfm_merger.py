@@ -42,8 +42,8 @@ _LOC_CONF = {
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
 }
 _NUM_RETRIEVAL = 10  # top-10 ref frames per query (vs 20; SfM DB is rich enough)
-_GEO_VERIFY_MIN_MATCHES = 100
-_PNP_MIN_INLIERS = 25
+_GEO_VERIFY_MIN_MATCHES = 120
+_PNP_MIN_INLIERS = 35
 
 
 def _build_pnp_per_frame_log(

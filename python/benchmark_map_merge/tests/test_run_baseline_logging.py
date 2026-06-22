@@ -9,6 +9,7 @@ import numpy as np
 
 import benchmark_map_merge.run_baseline as run_baseline
 from benchmark_map_merge.run_baseline import (
+    _classify_merge_failure,
     _build_sfm_summary,
     _has_colmap_model_files,
     _write_sfm_summary,
@@ -87,7 +88,7 @@ def test_sfm_result_root_includes_sfm_ba_suffix() -> None:
         sfm_sample_dist=0.25,
     )
 
-    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025"
+    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025_value1"
 
 
 def test_sfm_only_result_root_uses_compact_name() -> None:
@@ -123,6 +124,17 @@ def test_result_root_default_full_data() -> None:
     )
 
     assert "025" in result_root.name
+
+
+def test_result_root_appends_threshold_value_suffix() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in",
+        "hloc_sfm_netvlad_splg",
+        sfm_sample_dist=0.25,
+    )
+
+    assert result_root.name.endswith("_value1")
 
 
 def test_cli_has_submap_sfm_and_submap_merge_flags() -> None:
@@ -221,6 +233,107 @@ def test_run_baseline_script_supports_disk_sfm_method(tmp_path: Path) -> None:
     assert "--method hloc_sfm_netvlad_disk_dilg" in result.stdout
 
 
+def test_run_baseline_script_passes_clean_work(tmp_path: Path) -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_baseline.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_bc = fake_bin / "bc"
+    fake_bc.write_text("#!/bin/sh\nprintf '25\\n'\n")
+    fake_bc.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--mode",
+            "merge",
+            "--env",
+            "vineyard",
+            "--prebuilt-sfm-root",
+            str(tmp_path / "sfm"),
+            "--clean-work",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert "--clean-work" in result.stdout
+
+
+def test_run_baseline_script_result_dir_uses_threshold_value_suffix(tmp_path: Path) -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_baseline.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_bc = fake_bin / "bc"
+    fake_bc.write_text("#!/bin/sh\nprintf '25\\n'\n")
+    fake_bc.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--mode",
+            "merge",
+            "--env",
+            "vineyard",
+            "--prebuilt-sfm-root",
+            str(tmp_path / "sfm"),
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert "s00000_results_in_hloc_sfm_netvlad_splg_025_value1" in result.stdout
+
+
+def test_run_evaluation_script_supports_output_dir(tmp_path: Path) -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_evaluation.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$@\" > \"$TEST_ARGS_FILE\"\n"
+    )
+    fake_python.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["TEST_ARGS_FILE"] = str(tmp_path / "args.txt")
+    env["PYTHON"] = str(fake_python)
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--config",
+            "OpenNavMap_map_merge.yaml",
+            "--output-dir",
+            str(tmp_path / "report_value1"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert f"Report dir : {tmp_path / 'report_value1'}" in result.stdout
+    assert f"--output_dir={tmp_path / 'report_value1'}" in (tmp_path / "args.txt").read_text()
+
+
 def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     data_root = dataset_root / "s00000_aria_data_000"
@@ -231,7 +344,12 @@ def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) ->
 
     (dataset_root / "s00000_orders.txt").write_text("s0 s1\n")
 
-    result_root = dataset_root / "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025"
+    result_root = run_baseline._build_result_root(
+        dataset_root,
+        "in_2sub",
+        "hloc_sfm_netvlad_splg",
+        sfm_sample_dist=0.25,
+    )
     cached_merge_dir = result_root / "merge_s0_s1" / "submap_disc_0"
     cached_sfm_dir = cached_merge_dir / "sfm"
     cached_sfm_dir.mkdir(parents=True)
@@ -347,3 +465,55 @@ def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) ->
     ).read_text()
     summary = json.loads(merge_stats_path.read_text())
     assert summary["num_pnp_success"] == 5
+
+
+def test_sfm_summary_can_store_merge_params(tmp_path: Path) -> None:
+    output_path = tmp_path / "logs" / "sfm_summary.json"
+    summary = {
+        "num_registered_images": 2,
+        "merge_params": {
+            "num_retrieval": 10,
+            "geo_verify_min_matches": 120,
+            "pnp_min_inliers": 35,
+        },
+    }
+
+    _write_sfm_summary(summary, output_path)
+
+    loaded = json.loads(output_path.read_text())
+    assert loaded["merge_params"]["num_retrieval"] == 10
+    assert loaded["merge_params"]["geo_verify_min_matches"] == 120
+    assert loaded["merge_params"]["pnp_min_inliers"] == 35
+
+
+def test_classify_merge_failure_no_pnp_success() -> None:
+    message, summary_error = _classify_merge_failure({
+        "num_pnp_success": 0,
+        "num_se3_inliers": 0,
+        "error": "SE(3) estimation failed",
+    })
+
+    assert message == "no PnP success"
+    assert summary_error == "no PnP success"
+
+
+def test_classify_merge_failure_insufficient_pnp_anchors() -> None:
+    message, summary_error = _classify_merge_failure({
+        "num_pnp_success": 1,
+        "num_se3_inliers": 0,
+        "error": "SE(3) estimation failed",
+    })
+
+    assert message == "insufficient PnP anchors for SE(3)"
+    assert summary_error == "insufficient PnP anchors for SE(3)"
+
+
+def test_classify_merge_failure_se3_after_pnp() -> None:
+    message, summary_error = _classify_merge_failure({
+        "num_pnp_success": 4,
+        "num_se3_inliers": 0,
+        "error": "SE(3) estimation failed",
+    })
+
+    assert message == "SE(3) estimation failed after PnP"
+    assert summary_error == "SE(3) estimation failed after PnP"

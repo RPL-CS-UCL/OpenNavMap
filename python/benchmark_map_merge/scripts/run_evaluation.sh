@@ -11,6 +11,8 @@
 # Options:
 #   --config NAME    yaml config under analyze_trajectories_config/
 #                    (default: OpenNavMap_map_merge.yaml)
+#   --output-dir DIR Override report output directory
+#                    (default: /Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data/report)
 #   --recalculate    Force recalculate errors, ignore cached results
 #                    (default: always on; pass --no-recalculate to disable)
 #   --no-recalculate Use cached results if available
@@ -27,10 +29,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-PYTHON=/root/miniconda3/envs/traj_evaluation/bin/python
-TRAJ_PATH=/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data
-EVAL_PROJ=/Titan/code/robohike_ws/src/slam_trajectory_evaluation
+PYTHON=${PYTHON:-/root/miniconda3/envs/traj_evaluation/bin/python}
+TRAJ_PATH=${TRAJ_PATH:-/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data}
+EVAL_PROJ=${EVAL_PROJ:-/Titan/code/robohike_ws/src/slam_trajectory_evaluation}
 EVAL_SCRIPT_PATH="$EVAL_PROJ/evaluation/rpg_trajectory_evaluation"
+REPORT_DIR="$TRAJ_PATH/report"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -45,6 +48,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --config)
       CONFIG=$2; shift ;;
+    --output-dir)
+      REPORT_DIR=$2; shift ;;
     --recalculate)
       RECALCULATE=1 ;;
     --no-recalculate)
@@ -69,7 +74,7 @@ EVAL_CMD=(
   "$PYTHON" "$EVAL_SCRIPT_PATH/scripts/analyze_trajectories_FusionPortable_dataset.py"
   --groundtruth_dir="$TRAJ_PATH/groundtruth"
   --results_dir="$TRAJ_PATH/algorithms"
-  --output_dir="$TRAJ_PATH/report"
+  --output_dir="$REPORT_DIR"
   --computer=laptop
   --mul_trials=0
   --overall_odometry_error
@@ -87,11 +92,11 @@ EVAL_CMD+=("$CONFIG")
 echo "=== run_evaluation.sh ==="
 echo "Config     : $CONFIG"
 echo "Recalculate: $( [[ -n "$RECALCULATE" ]] && echo yes || echo no )"
-echo "Report dir : $TRAJ_PATH/report"
+echo "Report dir : $REPORT_DIR"
 echo "Command    : ${EVAL_CMD[*]}"
 echo ""
 
 "${EVAL_CMD[@]}"
 
 echo ""
-echo "=== Evaluation complete. Report: $TRAJ_PATH/report ==="
+echo "=== Evaluation complete. Report: $REPORT_DIR ==="

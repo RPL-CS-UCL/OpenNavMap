@@ -34,6 +34,8 @@ from benchmark_map_merge.hloc_merger import HlocMapMerger, _get_image_list
 from benchmark_map_merge.hloc_sfm_merger import (
     HlocSfmMapMerger,
     _GEO_VERIFY_MIN_MATCHES,
+    _LOC_CONF,
+    _NUM_RETRIEVAL,
     _PNP_MIN_INLIERS,
     extract_features,
     match_features,
@@ -54,6 +56,21 @@ logger = logging.getLogger("run_baseline")
 
 ORDER_TAGS = ["in", "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]
 _SFM_METHODS = {"hloc_sfm_netvlad_splg", "hloc_sfm_netvlad_disk_dilg"}
+
+
+def _threshold_value_tag() -> str:
+    threshold_to_value = {
+        (10, 100, 25): "value0",
+        (10, 120, 35): "value1",
+    }
+    return threshold_to_value.get(
+        (_NUM_RETRIEVAL, _GEO_VERIFY_MIN_MATCHES, _PNP_MIN_INLIERS),
+        (
+            f"nr{_NUM_RETRIEVAL}_"
+            f"gv{_GEO_VERIFY_MIN_MATCHES}_"
+            f"pnp{_PNP_MIN_INLIERS}"
+        ),
+    )
 
 
 def _sfm_tag_from_method(method: str) -> str:
@@ -129,6 +146,21 @@ def _build_sfm_summary(
     }
 
 
+def _clean_loc_dir(work_dir: Path, submap_idx: int) -> None:
+    """Delete large intermediates in _work/merge_subN/ after each submap merge."""
+    loc_dir = work_dir / f"merge_sub{submap_idx}"
+    for file_name in (
+        "feats-merged.h5",
+        "feats-inc.h5",
+        "global-feats-netvlad-inc.h5",
+        "matches-loc.h5",
+    ):
+        (loc_dir / file_name).unlink(missing_ok=True)
+    tmp_inc_dir = loc_dir / "_tmp_inc"
+    if tmp_inc_dir.exists():
+        shutil.rmtree(tmp_inc_dir)
+
+
 def _write_sfm_summary(summary: dict, output_path: Path) -> None:
     """Write SfM/BA diagnostic summary as indented JSON."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +198,25 @@ def _build_result_root(
     if sfm_only:
         sfm_tag = _sfm_tag_from_method(method)
         return dataset_root / f"s00000_sfm_{sfm_tag}{dist_tag}"
-    return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}"
+    value_tag = _threshold_value_tag()
+    return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}_{value_tag}"
+
+
+def _classify_merge_failure(merge_stats: dict) -> tuple[str, str]:
+    num_pnp_success = int(merge_stats.get("num_pnp_success", 0) or 0)
+    num_se3_inliers = int(merge_stats.get("num_se3_inliers", 0) or 0)
+    error = str(merge_stats.get("error", "") or "")
+
+    if num_pnp_success <= 0:
+        message = "no PnP success"
+    elif "SE(3) estimation failed" in error and num_pnp_success < 3:
+        message = "insufficient PnP anchors for SE(3)"
+    elif "SE(3) estimation failed" in error or num_se3_inliers <= 0:
+        message = "SE(3) estimation failed after PnP"
+    else:
+        message = "merge failed after localization"
+
+    return message, message
 
 
 def _read_intr_tuple(submap_dir: Path) -> tuple:
@@ -338,6 +388,7 @@ def run_order(
     submap_merge: bool = False,
     dataset_name: str = None,
     prebuilt_sfm_root: Path = None,
+    clean_work: bool = False,
 ):
     if not submap_sfm and not submap_merge:
         raise ValueError("Specify exactly one of --submap-sfm or --submap-merge")
@@ -621,6 +672,15 @@ def run_order(
             sfm_rrd_path=sub0_sfm_dir / "sfm_reconstruction.rrd",
             topdown_path=_preds0_dir / "topdown_merge_0.png",
         )
+        sfm_summary["merge_params"] = {
+            "num_retrieval": _NUM_RETRIEVAL,
+            "geo_verify_min_matches": _GEO_VERIFY_MIN_MATCHES,
+            "pnp_min_inliers": _PNP_MIN_INLIERS,
+            "loc_conf": _LOC_CONF,
+            "feature_conf_output": getattr(sfm_merger, "feature_conf", {}).get("output", ""),
+            "retrieval_conf_output": getattr(sfm_merger, "retrieval_conf", {}).get("output", ""),
+            "matcher_conf_output": getattr(sfm_merger, "matcher_conf", {}).get("output", ""),
+        }
         _write_sfm_summary(sfm_summary, result_root / "logs" / "sfm_summary.json")
         _log(
             f"  SfM summary: {sfm_summary['num_sampled_frames']}/"
@@ -775,13 +835,16 @@ def run_order(
                 )
 
             if current_model is None or inc_poses_w2c is None or len(inc_poses_w2c) < 1:
-                _log(f"  FAILED: submap {sid} has no PnP overlap with merged map", log_file)
+                failure_message, summary_error = _classify_merge_failure(merge_stats)
+                _log(f"  FAILED: submap {sid} {failure_message}", log_file)
                 failures.append({
                     "submap": sid,
                     "stage": "localization",
-                    "error": "no PnP success or SE(3) estimation failed",
+                    "error": summary_error,
                 })
                 current_model = _prev_model  # restore so subsequent submaps can still merge
+                if clean_work:
+                    _clean_loc_dir(work_dir, i)
                 continue
 
             # update model_name_to_submap_local for inc submap frames
@@ -872,6 +935,8 @@ def run_order(
 
             elapsed = time.time() - t_start
             _log(f"  merged in {elapsed:.0f}s, total {sum(len(x) for x in submap_images_ordered)} poses", log_file)
+            if clean_work:
+                _clean_loc_dir(work_dir, i)
             continue   # skip the existing v1 path below
 
         ref_poses_dict = read_poses(str(ref_dir / "poses.txt"))
@@ -1056,6 +1121,8 @@ if __name__ == "__main__":
                         "Reads from result_root/submaps_sfm/{submap_id}/sfm/")
     p.add_argument("--overwrite", action="store_true",
                    help="Remove the result directory before running")
+    p.add_argument("--clean-work", action="store_true",
+                   help="After each submap merge, delete large _work/merge_subN/ intermediates.")
     p.add_argument("--prebuilt-sfm-root", type=Path, default=None,
                    help="Directory containing pre-built submap SfM results "
                         "(submaps_sfm/{submap_id}/sfm/) from a prior --submap-sfm run. "
@@ -1078,6 +1145,7 @@ if __name__ == "__main__":
         sfm_sample_dist=args.sfm_sample_dist,
         sfm_ba_iter=args.sfm_ba_iter,
         overwrite=args.overwrite,
+        clean_work=args.clean_work,
         submap_sfm=args.submap_sfm,
         submap_merge=args.submap_merge,
         dataset_name=args.dataset_name,

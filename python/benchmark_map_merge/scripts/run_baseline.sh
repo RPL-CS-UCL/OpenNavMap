@@ -22,7 +22,8 @@
 #   --eval-config NAME      yaml config for run_evaluation.sh
 #                           (default: OpenNavMap_map_merge.yaml)
 #   --overwrite             Remove existing result dir before running
-#   --clean-work            After a successful run, delete safe _work intermediates
+#   --clean-work            Delete large _work/merge_subN/ intermediates after each
+#                           submap merge, and also clean safe leftovers after success
 #   --dry-run               Print command and exit without running it
 #
 # Examples:
@@ -73,7 +74,9 @@ Options:
   --prebuilt-sfm-root DIR Pre-built submaps_sfm/ root; skips SfM rebuild in merge mode
   --eval-config NAME      yaml config for run_evaluation.sh
   --overwrite             Remove existing result dir before running
-  --clean-work            After a successful run, delete _work/merge_sub* and _work/*.h5
+  --clean-work            Delete large _work/merge_subN/ intermediates after each
+                          submap merge, and also delete _work/merge_sub* and
+                          _work/*.h5 after a successful run
   --dry-run               Print command and exit without running it
   --help                  Show this help message
 EOF
@@ -92,6 +95,9 @@ export PYTHONPATH="${PROJECT_ROOT}/python:${PROJECT_ROOT}/third_party/pose_estim
 DATA_DIR=s00000_aria_data_000
 TRAJ_EVAL_ROOT=/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data
 METHOD=hloc_sfm_netvlad_splg
+NUM_RETRIEVAL=10
+GEO_VERIFY_MIN_MATCHES=120
+PNP_MIN_INLIERS=35
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -179,7 +185,14 @@ if [[ "$MODE" == "sfm" ]]; then
   SFM_TAG="${METHOD#hloc_sfm_}"
   RESULT_DIR="${DATASET_ROOT}/s00000_sfm_${SFM_TAG}${DIST_TAG}"
 else
-  RESULT_DIR="${DATASET_ROOT}/s00000_results_${ORDER_TAG}_${METHOD}${DIST_TAG}"
+  if [[ "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "100" && "$PNP_MIN_INLIERS" == "25" ]]; then
+    VALUE_TAG="value0"
+  elif [[ "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "120" && "$PNP_MIN_INLIERS" == "35" ]]; then
+    VALUE_TAG="value1"
+  else
+    VALUE_TAG="nr${NUM_RETRIEVAL}_gv${GEO_VERIFY_MIN_MATCHES}_pnp${PNP_MIN_INLIERS}"
+  fi
+  RESULT_DIR="${DATASET_ROOT}/s00000_results_${ORDER_TAG}_${METHOD}${DIST_TAG}_${VALUE_TAG}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -200,6 +213,7 @@ CMD=(
 [[ "$MODE" == "merge" ]] && CMD+=(--submap-merge)
 [[ -n "$MAX_SUBMAPS" ]]  && CMD+=(--max-submaps "$MAX_SUBMAPS")
 [[ -n "$OVERWRITE" ]]    && CMD+=(--overwrite)
+[[ -n "$CLEAN_WORK" ]]   && CMD+=(--clean-work)
 [[ -n "$PREBUILT_SFM_ROOT" ]] && CMD+=(--prebuilt-sfm-root "$PREBUILT_SFM_ROOT")
 
 # ---------------------------------------------------------------------------
