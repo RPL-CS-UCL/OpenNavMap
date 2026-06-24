@@ -76,10 +76,11 @@ def export_tum_files(
     gt_tum = _convert_mapfree_to_tum_data(poses_gt, timestamps)
     est_tum = _convert_mapfree_to_tum_data(poses_est, timestamps)
 
-    np.savetxt(output_gt_path, gt_tum, fmt="%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f")
     np.savetxt(output_est_path, est_tum, fmt="%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f")
-    logger.info(f"GT TUM: {output_gt_path} ({len(gt_tum)} poses)")
     logger.info(f"EST TUM: {output_est_path} ({len(est_tum)} poses)")
+    ##### NOTE(gogojjh): the GT should be updated
+    # np.savetxt(output_gt_path, gt_tum, fmt="%.6f %.6f %.6f %.6f %.6f %.6f %.6f %.6f")
+    # logger.info(f"GT TUM: {output_gt_path} ({len(gt_tum)} poses)")
 
 
 def export_to_eval_structure(

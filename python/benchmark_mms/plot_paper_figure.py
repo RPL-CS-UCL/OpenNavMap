@@ -148,9 +148,11 @@ def load_env(data_dir: Path, sessions: list[int]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _configure_ax(ax) -> None:
-    ax.set_facecolor(BG_COLOR)
+    ax.set_facecolor("white")
     ax.set_xticks([])
     ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_color("#D1D5DB")
 
 
 def draw_session_panel(
@@ -169,7 +171,7 @@ def draw_session_panel(
 
     if poses:
         tr = np.array([(p[0], p[1]) for p in poses])
-        ax.plot(tr[:, 1], tr[:, 0], color=COLOR_TRAJ, linewidth=1.2,
+        ax.plot(tr[:, 1], tr[:, 0], color="#374151", linewidth=1.2,
                 alpha=0.7, zorder=3)
 
     reachable = "NO"
@@ -185,12 +187,12 @@ def draw_session_panel(
                 pass
 
     ax.scatter(start[1], start[0], color=COLOR_START, s=120, marker="o",
-               edgecolors="white", linewidths=1.5, zorder=7)
+               edgecolors="black", linewidths=1.5, zorder=7)
     ax.scatter(goal[1], goal[0], color=COLOR_GOAL, s=120, marker="X",
-               edgecolors="white", linewidths=1.5, zorder=7)
+               edgecolors="black", linewidths=1.5, zorder=7)
 
     ax.set_title(f"Session {session_idx}  reach={reachable}",
-                 color="white", fontsize=title_fontsize, pad=4)
+                 color="black", fontsize=title_fontsize, pad=4)
 
 
 def draw_merged_panel(
@@ -225,9 +227,9 @@ def draw_merged_panel(
         tlen = float("inf")
 
     ax.scatter(start[1], start[0], color=COLOR_START, s=120, marker="o",
-               edgecolors="white", linewidths=1.5, zorder=7)
+               edgecolors="black", linewidths=1.5, zorder=7)
     ax.scatter(goal[1], goal[0], color=COLOR_GOAL, s=120, marker="X",
-               edgecolors="white", linewidths=1.5, zorder=7)
+               edgecolors="black", linewidths=1.5, zorder=7)
     _draw_gt_path(ax, gt_path, lw=2.0, res=res)
 
     ratio = tlen / gt_len if gt_len > 0 and tlen < float("inf") else float("inf")
@@ -236,7 +238,7 @@ def draw_merged_panel(
     else:
         title = f"Merged k=0..{k_max}  unreachable"
 
-    ax.set_title(title, color="white", fontsize=title_fontsize, pad=4)
+    ax.set_title(title, color="black", fontsize=title_fontsize, pad=4)
 
 
 # ---------------------------------------------------------------------------
@@ -249,12 +251,12 @@ ENVS = [
     ("tunnel",        "Tunnel",  list(range(5))),   # only first 5 of 10
 ]
 
-TITLE_FONTSIZE = 16
-LABEL_FONTSIZE = 20
+TITLE_FONTSIZE = 24
+LABEL_FONTSIZE = 30
 
 
 def main() -> None:
-    _setting_font(fontsize=14, titlesize=TITLE_FONTSIZE, legend_fontsize=13)
+    _setting_font(fontsize=21, titlesize=TITLE_FONTSIZE, legend_fontsize=20)
 
     n_rows = len(ENVS)
     n_cols = 6  # 5 sessions + 1 merged
@@ -262,7 +264,7 @@ def main() -> None:
     fig, axes = plt.subplots(
         n_rows, n_cols,
         figsize=(n_cols * 6, n_rows * 6),
-        facecolor=BG_COLOR,
+        facecolor="white",
     )
     fig.subplots_adjust(wspace=0.03, hspace=0.12)
 
@@ -302,15 +304,15 @@ def main() -> None:
             env_label,
             fontsize=LABEL_FONTSIZE,
             fontweight="bold",
-            color="white",
+            color="black",
             labelpad=8,
         )
 
     # Save
     out_pdf = OUTPUT_ROOT / "paper_figure_exploration.pdf"
     out_png = OUTPUT_ROOT / "paper_figure_exploration.png"
-    fig.savefig(out_pdf, dpi=150, facecolor=BG_COLOR, bbox_inches="tight")
-    fig.savefig(out_png, dpi=150, facecolor=BG_COLOR, bbox_inches="tight")
+    fig.savefig(out_pdf, dpi=150, facecolor="white", bbox_inches="tight")
+    fig.savefig(out_png, dpi=150, facecolor="white", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved:\n  {out_pdf}\n  {out_png}")
 

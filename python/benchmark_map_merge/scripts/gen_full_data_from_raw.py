@@ -11,7 +11,7 @@ Usage:
     python gen_full_data_from_raw.py \
         --submap_dir /path/to/s00000_aria_data/0 \
         --raw_dir    /path/to/out_general_ucl_campus_20240904_0835 \
-        --out_dir    /path/to/s00000_aria_full_data/0
+        --out_dir    /path/to/s00000_aria_data_000/0
 """
 
 import os

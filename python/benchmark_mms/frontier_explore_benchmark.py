@@ -1178,8 +1178,8 @@ def fig2_optimality_curve(
                    linewidth=1.2, label="day1 starts")
         ax.text(day_change + 0.55, 1.02, "day1 starts", color="#9CA3AF",
                 fontsize=9, rotation=90, va="bottom")
-    ax.set_xlabel("Number of Sessions (k)", color="white", fontsize=12)
-    ax.set_ylabel("Optimality Ratio (topo_len / GT_len)", color="white", fontsize=12)
+    ax.set_xlabel("Number of Sessions", color="white", fontsize=12)
+    ax.set_ylabel("Optimality Ratio", color="white", fontsize=12)
     ax.set_title("Path Optimality vs. Number of Sessions", color="white", fontsize=14)
     ax.tick_params(colors="white")
     ax.set_xticks(range(1, len(ratios) + 1))
@@ -1272,8 +1272,8 @@ def fig3_reachability_coverage(
     for k, area_m2, pct in zip(ks, cov_m2_list, cov_pcts):
         ax.annotate(f"{area_m2:.0f} m²\n({pct:.0f}{percent_symbol})", (k, area_m2), textcoords="offset points",
                     xytext=(0, 8), ha="center", color="white", fontsize=9)
-    ax.set_xlabel("Number of Sessions (k)", color="white", fontsize=10)
-    ax.set_ylabel("Cumulative Coverage [m²]", color="white", fontsize=10)
+    ax.set_xlabel("Number of Sessions", color="white", fontsize=10)
+    ax.set_ylabel("Cumulative Coverage [\%]", color="white", fontsize=10)
     ax.set_title("Cumulative Coverage Growth", color="white", fontsize=12)
     ax.tick_params(colors="white")
     ax.set_xticks(ks)

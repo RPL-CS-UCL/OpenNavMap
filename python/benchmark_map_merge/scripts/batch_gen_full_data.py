@@ -13,7 +13,7 @@ from glob import glob
 
 def get_raw_sessions(raw_base_dir):
     sessions = {}
-    for d in sorted(glob(os.path.join(raw_base_dir, 'out_general_ucl_campus_*'))):
+    for d in sorted(glob(os.path.join(raw_base_dir, 'out_general_*'))):
         name = os.path.basename(d)
         poses_cl = np.loadtxt(os.path.join(d, 'poses_closed_loop.txt'))
         sessions[name] = {

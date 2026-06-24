@@ -55,8 +55,29 @@ def setting_font(fontsize=14, titlesize=14, legend_fontsize=14, font_family='Pal
         params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
         pylab.rcParams.update(params)
     except Exception as e:
+        print(f"Error setting font: {e}")
         init(autoreset=True)
         rc('font', **{'family': 'serif', 'serif': ['DejaVu Serif'], 'size': fontsize})
         rc('text', usetex=False)
         params = {'axes.titlesize': titlesize, 'legend.fontsize': legend_fontsize, 'legend.numpoints': 1}
         pylab.rcParams.update(params)
+
+def test_setting_font():
+    """Simple test function to verify font settings and palette acquisition."""
+    print("Testing font settings...")
+    setting_font(fontsize=12, titlesize=14, legend_fontsize=10, font_family='Palatino')
+    
+    palette = acquire_color_palette()
+    print(f"Acquired palette with {len(palette)} colors.")
+    print(f"Color 0 (Green): {palette[0]}")
+    
+    markers = acquire_marker()
+    print(f"Available markers: {markers}")
+    
+    linestyles = acquire_linestyle()
+    print(f"Available linestyles: {linestyles}")
+    
+    print("Font setting test completed.")
+
+if __name__ == "__main__":
+    test_setting_font()

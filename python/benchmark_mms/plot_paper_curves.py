@@ -35,27 +35,27 @@ from frontier_explore_benchmark import (  # noqa: E402
 # ---------------------------------------------------------------------------
 # Style
 # ---------------------------------------------------------------------------
-LW = 2.0
-MS = 7
+LW = 3.0
+MS = 10.5
 
 ENV_CFG = [
     {
         "label":    "Office",
-        "color":    _PALETTE[3],   # blue
+        "color":    _PALETTE[0],
         "marker":   _MARKERS[0],
         "baseline": "duplex_office",
         "dynamic":  "duplex_office_daychange",
     },
     {
         "label":    "Maze",
-        "color":    _PALETTE[0],   # green
+        "color":    _PALETTE[1],
         "marker":   _MARKERS[1],
         "baseline": "octa_maze",
         "dynamic":  "octa_maze_daychange",
     },
     {
         "label":    "Tunnel",
-        "color":    _PALETTE[7],   # orange
+        "color":    _PALETTE[3],
         "marker":   _MARKERS[2],
         "baseline": "tunnel",
         "dynamic":  "tunnel_daychange",
@@ -82,7 +82,7 @@ def _load(env_name: str) -> tuple[list[float], list[float]]:
 # ---------------------------------------------------------------------------
 
 def _style_ax(ax) -> None:
-    """White background, black axes."""
+    """White background, black axes, dashed grid."""
     ax.set_facecolor("white")
     ax.tick_params(colors="black")
     ax.xaxis.label.set_color("black")
@@ -90,6 +90,7 @@ def _style_ax(ax) -> None:
     ax.title.set_color("black")
     for spine in ax.spines.values():
         spine.set_color("black")
+    ax.grid(True, linestyle="--", alpha=0.7)
 
 
 def _draw_coverage(ax, xs: list[int], cum_pct: list[float],
@@ -100,7 +101,11 @@ def _draw_coverage(ax, xs: list[int], cum_pct: list[float],
 
 def _draw_ratio(ax, xs: list[int], ratios: list[float],
                 color, marker: str, linestyle: str, label: str) -> None:
-    """Plot finite values as a curve; mark inf values at NA_Y_RAT with ×."""
+    """Plot finite values as a curve; mark inf values at NA_Y_RAT with ×.
+
+    A connector line links the inf × markers to the adjacent finite point so
+    the curve reads as continuous.
+    """
     finite_x, finite_y, inf_x = [], [], []
     for x, r in zip(xs, ratios):
         if np.isinf(r):
@@ -109,25 +114,41 @@ def _draw_ratio(ax, xs: list[int], ratios: list[float],
             finite_x.append(x)
             finite_y.append(r)
 
+    # Draw × markers for unreachable sessions
+    if inf_x:
+        ax.plot(inf_x, [NA_Y_RAT] * len(inf_x),
+                color=color, linestyle=linestyle, linewidth=LW,
+                marker="x", markersize=MS + 2, markeredgewidth=2.2,
+                zorder=5, clip_on=False, label=label if not finite_x else None)
+
+    # Connect last inf point to first finite point (or first inf to last finite)
+    if inf_x and finite_x:
+        if inf_x[-1] < finite_x[0]:
+            # inf comes before finite (Dynamic variant: sessions 1-2 blocked)
+            connect_x = [inf_x[-1], finite_x[0]]
+            connect_y = [NA_Y_RAT,  finite_y[0]]
+        else:
+            # finite comes before inf
+            connect_x = [finite_x[-1], inf_x[0]]
+            connect_y = [finite_y[-1],  NA_Y_RAT]
+        ax.plot(connect_x, connect_y, color=color, linestyle=linestyle,
+                linewidth=LW * 0.8, alpha=0.7, zorder=2)
+
     if finite_x:
         ax.plot(finite_x, finite_y, color=color, linestyle=linestyle, linewidth=LW,
                 marker=marker, markersize=MS, label=label, zorder=3)
-    if inf_x:
-        ax.scatter(inf_x, [NA_Y_RAT] * len(inf_x),
-                   marker="x", color=color, s=(MS * 2) ** 2,
-                   linewidths=2.2, zorder=5, clip_on=False)
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    _setting_font(fontsize=12, titlesize=14, legend_fontsize=10)
+    _setting_font(fontsize=22, titlesize=31, legend_fontsize=18)
 
     fig, (ax_cov, ax_rat) = plt.subplots(
-        1, 2, figsize=(14, 5), facecolor="white"
+        1, 2, figsize=(16, 5), facecolor="white"
     )
-    fig.subplots_adjust(wspace=0.30, top=0.78)
+    fig.subplots_adjust(wspace=0.26)
 
     X_MAX = 5  # show only first 5 sessions for all environments
 
@@ -142,9 +163,9 @@ def main() -> None:
         _draw_coverage(ax_cov, xs_base, base_cov[:X_MAX],
                        env["color"], env["marker"], _LINESTYLES[0],
                        env["label"] + " Baseline")
-        _draw_coverage(ax_cov, xs_dyn, dyn_cov[:X_MAX],
-                       env["color"], env["marker"], _LINESTYLES[1],
-                       env["label"] + " Dynamic")
+        # _draw_coverage(ax_cov, xs_dyn, dyn_cov[:X_MAX],
+        #                env["color"], env["marker"], _LINESTYLES[1],
+        #                env["label"] + " Dynamic")
 
         _draw_ratio(ax_rat, xs_base, base_ratios[:X_MAX],
                     env["color"], env["marker"], _LINESTYLES[0],
@@ -163,66 +184,53 @@ def main() -> None:
                    alpha=0.7, zorder=1)
     ax_cov.set_xlim(0.5, X_MAX + 0.5)
     ax_cov.set_xticks(range(1, X_MAX + 1))
-    ax_cov.set_ylim(0, 108)
+    ax_cov.set_ylim(0, 100)
     ax_cov.set_yticks([0, 20, 40, 60, 80, 100])
     ax_cov.set_yticklabels(["0", "20", "40", "60", "80", "100"])
-    ax_cov.set_xlabel("Number of Sessions (k)", fontsize=12)
-    ax_cov.set_ylabel(r"Cumulative Coverage [\%]", fontsize=12)
-    ax_cov.set_title("Coverage Growth", fontsize=14)
-    # day-change label
-    ax_cov.text(2.58, 2, "obstacle\nremoved", color="#6B7280", fontsize=8,
-                va="bottom", rotation=90, alpha=0.9)
+    ax_cov.set_xlabel("Session Number", fontsize=22)
+    ax_cov.set_ylabel(r"Coverage [\%]", fontsize=22)
+    ax_cov.text(2.58, 98, "Remove\nObstacles", color="#6B7280", fontsize=18,
+                va="top", rotation=0, alpha=0.9)
     _style_ax(ax_cov)
 
     # ------------------------------------------------- ratio panel
-    ax_rat.axhline(1.0, color=_PALETTE[1], linestyle=_LINESTYLES[1],
+    ax_rat.axhline(1.0, color='k', linestyle=_LINESTYLES[1],
                    linewidth=1.5, zorder=1)
     ax_rat.set_xlim(0.5, X_MAX + 0.5)
     ax_rat.set_xticks(range(1, X_MAX + 1))
     ax_rat.set_ylim(0.88, NA_Y_RAT + 0.06)
     # Build y-ticks: regular ticks + "N/A" at NA_Y_RAT
-    rat_ticks      = [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, NA_Y_RAT]
-    rat_ticklabels = ["0.9", "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "N/A"]
+    rat_ticks      = [1.0, 1.2, 1.4, 1.6, NA_Y_RAT]
+    rat_ticklabels = ["1.0", "1.2", "1.4", "1.6", "N/A"]
     ax_rat.set_yticks(rat_ticks)
     ax_rat.set_yticklabels(rat_ticklabels)
     # Dashed separator above 1.6 to visually isolate N/A row
     ax_rat.axhline(NA_Y_RAT - 0.04, color="#D1D5DB", linestyle="--",
                    linewidth=0.8, zorder=0)
-    ax_rat.set_xlabel("Number of Sessions (k)", fontsize=12)
-    ax_rat.set_ylabel("Optimality Ratio (topo / GT)", fontsize=12)
-    ax_rat.set_title("Path Optimality", fontsize=14)
-    ax_rat.text(2.58, 0.91, "obstacle\nremoved", color="#6B7280", fontsize=8,
-                va="bottom", rotation=90, alpha=0.9)
+    ax_rat.set_xlabel("Session Number", fontsize=22)
+    ax_rat.set_ylabel("Optimality Ratio", fontsize=22)
+    ax_rat.text(2.58, NA_Y_RAT + 0.04, "Remove\nObstacles", color="#6B7280", fontsize=18,
+                va="top", rotation=0, alpha=0.9)
     _style_ax(ax_rat)
 
-    # ------------------------------------------------- shared legend (top)
-    legend_elements = []
-    for env in ENV_CFG:
-        legend_elements.append(
-            Line2D([0], [0], color=env["color"], linestyle=_LINESTYLES[0],
-                   linewidth=LW, marker=env["marker"], markersize=MS,
-                   label=env["label"] + " Baseline")
-        )
-        legend_elements.append(
-            Line2D([0], [0], color=env["color"], linestyle=_LINESTYLES[1],
-                   linewidth=LW, marker=env["marker"], markersize=MS,
-                   label=env["label"] + " Dynamic")
-        )
-    legend_elements.append(
-        Line2D([0], [0], color=_PALETTE[1], linestyle=_LINESTYLES[1],
-               linewidth=1.5, label="GT optimal ($r$=1.0)")
-    )
+    # ------------------------------------------------- left legend: environments
+    leg_cov = [
+        Line2D([0], [0], color=env["color"], marker=env["marker"], markersize=MS,
+               linewidth=LW, linestyle=_LINESTYLES[0], label=env["label"])
+        for env in ENV_CFG
+    ]
+    ax_cov.legend(handles=leg_cov, frameon=True, loc="center right", edgecolor="#D1D5DB", fontsize=18)
 
-    fig.legend(
-        handles=legend_elements,
-        loc="upper center",
-        ncol=4,
-        frameon=True,
-        facecolor="white",
-        edgecolor="#D1D5DB",
-        fontsize=9,
-        bbox_to_anchor=(0.5, 1.02),
-    )
+    # ------------------------------------------------- right legend: line styles
+    leg_rat = [
+        Line2D([0], [0], color="black", linewidth=LW, linestyle=_LINESTYLES[0],
+               label="Baseline"),
+        Line2D([0], [0], color="black", linewidth=LW, linestyle=_LINESTYLES[1],
+               label="Dynamic"),
+        # Line2D([0], [0], color=_PALETTE[1], linewidth=1.5, linestyle=_LINESTYLES[1],
+        #        label="GT optimal ($r$=1.0)"),
+    ]
+    ax_rat.legend(handles=leg_rat, frameon=True, edgecolor="#D1D5DB", fontsize=18)
 
     out_pdf = OUTPUT_ROOT / "paper_figure_curves.pdf"
     out_png = OUTPUT_ROOT / "paper_figure_curves.png"

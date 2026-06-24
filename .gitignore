@@ -35,3 +35,6 @@ python/benchmark_mms/*.gif
 python/benchmark_mms/*.log
 python/benchmark_mms/*.rrd
 python/benchmark_mms/__pycache__/
+docs/superpowers/
+third_party/ColabSfM/
+python/benchmark_mms/docs/2026-06-17-plot-figure.md
