@@ -58,6 +58,10 @@ def parse_arguments() -> argparse.Namespace:
                         help='Directory with sequence-match submission-<q>-<db>.txt files.')
     parser.add_argument('--graph_dir', type=Path, default=None,
                         help='Directory with graph-search submission-<q>-<db>.txt files.')
+    parser.add_argument('--graph_none_dir', type=Path, default=None,
+                        help='Directory with graph-search none submissions for master comparison.')
+    parser.add_argument('--graph_master_dir', type=Path, default=None,
+                        help='Directory with graph-search master submissions for master comparison.')
     return parser.parse_args()
 
 
@@ -131,6 +135,7 @@ def parse_submission_pairs(
     submission_path: Path,
     query_names: list[str],
     db_names: list[str],
+    keep_only_positive_label: bool = False,
 ) -> list[tuple[int, int]]:
     """Parse submission pairs and map image names to query/database indices."""
     query_indices = {name: idx for idx, name in enumerate(query_names)}
@@ -141,6 +146,8 @@ def parse_submission_pairs(
         for line in submission_file:
             columns = line.split()
             if len(columns) < 4:
+                continue
+            if keep_only_positive_label and columns[3] != '1':
                 continue
 
             query_idx = query_indices.get(columns[0])
@@ -197,12 +204,46 @@ def find_valid_matches(
 # Visualisation
 # ---------------------------------------------------------------------------
 
+def _plot_dmatrix_panels(
+    D_all: np.ndarray,
+    panels: list[tuple[str, list[tuple[int, int]], str]],
+    output_path: Path,
+    figsize: tuple[float, float],
+) -> None:
+    """Plot method-specific pairs over a shared difference matrix."""
+    label_fontsize = 24
+    title_fontsize = 28
+    colorbar_ticksize = 20
+
+    fig, axes = plt.subplots(1, len(panels), figsize=figsize)
+    axes = np.atleast_1d(axes)
+
+    for ax, (title, pairs, color) in zip(axes, panels):
+        im = ax.imshow(D_all, cmap='Greys', aspect='auto')
+        if pairs:
+            query_indices, db_indices = zip(*pairs)
+            ax.scatter(query_indices, db_indices, c=[color], s=16, alpha=1.0)
+        colorbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        colorbar.ax.tick_params(labelsize=colorbar_ticksize)
+        im.set_clim(0.0, 1.0)
+        ax.set_xlabel('Query Index', fontsize=label_fontsize)
+        ax.set_ylabel('Reference Index', fontsize=label_fontsize)
+        ax.set_title(title, fontsize=title_fontsize)
+        ax.tick_params(axis='both', labelsize=colorbar_ticksize)
+
+    plt.tight_layout()
+    plt.savefig(output_path.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.with_suffix('.pdf'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+
 def visualize_vpr_data_dmatrix(
     D_all: np.ndarray,
     gt_pairs: list[tuple[int, int]],
     singlematch_pairs: list[tuple[int, int]],
     seqslam_pairs: list[tuple[int, int]],
     proposed_pairs: list[tuple[int, int]],
+    proposed_gv_pairs: list[tuple[int, int]],
     output_path: Path,
 ) -> None:
     """Visualize GT and method pairs over the difference matrix."""
@@ -211,24 +252,25 @@ def visualize_vpr_data_dmatrix(
         ('SingleMatch', singlematch_pairs, PALLETE[1]),
         ('SeqSLAM (len=20)', seqslam_pairs, PALLETE[1]),
         ('Proposed', proposed_pairs, PALLETE[1]),
+        ('Proposed (with GV)', proposed_gv_pairs, PALLETE[1]),
     ]
-    fig, axes = plt.subplots(1, 4, figsize=(24, 6))
+    _plot_dmatrix_panels(D_all, panels, output_path, figsize=(30, 6))
 
-    for ax, (title, pairs, color) in zip(axes, panels):
-        im = ax.imshow(D_all, cmap='Greys', aspect='auto')
-        if pairs:
-            query_indices, db_indices = zip(*pairs)
-            ax.scatter(query_indices, db_indices, c=[color], s=16, alpha=1.0)
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        im.set_clim(0.0, 1.0)
-        ax.set_xlabel('Query Index', fontsize=12)
-        ax.set_ylabel('Reference Index', fontsize=12)
-        ax.set_title(title, fontsize=14)
 
-    plt.tight_layout()
-    plt.savefig(output_path.with_suffix('.png'), dpi=300, bbox_inches='tight')
-    plt.savefig(output_path.with_suffix('.pdf'), dpi=300, bbox_inches='tight')
-    plt.close()
+def visualize_graph_master_dmatrix(
+    D_all: np.ndarray,
+    gt_pairs: list[tuple[int, int]],
+    none_pairs: list[tuple[int, int]],
+    master_pairs: list[tuple[int, int]],
+    output_path: Path,
+) -> None:
+    """Visualize graph-search pairs before and after master verification."""
+    panels = [
+        ('Ground Truth', gt_pairs, PALLETE[0]),
+        ('Proposed', none_pairs, PALLETE[3]),
+        ('Proposed (with GV)', master_pairs, PALLETE[1]),
+    ]
+    _plot_dmatrix_panels(D_all, panels, output_path, figsize=(18, 6))
 
 
 def visualize_vpr_data_queries(
@@ -481,14 +523,58 @@ def evaluate_vpr_system(args: argparse.Namespace) -> None:
                 else:
                     logging.warning('Graph-search submission directory is not set.')
 
+                proposed_gv_pairs: list[tuple[int, int]] = []
+                if args.graph_master_dir is not None:
+                    graph_master_path = args.graph_master_dir / submission_name
+                    if graph_master_path.exists():
+                        proposed_gv_pairs = parse_submission_pairs(
+                            graph_master_path,
+                            test_ds.queries_image_names,
+                            test_ds.database_image_names,
+                            keep_only_positive_label=True,
+                        )
+                    else:
+                        logging.warning(f'Graph master submission not found: {graph_master_path}')
+                else:
+                    logging.warning('Graph master submission directory is not set.')
+
                 visualize_vpr_data_dmatrix(
                     D_all,
                     valid_pairs,
                     singlematch_pairs,
                     seqslam_pairs,
                     proposed_pairs,
+                    proposed_gv_pairs,
                     output_dir / f'dmatrix_{query_folder.name}.png',
                 )
+
+                if args.graph_none_dir is not None and args.graph_master_dir is not None:
+                    graph_none_path = args.graph_none_dir / submission_name
+                    graph_master_path = args.graph_master_dir / submission_name
+                    if graph_none_path.exists() and graph_master_path.exists():
+                        graph_none_pairs = parse_submission_pairs(
+                            graph_none_path,
+                            test_ds.queries_image_names,
+                            test_ds.database_image_names,
+                        )
+                        graph_master_pairs = parse_submission_pairs(
+                            graph_master_path,
+                            test_ds.queries_image_names,
+                            test_ds.database_image_names,
+                            keep_only_positive_label=True,
+                        )
+                        visualize_graph_master_dmatrix(
+                            D_all,
+                            valid_pairs,
+                            graph_none_pairs,
+                            graph_master_pairs,
+                            output_dir / f'dmatrix_graph_master_{query_folder.name}.png',
+                        )
+                    else:
+                        logging.warning(
+                            f'Graph master comparison submission missing: '
+                            f'{graph_none_path} or {graph_master_path}'
+                        )
 
     visualize_vpr_data_queries(
         db_poses, all_query_poses, all_best_valid_pairs, query_names, output_dir,
