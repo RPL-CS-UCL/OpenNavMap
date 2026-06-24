@@ -19,6 +19,10 @@ python ../python/viz_vpr_data.py \
                       ${DATASET_PATH}/s00000/query/out_map_20241205_1009 \
                       ${DATASET_PATH}/s00000/query/out_map_20241223_1728 \
     --trans_thresh 7.5 --rot_thresh 75.0 \
+    --dmatrix_dir   ${DATASET_PATH}/s00000/results_vpr \
+    --singlematch_dir ${DATASET_PATH}/s00000/results_vpr/cosplace_ResNet18_256_single_match_1_none \
+    --seqmatch_dir  ${DATASET_PATH}/s00000/results_vpr/cosplace_ResNet18_256_sequence_match_20_none \
+    --graph_dir     ${DATASET_PATH}/s00000/results_vpr/cosplace_ResNet18_256_graph_search_1_none \
     --output_path ${DATASET_PATH}/s00000/scene_stat
 
 python ../python/viz_vpr_data.py \
@@ -28,6 +32,10 @@ python ../python/viz_vpr_data.py \
                       ${DATASET_PATH}/s00001/query/out_map_20241223_1851 \
                       ${DATASET_PATH}/s00001/query/out_map_20241223_1856 \
     --trans_thresh 7.5 --rot_thresh 75.0 \
+    --dmatrix_dir   ${DATASET_PATH}/s00001/results_vpr \
+    --singlematch_dir ${DATASET_PATH}/s00001/results_vpr/cosplace_ResNet18_256_single_match_1_none \
+    --seqmatch_dir  ${DATASET_PATH}/s00001/results_vpr/cosplace_ResNet18_256_sequence_match_20_none \
+    --graph_dir     ${DATASET_PATH}/s00001/results_vpr/cosplace_ResNet18_256_graph_search_1_none \
     --output_path ${DATASET_PATH}/s00001/scene_stat
 
 python ../python/viz_vpr_data.py \
@@ -38,6 +46,10 @@ python ../python/viz_vpr_data.py \
                       ${DATASET_PATH}/s00002/query/out_map_20241223_1723 \
                       ${DATASET_PATH}/s00002/query/out_map_20241223_1847 \
     --trans_thresh 7.5 --rot_thresh 75.0 \
+    --dmatrix_dir   ${DATASET_PATH}/s00002/results_vpr \
+    --singlematch_dir ${DATASET_PATH}/s00002/results_vpr/cosplace_ResNet18_256_single_match_1_none \
+    --seqmatch_dir  ${DATASET_PATH}/s00002/results_vpr/cosplace_ResNet18_256_sequence_match_20_none \
+    --graph_dir     ${DATASET_PATH}/s00002/results_vpr/cosplace_ResNet18_256_graph_search_1_none \
     --output_path ${DATASET_PATH}/s00002/scene_stat
 
 python ../python/viz_vpr_data.py \
@@ -46,19 +58,31 @@ python ../python/viz_vpr_data.py \
                       ${DATASET_PATH}/s00003/query/out_map_20241223_1733 \
                       ${DATASET_PATH}/s00003/query/out_map_20241223_1900 \
     --trans_thresh 7.5 --rot_thresh 75.0 \
+    --dmatrix_dir   ${DATASET_PATH}/s00003/results_vpr \
+    --singlematch_dir ${DATASET_PATH}/s00003/results_vpr/cosplace_ResNet18_256_single_match_1_none \
+    --seqmatch_dir  ${DATASET_PATH}/s00003/results_vpr/cosplace_ResNet18_256_sequence_match_20_none \
+    --graph_dir     ${DATASET_PATH}/s00003/results_vpr/cosplace_ResNet18_256_graph_search_1_none \
     --output_path ${DATASET_PATH}/s00003/scene_stat
 
-# python ../python/viz_vpr_data.py \
-#     --database_folder ${DATASET_PATH}/s00004/database/out_map_20241222_1545 \
-#     --queries_folder ${DATASET_PATH}/s00004/query/out_map_20241222_1549 \
-#                      ${DATASET_PATH}/s00004/query/out_map_20241223_1714 \
-#     --output_path ${DATASET_PATH}/s00004/scene_stat
+python ../python/viz_vpr_data.py \
+    --database_folder ${DATASET_PATH}/s00004/database/out_map_20241222_1545 \
+    --queries_folder ${DATASET_PATH}/s00004/query/out_map_20241222_1549 \
+                     ${DATASET_PATH}/s00004/query/out_map_20241223_1714 \
+    --dmatrix_dir   ${DATASET_PATH}/s00004/results_vpr \
+    --singlematch_dir ${DATASET_PATH}/s00004/results_vpr/cosplace_ResNet18_256_single_match_1_none \
+    --seqmatch_dir  ${DATASET_PATH}/s00004/results_vpr/cosplace_ResNet18_256_sequence_match_20_none \
+    --graph_dir     ${DATASET_PATH}/s00004/results_vpr/cosplace_ResNet18_256_graph_search_1_none \
+    --output_path ${DATASET_PATH}/s00004/scene_stat
 
-# python ../python/viz_vpr_data.py \
-#     --database_folder ${DATASET_PATH}/s00005/database/out_map_20241222_1641 \
-#     --queries_folder ${DATASET_PATH}/s00005/query/out_map_20241222_1637 \
-#                      ${DATASET_PATH}/s00005/query/out_map_20241222_1645 \
-#     --output_path ${DATASET_PATH}/s00005/scene_stat
+python ../python/viz_vpr_data.py \
+    --database_folder ${DATASET_PATH}/s00005/database/out_map_20241222_1641 \
+    --queries_folder ${DATASET_PATH}/s00005/query/out_map_20241222_1637 \
+                     ${DATASET_PATH}/s00005/query/out_map_20241222_1645 \
+    --dmatrix_dir   ${DATASET_PATH}/s00005/results_vpr \
+    --singlematch_dir ${DATASET_PATH}/s00005/results_vpr/cosplace_ResNet18_256_single_match_1_none \
+    --seqmatch_dir  ${DATASET_PATH}/s00005/results_vpr/cosplace_ResNet18_256_sequence_match_20_none \
+    --graph_dir     ${DATASET_PATH}/s00005/results_vpr/cosplace_ResNet18_256_graph_search_1_none \
+    --output_path ${DATASET_PATH}/s00005/scene_stat
 
 ##### FusionPortable
 # python ../python/viz_vpr_data.py \

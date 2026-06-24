@@ -50,6 +50,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--device', type=str, default='cuda', choices=['cpu', 'cuda'])
     parser.add_argument('--output_path', type=Path, default='results')
+    parser.add_argument('--dmatrix_dir', type=Path, default=None,
+                        help='Directory containing precomputed D_all_<query>.npy files.')
+    parser.add_argument('--singlematch_dir', type=Path, default=None,
+                        help='Directory with single-match submission-<q>-<db>.txt files.')
+    parser.add_argument('--seqmatch_dir', type=Path, default=None,
+                        help='Directory with sequence-match submission-<q>-<db>.txt files.')
+    parser.add_argument('--graph_dir', type=Path, default=None,
+                        help='Directory with graph-search submission-<q>-<db>.txt files.')
     return parser.parse_args()
 
 
@@ -119,16 +127,41 @@ def compute_diff_matrix(db_descs: np.ndarray, query_descs: np.ndarray, eps: floa
     return 1.0 - dots / (db_norms * q_norms + eps)
 
 
+def parse_submission_pairs(
+    submission_path: Path,
+    query_names: list[str],
+    db_names: list[str],
+) -> list[tuple[int, int]]:
+    """Parse submission pairs and map image names to query/database indices."""
+    query_indices = {name: idx for idx, name in enumerate(query_names)}
+    db_indices = {name: idx for idx, name in enumerate(db_names)}
+    pairs: list[tuple[int, int]] = []
+
+    with submission_path.open('r', encoding='utf-8') as submission_file:
+        for line in submission_file:
+            columns = line.split()
+            if len(columns) < 4:
+                continue
+
+            query_idx = query_indices.get(columns[0])
+            db_idx = db_indices.get(columns[1])
+            if query_idx is not None and db_idx is not None:
+                pairs.append((query_idx, db_idx))
+
+    return pairs
+
+
 def find_valid_matches(
     test_ds: TestDataset,
     trans_thresh: float,
     rot_thresh: float,
-) -> list[tuple[int, int]]:
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     """Find ground-truth valid (query_idx, db_idx) pairs using pose thresholds.
 
     For each query frame the single nearest database frame within both thresholds
-    is returned (one-to-one, best-distance match).
+    is returned first, followed by all database frames within both thresholds.
     """
+    best_valid_pairs: list[tuple[int, int]] = []
     valid_pairs: list[tuple[int, int]] = []
 
     for q_idx in range(test_ds.num_queries):
@@ -148,14 +181,16 @@ def find_valid_matches(
                 (trans_q, quat_q), (trans_db, quat_db), mode='vector'
             )
 
-            if trans_err <= trans_thresh and rot_err <= rot_thresh and trans_err < best_trans_err:
-                best_db_idx = db_idx
-                best_trans_err = trans_err
+            if trans_err <= trans_thresh and rot_err <= rot_thresh:
+                valid_pairs.append((q_idx, db_idx))
+                if trans_err < best_trans_err:
+                    best_db_idx = db_idx
+                    best_trans_err = trans_err
 
         if best_db_idx is not None:
-            valid_pairs.append((q_idx, best_db_idx))
+            best_valid_pairs.append((q_idx, best_db_idx))
 
-    return valid_pairs
+    return best_valid_pairs, valid_pairs
 
 
 # ---------------------------------------------------------------------------
@@ -163,63 +198,36 @@ def find_valid_matches(
 # ---------------------------------------------------------------------------
 
 def visualize_vpr_data_dmatrix(
-    db_poses: np.ndarray,
-    query_poses: np.ndarray,
     D_all: np.ndarray,
-    valid_pairs: list[tuple[int, int]],
+    gt_pairs: list[tuple[int, int]],
+    singlematch_pairs: list[tuple[int, int]],
+    seqslam_pairs: list[tuple[int, int]],
+    proposed_pairs: list[tuple[int, int]],
     output_path: Path,
 ) -> None:
-    """Three-panel figure: difference matrix, weight matrix, and 2-D trajectories."""
-    fig = plt.figure(figsize=(18, 10))
+    """Visualize GT and method pairs over the difference matrix."""
+    panels = [
+        ('Ground Truth', gt_pairs, PALLETE[0]),
+        ('SingleMatch', singlematch_pairs, PALLETE[1]),
+        ('SeqSLAM (len=20)', seqslam_pairs, PALLETE[1]),
+        ('Proposed', proposed_pairs, PALLETE[1]),
+    ]
+    fig, axes = plt.subplots(1, 4, figsize=(24, 6))
 
-    # 1. Difference Matrix
-    ax1 = fig.add_subplot(131)
-    im1 = ax1.imshow(D_all, cmap='Greys', aspect='auto')
-    for q_idx, db_idx in valid_pairs:
-        ax1.plot(q_idx, db_idx, 'r.', markersize=4, alpha=1.0)
-    plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
-    im1.set_clim(0.0, 1.0)
-    ax1.set_xlabel('Query Index', fontsize=12)
-    ax1.set_ylabel('Reference Index', fontsize=12)
-    ax1.set_title('Difference Matrix', fontsize=14)
-    ax1.set_aspect('equal')
-
-    # 2. Weight Matrix
-    ax2 = fig.add_subplot(132)
-    im2 = ax2.imshow(1.0 / (D_all + 1e-8), cmap='Greys', aspect='auto')
-    for q_idx, db_idx in valid_pairs:
-        ax2.plot(q_idx, db_idx, 'r.', markersize=4, alpha=1.0)
-    plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
-    im2.set_clim(0.0, 5.0)
-    ax2.set_xlabel('Query Index', fontsize=14)
-    ax2.set_ylabel('Reference Index', fontsize=14)
-    ax2.set_title('Weight Matrix', fontsize=16)
-    ax2.set_aspect('equal')
-
-    # 3. Trajectories
-    ax3 = fig.add_subplot(133)
-    db_xy = np.array([convert_pose_to_2d(p) for p in db_poses])
-    query_xy = np.array([convert_pose_to_2d(p) for p in query_poses])
-
-    ax3.plot(db_xy[:, 0], db_xy[:, 1], c=PALLETE[1], linewidth=2, linestyle='--', label='Reference', zorder=1)
-    ax3.plot(query_xy[:, 0], query_xy[:, 1], c=PALLETE[2], linewidth=2, linestyle='-', label='Query', zorder=0)
-
-    for q_idx, db_idx in valid_pairs:
-        ax3.plot(
-            [query_xy[q_idx, 0], db_xy[db_idx, 0]],
-            [query_xy[q_idx, 1], db_xy[db_idx, 1]],
-            'g-', linewidth=1, alpha=0.5,
-        )
-
-    ax3.set_xlabel('X [m]', fontsize=14)
-    ax3.set_ylabel('Y [m]', fontsize=14)
-    ax3.set_title('Trajectories', fontsize=16)
-    ax3.legend(fontsize=12, loc='upper right', bbox_to_anchor=(1.05, 1.0))
-    ax3.grid(True, linestyle='--', alpha=0.7)
-    ax3.set_aspect('equal')
+    for ax, (title, pairs, color) in zip(axes, panels):
+        im = ax.imshow(D_all, cmap='Greys', aspect='auto')
+        if pairs:
+            query_indices, db_indices = zip(*pairs)
+            ax.scatter(query_indices, db_indices, c=[color], s=16, alpha=1.0)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        im.set_clim(0.0, 1.0)
+        ax.set_xlabel('Query Index', fontsize=12)
+        ax.set_ylabel('Reference Index', fontsize=12)
+        ax.set_title(title, fontsize=14)
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.with_suffix('.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.with_suffix('.pdf'), dpi=300, bbox_inches='tight')
     plt.close()
 
 
@@ -395,7 +403,7 @@ def evaluate_vpr_system(args: argparse.Namespace) -> None:
 
     db_poses: np.ndarray | None = None
     all_query_poses: list[np.ndarray] = []
-    all_valid_pairs: list[list[tuple[int, int]]] = []
+    all_best_valid_pairs: list[list[tuple[int, int]]] = []
     all_test_ds: list[TestDataset] = []
     query_names: list[str] = []
 
@@ -410,22 +418,83 @@ def evaluate_vpr_system(args: argparse.Namespace) -> None:
         all_test_ds.append(test_ds)
         query_names.append(query_folder.name)
 
-        valid_pairs = find_valid_matches(test_ds, args.trans_thresh, args.rot_thresh)
-        all_valid_pairs.append(valid_pairs)
-        logging.info(f'{query_folder.name}: {len(valid_pairs)} valid pairs out of {test_ds.num_queries} queries')
+        best_valid_pairs, valid_pairs = find_valid_matches(
+            test_ds, args.trans_thresh, args.rot_thresh,
+        )
+        all_best_valid_pairs.append(best_valid_pairs)
+        logging.info(
+            f'{query_folder.name}: {len(best_valid_pairs)} best valid pairs, '
+            f'{len(valid_pairs)} total valid pairs out of {test_ds.num_queries} queries'
+        )
 
-        # Optional: descriptor-based visualisation (uncomment to enable)
-        # vpr_model = initialize_vpr_model(args.vpr_model, args.backbone, args.descriptors_dimension, args.device)
-        # db_descs, query_descs = extract_descriptors(vpr_model, test_ds, args.descriptors_dimension, args.batch_size, args.device)
-        # D_all = compute_diff_matrix(db_descs, query_descs)
-        # visualize_vpr_data_dmatrix(cur_db_poses, query_poses, D_all, valid_pairs, output_dir / f'vpr_data_{query_folder.name}.jpg')
-        # np.save(output_dir / f'D_all_{query_folder.name}.npy', D_all)
+        if args.dmatrix_dir is not None:
+            dmatrix_path = args.dmatrix_dir / f'D_all_{query_folder.name}.npy'
+            if not dmatrix_path.exists():
+                logging.warning(
+                    f'Difference matrix not found: {dmatrix_path}; skipping dmatrix plot.'
+                )
+            else:
+                D_all = np.load(dmatrix_path)
+                db_tag = args.database_folder.name.replace('out_map_', '')
+                q_tag = query_folder.name.replace('out_map_', '')
+                submission_name = f'submission-{q_tag}-{db_tag}.txt'
+
+                singlematch_pairs: list[tuple[int, int]] = []
+                if args.singlematch_dir is not None:
+                    singlematch_path = args.singlematch_dir / submission_name
+                    if singlematch_path.exists():
+                        singlematch_pairs = parse_submission_pairs(
+                            singlematch_path,
+                            test_ds.queries_image_names,
+                            test_ds.database_image_names,
+                        )
+                    else:
+                        logging.warning(f'SingleMatch submission not found: {singlematch_path}')
+                else:
+                    logging.warning('SingleMatch submission directory is not set.')
+
+                seqslam_pairs: list[tuple[int, int]] = []
+                if args.seqmatch_dir is not None:
+                    seqmatch_path = args.seqmatch_dir / submission_name
+                    if seqmatch_path.exists():
+                        seqslam_pairs = parse_submission_pairs(
+                            seqmatch_path,
+                            test_ds.queries_image_names,
+                            test_ds.database_image_names,
+                        )
+                    else:
+                        logging.warning(f'SeqSLAM submission not found: {seqmatch_path}')
+                else:
+                    logging.warning('SeqSLAM submission directory is not set.')
+
+                proposed_pairs: list[tuple[int, int]] = []
+                if args.graph_dir is not None:
+                    graph_path = args.graph_dir / submission_name
+                    if graph_path.exists():
+                        proposed_pairs = parse_submission_pairs(
+                            graph_path,
+                            test_ds.queries_image_names,
+                            test_ds.database_image_names,
+                        )
+                    else:
+                        logging.warning(f'Graph-search submission not found: {graph_path}')
+                else:
+                    logging.warning('Graph-search submission directory is not set.')
+
+                visualize_vpr_data_dmatrix(
+                    D_all,
+                    valid_pairs,
+                    singlematch_pairs,
+                    seqslam_pairs,
+                    proposed_pairs,
+                    output_dir / f'dmatrix_{query_folder.name}.png',
+                )
 
     visualize_vpr_data_queries(
-        db_poses, all_query_poses, all_valid_pairs, query_names, output_dir,
+        db_poses, all_query_poses, all_best_valid_pairs, query_names, output_dir,
         args.trans_thresh, args.rot_thresh, args.z_ratio,
     )
-    # save_img_valid_pairs(all_test_ds, all_valid_pairs, query_names, output_dir)
+    # save_img_valid_pairs(all_test_ds, all_best_valid_pairs, query_names, output_dir)
 
 
 if __name__ == '__main__':
