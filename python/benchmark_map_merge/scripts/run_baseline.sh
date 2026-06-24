@@ -69,6 +69,10 @@ Options:
   --max-submaps N         Limit to first N submaps
   --sfm-sample-dist F     SfM keyframe sampling distance in metres (default: 0.25)
   --sfm-ba-iter N         BA iterations after SfM triangulation (default: 0)
+  --num-retrieval N       Retrieval top-k for localization (default: 10)
+  --geo-verify-min-matches N
+                          Minimum geometric verification inliers (default: 150)
+  --pnp-min-inliers N     Minimum PnP inliers for a successful frame (default: 50)
   --order-index N         Order index: 0=in, 1=r0, ..., 9=r8 (default: 0)
   --data-dir NAME         Override data directory (default: s00000_aria_data_000)
   --prebuilt-sfm-root DIR Pre-built submaps_sfm/ root; skips SfM rebuild in merge mode
@@ -96,8 +100,8 @@ DATA_DIR=s00000_aria_data_000
 TRAJ_EVAL_ROOT=/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data
 METHOD=hloc_sfm_netvlad_splg
 NUM_RETRIEVAL=10
-GEO_VERIFY_MIN_MATCHES=120
-PNP_MIN_INLIERS=35
+GEO_VERIFY_MIN_MATCHES=150
+PNP_MIN_INLIERS=50
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -126,6 +130,9 @@ while [[ $# -gt 0 ]]; do
     --max-submaps)      MAX_SUBMAPS=$2; shift ;;
     --sfm-sample-dist)  SFM_SAMPLE_DIST=$2; shift ;;
     --sfm-ba-iter)      SFM_BA_ITER=$2; shift ;;
+    --num-retrieval)    NUM_RETRIEVAL=$2; shift ;;
+    --geo-verify-min-matches) GEO_VERIFY_MIN_MATCHES=$2; shift ;;
+    --pnp-min-inliers)  PNP_MIN_INLIERS=$2; shift ;;
     --order-index)      ORDER_INDEX=$2; shift ;;
     --data-dir)         DATA_DIR=$2; shift ;;
     --prebuilt-sfm-root) PREBUILT_SFM_ROOT=$2; shift ;;
@@ -185,10 +192,18 @@ if [[ "$MODE" == "sfm" ]]; then
   SFM_TAG="${METHOD#hloc_sfm_}"
   RESULT_DIR="${DATASET_ROOT}/s00000_sfm_${SFM_TAG}${DIST_TAG}"
 else
-  if [[ "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "100" && "$PNP_MIN_INLIERS" == "25" ]]; then
+  if [[ "$METHOD" == "hloc_sfm_netvlad_disk_dilg" && "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "300" && "$PNP_MIN_INLIERS" == "70" ]]; then
+    VALUE_TAG="value0"
+  elif [[ "$METHOD" == "hloc_sfm_netvlad_disk_dilg" && "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "400" && "$PNP_MIN_INLIERS" == "110" ]]; then
+    VALUE_TAG="value1"
+  elif [[ "$METHOD" == "hloc_sfm_netvlad_disk_dilg" && "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "500" && "$PNP_MIN_INLIERS" == "150" ]]; then
+    VALUE_TAG="value2"
+  elif [[ "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "100" && "$PNP_MIN_INLIERS" == "25" ]]; then
     VALUE_TAG="value0"
   elif [[ "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "120" && "$PNP_MIN_INLIERS" == "35" ]]; then
     VALUE_TAG="value1"
+  elif [[ "$NUM_RETRIEVAL" == "10" && "$GEO_VERIFY_MIN_MATCHES" == "150" && "$PNP_MIN_INLIERS" == "50" ]]; then
+    VALUE_TAG="value2"
   else
     VALUE_TAG="nr${NUM_RETRIEVAL}_gv${GEO_VERIFY_MIN_MATCHES}_pnp${PNP_MIN_INLIERS}"
   fi
@@ -208,6 +223,9 @@ CMD=(
   --traj-eval-data-root "$TRAJ_EVAL_ROOT"
   --sfm-sample-dist "$SFM_SAMPLE_DIST"
   --sfm-ba-iter "$SFM_BA_ITER"
+  --num-retrieval "$NUM_RETRIEVAL"
+  --geo-verify-min-matches "$GEO_VERIFY_MIN_MATCHES"
+  --pnp-min-inliers "$PNP_MIN_INLIERS"
 )
 [[ "$MODE" == "sfm" ]]   && CMD+=(--submap-sfm)
 [[ "$MODE" == "merge" ]] && CMD+=(--submap-merge)

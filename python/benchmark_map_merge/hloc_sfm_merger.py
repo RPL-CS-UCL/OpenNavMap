@@ -42,8 +42,8 @@ _LOC_CONF = {
     "refinement": {"refine_focal_length": False, "refine_extra_params": False},
 }
 _NUM_RETRIEVAL = 10  # top-10 ref frames per query (vs 20; SfM DB is rich enough)
-_GEO_VERIFY_MIN_MATCHES = 120
-_PNP_MIN_INLIERS = 35
+_GEO_VERIFY_MIN_MATCHES = 150
+_PNP_MIN_INLIERS = 50
 
 
 def _build_pnp_per_frame_log(
@@ -115,6 +115,13 @@ def _match_group(h5_file: h5py.File, query_name: str, db_name: str) -> h5py.Grou
     if db_key in h5_file and query_key in h5_file[db_key]:
         return h5_file[db_key][query_key]
     return h5_file[query_key][db_key]
+
+
+def _copy_points2d_without_tracks(source_points2d: list) -> list:
+    copied_points2d = []
+    for point2d in source_points2d:
+        copied_points2d.append(pycolmap.Point2D(xy=point2d.xy))
+    return copied_points2d
 
 
 def _fundamental_inlier_count(
@@ -702,6 +709,9 @@ class HlocSfmMapMerger:
         retrieval_conf: Optional[dict] = None,
         matcher_conf: Optional[dict] = None,
         local_feature_name: str = _LOCAL_FEATURE_NAME,
+        num_retrieval: int = _NUM_RETRIEVAL,
+        geo_verify_min_matches: int = _GEO_VERIFY_MIN_MATCHES,
+        pnp_min_inliers: int = _PNP_MIN_INLIERS,
     ) -> None:
         """
         Args:
@@ -717,6 +727,9 @@ class HlocSfmMapMerger:
         self.retrieval_conf = retrieval_conf or _RETRIEVAL_CONF
         self.matcher_conf = matcher_conf or _MATCHER_CONF
         self.local_feature_name = local_feature_name
+        self.num_retrieval = num_retrieval
+        self.geo_verify_min_matches = geo_verify_min_matches
+        self.pnp_min_inliers = pnp_min_inliers
         self.last_sfm_sampled_frames = 0
 
     @staticmethod
@@ -972,7 +985,7 @@ class HlocSfmMapMerger:
             img.name for img_id, img in model0.images.items()
             if _is_registered(model0, img_id, img)
         ]
-        k = min(_NUM_RETRIEVAL, len(db_images))
+        k = min(self.num_retrieval, len(db_images))
         if k == 0:
             return None, None, {}, {
                 "submap_idx": int(submap_idx),
@@ -1008,7 +1021,7 @@ class HlocSfmMapMerger:
         verified_pairs = loc_dir / "pairs-loc-verified.txt"
         gv_stats = _geometric_verify_pairs(
             loc_pairs, feats_merged, loc_matches, verified_pairs,
-            min_inliers=_GEO_VERIFY_MIN_MATCHES,
+            min_inliers=self.geo_verify_min_matches,
         )
 
         # --- Annotate GV pairs_detail with GT TP/FP (pair level, f_inliers >= threshold) ---
@@ -1016,7 +1029,7 @@ class HlocSfmMapMerger:
             _tp = _fp = _no_gt = 0
             for _pair in gv_stats["pairs_detail"]:
                 _f_inliers = _pair["f_inliers"]
-                if _f_inliers is None or _f_inliers < _GEO_VERIFY_MIN_MATCHES:
+                if _f_inliers is None or _f_inliers < self.geo_verify_min_matches:
                     continue
                 _q_orig = prefixed_to_orig.get(_pair["query"], _pair["query"])
                 _db_name = _pair["db"]
@@ -1042,7 +1055,7 @@ class HlocSfmMapMerger:
                     _fp += 1
             _n_above = _tp + _fp + _no_gt
             gv_stats["geo_verify_tp_fp"] = {
-                "threshold_f_inliers": _GEO_VERIFY_MIN_MATCHES,
+                "threshold_f_inliers": self.geo_verify_min_matches,
                 "num_pairs_above_thresh": _n_above,
                 "num_tp": _tp,
                 "num_fp": _fp,
@@ -1149,11 +1162,9 @@ class HlocSfmMapMerger:
             new_img.name = new_name
             new_img.camera_id = camera_id
             # copy points2D with point3D_id cleared (will be re-linked via add_observation)
-            cleared_p2d = []
-            for p2d in old_img.points2D:
-                cp = pycolmap.Point2D(xy=p2d.xy)
-                cleared_p2d.append(cp)
-            new_img.points2D = cleared_p2d
+            cleared_p2d = _copy_points2d_without_tracks(old_img.points2D)
+            if cleared_p2d:
+                new_img.points2D = cleared_p2d
             if hasattr(model0, "add_image_with_trivial_frame"):
                 model0.add_image_with_trivial_frame(new_img, cam_from_world)
             else:
@@ -1320,7 +1331,7 @@ class HlocSfmMapMerger:
                 n_failed += 1
                 continue
 
-            if ret is None or ret.get("num_inliers", 0) < _PNP_MIN_INLIERS:
+            if ret is None or ret.get("num_inliers", 0) < self.pnp_min_inliers:
                 failure_samples.append({
                     "frame": orig_name,
                     "reason": "insufficient_inliers",

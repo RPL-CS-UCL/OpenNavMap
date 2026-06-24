@@ -25,6 +25,7 @@ import logging
 import shutil
 import json
 from pathlib import Path
+from typing import Tuple
 
 import pycolmap
 
@@ -58,17 +59,30 @@ ORDER_TAGS = ["in", "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]
 _SFM_METHODS = {"hloc_sfm_netvlad_splg", "hloc_sfm_netvlad_disk_dilg"}
 
 
-def _threshold_value_tag() -> str:
-    threshold_to_value = {
-        (10, 100, 25): "value0",
-        (10, 120, 35): "value1",
-    }
+def _threshold_value_tag(
+    method: str,
+    num_retrieval: int,
+    geo_verify_min_matches: int,
+    pnp_min_inliers: int,
+) -> str:
+    if method == "hloc_sfm_netvlad_disk_dilg":
+        threshold_to_value = {
+            (10, 300, 70): "value0",
+            (10, 400, 110): "value1",
+            (10, 500, 150): "value2",
+        }
+    else:
+        threshold_to_value = {
+            (10, 100, 25): "value0",
+            (10, 120, 35): "value1",
+            (10, 150, 50): "value2",
+        }
     return threshold_to_value.get(
-        (_NUM_RETRIEVAL, _GEO_VERIFY_MIN_MATCHES, _PNP_MIN_INLIERS),
+        (num_retrieval, geo_verify_min_matches, pnp_min_inliers),
         (
-            f"nr{_NUM_RETRIEVAL}_"
-            f"gv{_GEO_VERIFY_MIN_MATCHES}_"
-            f"pnp{_PNP_MIN_INLIERS}"
+            f"nr{num_retrieval}_"
+            f"gv{geo_verify_min_matches}_"
+            f"pnp{pnp_min_inliers}"
         ),
     )
 
@@ -80,15 +94,29 @@ def _sfm_tag_from_method(method: str) -> str:
     return method
 
 
-def _create_sfm_merger(method: str, work_dir: Path) -> HlocSfmMapMerger:
+def _create_sfm_merger(
+    method: str,
+    work_dir: Path,
+    num_retrieval: int,
+    geo_verify_min_matches: int,
+    pnp_min_inliers: int,
+) -> HlocSfmMapMerger:
     if method == "hloc_sfm_netvlad_disk_dilg":
         return HlocSfmMapMerger(
             work_dir,
             feature_conf=extract_features.confs["disk"],
             matcher_conf=match_features.confs["disk+lightglue"],
             local_feature_name="feats-disk.h5",
+            num_retrieval=num_retrieval,
+            geo_verify_min_matches=geo_verify_min_matches,
+            pnp_min_inliers=pnp_min_inliers,
         )
-    return HlocSfmMapMerger(work_dir)
+    return HlocSfmMapMerger(
+        work_dir,
+        num_retrieval=num_retrieval,
+        geo_verify_min_matches=geo_verify_min_matches,
+        pnp_min_inliers=pnp_min_inliers,
+    )
 
 
 def _has_colmap_model_files(model_dir: Path) -> bool:
@@ -193,16 +221,24 @@ def _build_result_root(
     method: str,
     sfm_sample_dist: float = 0.25,
     sfm_only: bool = False,
+    num_retrieval: int = _NUM_RETRIEVAL,
+    geo_verify_min_matches: int = _GEO_VERIFY_MIN_MATCHES,
+    pnp_min_inliers: int = _PNP_MIN_INLIERS,
 ) -> Path:
     dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
     if sfm_only:
         sfm_tag = _sfm_tag_from_method(method)
         return dataset_root / f"s00000_sfm_{sfm_tag}{dist_tag}"
-    value_tag = _threshold_value_tag()
+    value_tag = _threshold_value_tag(
+        method,
+        num_retrieval,
+        geo_verify_min_matches,
+        pnp_min_inliers,
+    )
     return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}_{value_tag}"
 
 
-def _classify_merge_failure(merge_stats: dict) -> tuple[str, str]:
+def _classify_merge_failure(merge_stats: dict) -> Tuple[str, str]:
     num_pnp_success = int(merge_stats.get("num_pnp_success", 0) or 0)
     num_se3_inliers = int(merge_stats.get("num_se3_inliers", 0) or 0)
     error = str(merge_stats.get("error", "") or "")
@@ -389,6 +425,9 @@ def run_order(
     dataset_name: str = None,
     prebuilt_sfm_root: Path = None,
     clean_work: bool = False,
+    num_retrieval: int = _NUM_RETRIEVAL,
+    geo_verify_min_matches: int = _GEO_VERIFY_MIN_MATCHES,
+    pnp_min_inliers: int = _PNP_MIN_INLIERS,
 ):
     if not submap_sfm and not submap_merge:
         raise ValueError("Specify exactly one of --submap-sfm or --submap-merge")
@@ -410,6 +449,9 @@ def run_order(
     result_root = _build_result_root(
         dataset_root, order_tag, method, sfm_sample_dist,
         sfm_only=submap_sfm,
+        num_retrieval=num_retrieval,
+        geo_verify_min_matches=geo_verify_min_matches,
+        pnp_min_inliers=pnp_min_inliers,
     )
     if overwrite and result_root.exists():
         shutil.rmtree(result_root)
@@ -425,6 +467,7 @@ def run_order(
     _log(f"PnP sample distance: {pnp_sample_dist}", log_file)
     _log(f"SfM sample distance: {sfm_sample_dist}", log_file)
     _log(f"SfM BA iterations: {sfm_ba_iter}", log_file)
+    _log(f"Thresholds: retrieval={num_retrieval}, gv={geo_verify_min_matches}, pnp={pnp_min_inliers}", log_file)
     _log(f"Mode: {'submap-sfm' if submap_sfm else 'submap-merge'}", log_file)
 
     submap_base = dataset_root / data_dir
@@ -436,7 +479,13 @@ def run_order(
     work_dir = result_root / "_work"
     work_dir.mkdir(parents=True, exist_ok=True)
     if method in _SFM_METHODS:
-        sfm_merger = _create_sfm_merger(method, work_dir)
+        sfm_merger = _create_sfm_merger(
+            method,
+            work_dir,
+            num_retrieval,
+            geo_verify_min_matches,
+            pnp_min_inliers,
+        )
         merger = None
     else:
         sfm_merger = None
@@ -673,9 +722,9 @@ def run_order(
             topdown_path=_preds0_dir / "topdown_merge_0.png",
         )
         sfm_summary["merge_params"] = {
-            "num_retrieval": _NUM_RETRIEVAL,
-            "geo_verify_min_matches": _GEO_VERIFY_MIN_MATCHES,
-            "pnp_min_inliers": _PNP_MIN_INLIERS,
+            "num_retrieval": num_retrieval,
+            "geo_verify_min_matches": geo_verify_min_matches,
+            "pnp_min_inliers": pnp_min_inliers,
             "loc_conf": _LOC_CONF,
             "feature_conf_output": getattr(sfm_merger, "feature_conf", {}).get("output", ""),
             "retrieval_conf_output": getattr(sfm_merger, "retrieval_conf", {}).get("output", ""),
@@ -822,7 +871,7 @@ def run_order(
                 _log(
                     f"  [PnP] sampled={merge_stats.get('num_pnp_sampled', 0)}, "
                     f"success={merge_stats.get('num_pnp_success', 0)}, "
-                    f"threshold=inliers>={_PNP_MIN_INLIERS} | "
+                    f"threshold=inliers>={pnp_min_inliers} | "
                     f"[SE(3)] inliers={merge_stats.get('num_se3_inliers', 0)}, "
                     f"mean={merge_stats.get('se3_residual_mean_m', 0.0):.3f}m, "
                     f"max={merge_stats.get('se3_residual_max_m', 0.0):.3f}m",
@@ -1066,9 +1115,14 @@ def run_order(
         _dataset_name = dataset_name or f"{dataset_root.name}_s00000"
         # if dataset_name is explicitly given, use it as-is; otherwise append order tag
         dataset_order_name = _dataset_name if dataset_name else f"{_dataset_name}_{ORDER_TAGS[order_index]}"
-        # eval algorithm directory name mirrors result_root naming: method + dist_tag
+        value_tag = _threshold_value_tag(
+            method,
+            num_retrieval,
+            geo_verify_min_matches,
+            pnp_min_inliers,
+        )
         _dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
-        eval_method_name = f"{method}{_dist_tag}"
+        eval_method_name = f"{method}{_dist_tag}_{value_tag}"
         try:
             gt_path, est_path = export_to_eval_structure(
                 merge_dir, traj_eval_data_root, dataset_order_name, eval_method_name
@@ -1113,6 +1167,12 @@ if __name__ == "__main__":
     p.add_argument("--sfm-ba-iter", type=int, default=0,
                    help="BA iterations after VIO-prior triangulation (point-only, pose fixed). "
                         "0 = pure triangulation, no BA.")
+    p.add_argument("--num-retrieval", type=int, default=_NUM_RETRIEVAL,
+                   help="Top-k retrieval candidates per query for localization.")
+    p.add_argument("--geo-verify-min-matches", type=int, default=_GEO_VERIFY_MIN_MATCHES,
+                   help="Minimum geometric verification inliers to keep a pair.")
+    p.add_argument("--pnp-min-inliers", type=int, default=_PNP_MIN_INLIERS,
+                   help="Minimum PnP inliers required for a successful localized frame.")
     p.add_argument("--submap-sfm", action="store_true",
                    help="Build independent SfM for each submap. "
                         "Output: result_root/submaps_sfm/{submap_id}/sfm/")
@@ -1150,4 +1210,7 @@ if __name__ == "__main__":
         submap_merge=args.submap_merge,
         dataset_name=args.dataset_name,
         prebuilt_sfm_root=args.prebuilt_sfm_root,
+        num_retrieval=args.num_retrieval,
+        geo_verify_min_matches=args.geo_verify_min_matches,
+        pnp_min_inliers=args.pnp_min_inliers,
     )

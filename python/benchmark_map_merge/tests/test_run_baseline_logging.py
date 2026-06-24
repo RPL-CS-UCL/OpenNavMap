@@ -88,7 +88,7 @@ def test_sfm_result_root_includes_sfm_ba_suffix() -> None:
         sfm_sample_dist=0.25,
     )
 
-    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025_value1"
+    assert result_root.name == "s00000_results_in_2sub_hloc_sfm_netvlad_splg_025_value2"
 
 
 def test_sfm_only_result_root_uses_compact_name() -> None:
@@ -132,9 +132,40 @@ def test_result_root_appends_threshold_value_suffix() -> None:
         "in",
         "hloc_sfm_netvlad_splg",
         sfm_sample_dist=0.25,
+        num_retrieval=10,
+        geo_verify_min_matches=150,
+        pnp_min_inliers=50,
     )
 
-    assert result_root.name.endswith("_value1")
+    assert result_root.name.endswith("_value2")
+
+
+def test_result_root_uses_explicit_threshold_value0_suffix() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in",
+        "hloc_sfm_netvlad_disk_dilg",
+        sfm_sample_dist=0.25,
+        num_retrieval=10,
+        geo_verify_min_matches=300,
+        pnp_min_inliers=70,
+    )
+
+    assert result_root.name == "s00000_results_in_hloc_sfm_netvlad_disk_dilg_025_value0"
+
+
+def test_result_root_uses_explicit_threshold_value1_suffix() -> None:
+    result_root = run_baseline._build_result_root(
+        Path("/tmp/dataset"),
+        "in",
+        "hloc_sfm_netvlad_disk_dilg",
+        sfm_sample_dist=0.25,
+        num_retrieval=10,
+        geo_verify_min_matches=400,
+        pnp_min_inliers=110,
+    )
+
+    assert result_root.name == "s00000_results_in_hloc_sfm_netvlad_disk_dilg_025_value1"
 
 
 def test_cli_has_submap_sfm_and_submap_merge_flags() -> None:
@@ -295,7 +326,50 @@ def test_run_baseline_script_result_dir_uses_threshold_value_suffix(tmp_path: Pa
     )
 
     assert result.returncode == 0
-    assert "s00000_results_in_hloc_sfm_netvlad_splg_025_value1" in result.stdout
+    assert "s00000_results_in_hloc_sfm_netvlad_splg_025_value2" in result.stdout
+
+
+def test_run_baseline_script_result_dir_uses_explicit_threshold_value0_suffix(tmp_path: Path) -> None:
+    script_path = Path(__file__).parent.parent / "scripts" / "run_baseline.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_bc = fake_bin / "bc"
+    fake_bc.write_text("#!/bin/sh\nprintf '25\\n'\n")
+    fake_bc.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--mode",
+            "merge",
+            "--method",
+            "hloc_sfm_netvlad_disk_dilg",
+            "--env",
+            "vineyard",
+            "--prebuilt-sfm-root",
+            str(tmp_path / "sfm"),
+            "--num-retrieval",
+            "10",
+            "--geo-verify-min-matches",
+            "300",
+            "--pnp-min-inliers",
+            "70",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert "s00000_results_in_hloc_sfm_netvlad_disk_dilg_025_value0" in result.stdout
+    assert "--num-retrieval 10" in result.stdout
+    assert "--geo-verify-min-matches 300" in result.stdout
+    assert "--pnp-min-inliers 70" in result.stdout
 
 
 def test_run_evaluation_script_supports_output_dir(tmp_path: Path) -> None:
@@ -427,8 +501,12 @@ def test_run_order_reuses_cached_incremental_sfm(monkeypatch, tmp_path: Path) ->
 
     class FakeSfmMerger:
         last_sfm_sampled_frames = 1
+        local_feature_name = "feats-sp.h5"
+        feature_conf = {"output": "feats-sp"}
+        retrieval_conf = {"output": "global-feats-netvlad"}
+        matcher_conf = {"output": "matches-sp-lightglue"}
 
-        def __init__(self, work_dir: Path) -> None:
+        def __init__(self, work_dir: Path, *args, **kwargs) -> None:
             self.work_dir = work_dir
 
         def build_submap_sfm(self, *args, **kwargs) -> FakeReconstruction:
@@ -473,8 +551,8 @@ def test_sfm_summary_can_store_merge_params(tmp_path: Path) -> None:
         "num_registered_images": 2,
         "merge_params": {
             "num_retrieval": 10,
-            "geo_verify_min_matches": 120,
-            "pnp_min_inliers": 35,
+            "geo_verify_min_matches": 400,
+            "pnp_min_inliers": 110,
         },
     }
 
@@ -482,8 +560,8 @@ def test_sfm_summary_can_store_merge_params(tmp_path: Path) -> None:
 
     loaded = json.loads(output_path.read_text())
     assert loaded["merge_params"]["num_retrieval"] == 10
-    assert loaded["merge_params"]["geo_verify_min_matches"] == 120
-    assert loaded["merge_params"]["pnp_min_inliers"] == 35
+    assert loaded["merge_params"]["geo_verify_min_matches"] == 400
+    assert loaded["merge_params"]["pnp_min_inliers"] == 110
 
 
 def test_classify_merge_failure_no_pnp_success() -> None:
@@ -517,3 +595,84 @@ def test_classify_merge_failure_se3_after_pnp() -> None:
 
     assert message == "SE(3) estimation failed after PnP"
     assert summary_error == "SE(3) estimation failed after PnP"
+
+
+def test_run_order_exports_eval_method_name_with_value_suffix(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    data_root = dataset_root / "s00000_aria_data_000"
+    ref_dir = data_root / "s0"
+    ref_dir.mkdir(parents=True)
+    (dataset_root / "s00000_orders.txt").write_text("s0\n")
+    (ref_dir / "intrinsics.txt").write_text(
+        "seq/000000.color.jpg 444.0 445.0 511.5 287.5 1024 576\n"
+    )
+
+    fake_pose = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    monkeypatch.setattr(run_baseline, "_get_image_list", lambda path: ["seq/000000.color.jpg"])
+    monkeypatch.setattr(run_baseline, "read_poses", lambda path: {"seq/000000.color.jpg": fake_pose})
+    monkeypatch.setattr(run_baseline, "read_timestamps", lambda path: {"seq/000000.color.jpg": 0.0})
+    monkeypatch.setattr(run_baseline, "read_intrinsics", lambda path: {"seq/000000.color.jpg": np.ones(6)})
+    monkeypatch.setattr(run_baseline, "read_gps", lambda path: {"seq/000000.color.jpg": np.ones(5)})
+    monkeypatch.setattr(run_baseline, "read_edges_odom", lambda path: [])
+    monkeypatch.setattr(run_baseline, "save_sfm_vis", lambda *args, **kwargs: args[1].write_bytes(b"rrd"))
+    monkeypatch.setattr(run_baseline, "save_topdown_pose_viz", lambda *args, **kwargs: args[3].write_bytes(b"png"))
+    monkeypatch.setattr(run_baseline, "create_finalmap_symlink", lambda *args, **kwargs: None)
+
+    captured = {}
+
+    def fake_export_to_eval_structure(merge_dir, traj_eval_data_root, dataset_order_name, method_name):
+        captured["dataset_order_name"] = dataset_order_name
+        captured["method_name"] = method_name
+        return traj_eval_data_root / "gt.txt", traj_eval_data_root / "est.txt"
+
+    monkeypatch.setattr(run_baseline, "export_to_eval_structure", fake_export_to_eval_structure)
+
+    class FakeImage:
+        registered = True
+        image_id = 1
+        name = "seq/000000.color.jpg"
+
+    class FakeReconstruction:
+        def __init__(self) -> None:
+            self.images = {1: FakeImage()}
+            self.points3D = {1: object()}
+
+        def write_binary(self, path: str) -> None:
+            Path(path).mkdir(parents=True, exist_ok=True)
+
+    class FakeSfmMerger:
+        last_sfm_sampled_frames = 1
+        local_feature_name = "feats-disk.h5"
+        feature_conf = {"output": "feats-disk"}
+        retrieval_conf = {"output": "global-feats-netvlad"}
+        matcher_conf = {"output": "matches-disk-lightglue"}
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def build_submap_sfm(self, *args, **kwargs):
+            return FakeReconstruction()
+
+        @staticmethod
+        def extract_w2c_vec_from_image(image: FakeImage) -> np.ndarray:
+            return fake_pose
+
+    monkeypatch.setattr(run_baseline, "HlocSfmMapMerger", FakeSfmMerger)
+
+    run_baseline.run_order(
+        dataset_root=dataset_root,
+        method="hloc_sfm_netvlad_disk_dilg",
+        order_index=0,
+        traj_eval_data_root=tmp_path / "traj_eval",
+        skip_eval_export=False,
+        overwrite=True,
+        submap_merge=True,
+        num_retrieval=10,
+        geo_verify_min_matches=300,
+        pnp_min_inliers=70,
+    )
+
+    assert captured["dataset_order_name"] == "dataset_s00000_in"
+    assert captured["method_name"] == "hloc_sfm_netvlad_disk_dilg_025_value0"

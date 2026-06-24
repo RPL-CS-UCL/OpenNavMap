@@ -4,6 +4,7 @@ from scipy.spatial.transform import Rotation
 from benchmark_map_merge.hloc_sfm_merger import (
     _build_vio_reference_model,
     _build_pnp_per_frame_log,
+    _copy_points2d_without_tracks,
     _estimate_se3_umeyama,
     _image_cam_from_world,
     _run_light_bundle_adjustment,
@@ -125,3 +126,9 @@ def test_build_pnp_per_frame_log_records_success_and_failure_inliers() -> None:
             "status": "FAIL(insufficient_inliers)",
         },
     ]
+
+
+def test_copy_points2d_without_tracks_preserves_empty_list() -> None:
+    copied_points2d = _copy_points2d_without_tracks([])
+
+    assert copied_points2d == []
