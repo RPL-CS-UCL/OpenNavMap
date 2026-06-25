@@ -82,6 +82,12 @@ Each run writes to `output/<run_name>/`:
 - `data/metrics.json`, `data/ratios.json`, `data/coverage.json`: numeric results.
 - `data/topomap_k*.npz`, `data/topomap_merged_k*.npz`: exported topo graphs.
 
+Paper figure outputs:
+
+- `paper_figure_exploration_normal.pdf/png`: normal setting exploration figure.
+- `paper_figure_exploration_dynamic_change.pdf/png`: day-change exploration figure
+  with obstacle changes highlighted.
+
 Generated output directories are ignored by git.
 
 ## Test

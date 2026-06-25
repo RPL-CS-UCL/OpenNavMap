@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import networkx as nx
 import numpy as np
 
@@ -140,6 +141,11 @@ def load_env(data_dir: Path, sessions: list[int]) -> dict:
         "merged_topo": merged_topo,
         "merged_obs": merged_obs,
         "sessions": sessions,
+        "obstacle_block_cells": (
+            tuple(metrics["obstacle_block_cells"])
+            if "obstacle_block_cells" in metrics else None
+        ),
+        "day_change_session": metrics.get("day_change_session"),
     }
 
 
@@ -155,6 +161,42 @@ def _configure_ax(ax) -> None:
         spine.set_color("#D1D5DB")
 
 
+def _draw_dynamic_obstacle(
+    ax,
+    obstacle_block_cells: tuple[int, int, int, int] | None,
+    active: bool,
+    label: str,
+) -> None:
+    if obstacle_block_cells is None:
+        return
+
+    row_min, col_min, row_max, col_max = obstacle_block_cells
+    color = "#DC2626" if active else "#6B7280"
+    linestyle = "-" if active else "--"
+    alpha = 0.28 if active else 0.16
+    rect = Rectangle(
+        (col_min - 0.5, row_min - 0.5),
+        col_max - col_min + 1,
+        row_max - row_min + 1,
+        linewidth=2.2,
+        edgecolor=color,
+        facecolor=color,
+        alpha=alpha,
+        linestyle=linestyle,
+        zorder=6,
+    )
+    ax.add_patch(rect)
+    ax.text(
+        col_min,
+        max(0, row_min - 2),
+        label,
+        color=color,
+        fontsize=max(8, TITLE_FONTSIZE - 10),
+        bbox={"facecolor": "white", "edgecolor": color, "alpha": 0.85},
+        zorder=10,
+    )
+
+
 def draw_session_panel(
     ax,
     obs: np.ndarray,
@@ -164,10 +206,20 @@ def draw_session_panel(
     goal: tuple[int, int],
     res: float,
     session_idx: int,
+    obstacle_block_cells: tuple[int, int, int, int] | None = None,
+    day_change_session: int | None = None,
     title_fontsize: int = 16,
 ) -> None:
     _configure_ax(ax)
     ax.imshow(obs_to_rgb(obs), origin="upper", interpolation="none")
+    if obstacle_block_cells is not None and day_change_session is not None:
+        active = session_idx < day_change_session
+        _draw_dynamic_obstacle(
+            ax,
+            obstacle_block_cells,
+            active=active,
+            label="Blocked" if active else "Removed",
+        )
 
     if poses:
         tr = np.array([(p[0], p[1]) for p in poses])
@@ -206,10 +258,19 @@ def draw_merged_panel(
     gt_len: float,
     res: float,
     k_max: int,
+    obstacle_block_cells: tuple[int, int, int, int] | None = None,
+    day_change_session: int | None = None,
     title_fontsize: int = 16,
 ) -> None:
     _configure_ax(ax)
     ax.imshow(obs_to_rgb(merged_obs), origin="upper", interpolation="none")
+    if obstacle_block_cells is not None and day_change_session is not None:
+        _draw_dynamic_obstacle(
+            ax,
+            obstacle_block_cells,
+            active=False,
+            label=f"Removed after S{day_change_session}",
+        )
 
     if merged_topo.number_of_nodes() > 0:
         _draw_topo_graph(ax, merged_topo, edge_color=COLOR_TOPO_EDGE_INTRA, res=res)
@@ -245,20 +306,31 @@ def draw_merged_panel(
 # Main
 # ---------------------------------------------------------------------------
 
-ENVS = [
+NORMAL_ENVS = [
     ("duplex_office", "Office",  list(range(5))),
     ("octa_maze",     "Maze",    list(range(5))),
     ("tunnel",        "Tunnel",  list(range(5))),   # only first 5 of 10
 ]
+DYNAMIC_ENVS = [
+    ("duplex_office_daychange", "Office",  list(range(5))),
+    ("octa_maze_daychange",     "Maze",    list(range(5))),
+    ("tunnel_daychange",        "Tunnel",  list(range(5))),
+]
 
-TITLE_FONTSIZE = 24
-LABEL_FONTSIZE = 30
+NORMAL_OUTPUT_STEM = "paper_figure_exploration_normal"
+DYNAMIC_OUTPUT_STEM = "paper_figure_exploration_dynamic_change"
+
+TITLE_FONTSIZE = 32
+LABEL_FONTSIZE = 40
 
 
-def main() -> None:
-    _setting_font(fontsize=21, titlesize=TITLE_FONTSIZE, legend_fontsize=20)
+def plot_exploration_figure(
+    envs: list[tuple[str, str, list[int]]],
+    output_stem: str,
+) -> None:
+    _setting_font(fontsize=28, titlesize=TITLE_FONTSIZE, legend_fontsize=26)
 
-    n_rows = len(ENVS)
+    n_rows = len(envs)
     n_cols = 6  # 5 sessions + 1 merged
 
     fig, axes = plt.subplots(
@@ -268,7 +340,7 @@ def main() -> None:
     )
     fig.subplots_adjust(wspace=0.03, hspace=0.12)
 
-    for row_i, (env_name, env_label, sessions) in enumerate(ENVS):
+    for row_i, (env_name, env_label, sessions) in enumerate(envs):
         print(f"Loading {env_name} ...")
         data = load_env(OUTPUT_ROOT / env_name / "data", sessions)
 
@@ -282,6 +354,8 @@ def main() -> None:
                 goal=data["goal"],
                 res=data["res"],
                 session_idx=k,
+                obstacle_block_cells=data["obstacle_block_cells"],
+                day_change_session=data["day_change_session"],
                 title_fontsize=TITLE_FONTSIZE,
             )
 
@@ -296,6 +370,8 @@ def main() -> None:
             gt_len=data["gt_len"],
             res=data["res"],
             k_max=max(sessions),
+            obstacle_block_cells=data["obstacle_block_cells"],
+            day_change_session=data["day_change_session"],
             title_fontsize=TITLE_FONTSIZE,
         )
 
@@ -309,12 +385,17 @@ def main() -> None:
         )
 
     # Save
-    out_pdf = OUTPUT_ROOT / "paper_figure_exploration.pdf"
-    out_png = OUTPUT_ROOT / "paper_figure_exploration.png"
+    out_pdf = OUTPUT_ROOT / f"{output_stem}.pdf"
+    out_png = OUTPUT_ROOT / f"{output_stem}.png"
     fig.savefig(out_pdf, dpi=150, facecolor="white", bbox_inches="tight")
     fig.savefig(out_png, dpi=150, facecolor="white", bbox_inches="tight")
     plt.close(fig)
     print(f"Saved:\n  {out_pdf}\n  {out_png}")
+
+
+def main() -> None:
+    plot_exploration_figure(NORMAL_ENVS, NORMAL_OUTPUT_STEM)
+    plot_exploration_figure(DYNAMIC_ENVS, DYNAMIC_OUTPUT_STEM)
 
 
 if __name__ == "__main__":
