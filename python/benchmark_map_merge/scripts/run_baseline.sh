@@ -76,6 +76,7 @@ Options:
   --order-index N         Order index: 0=in, 1=r0, ..., 9=r8 (default: 0)
   --data-dir NAME         Override data directory (default: s00000_aria_data_000)
   --prebuilt-sfm-root DIR Pre-built submaps_sfm/ root; skips SfM rebuild in merge mode
+  --result-suffix TAG    Suffix appended to result dir name (e.g. 'ba10')
   --eval-config NAME      yaml config for run_evaluation.sh
   --overwrite             Remove existing result dir before running
   --clean-work            Delete large _work/merge_subN/ intermediates after each
@@ -117,6 +118,7 @@ OVERWRITE=
 PREBUILT_SFM_ROOT=
 CLEAN_WORK=
 DRY_RUN=
+RESULT_SUFFIX=
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -136,6 +138,7 @@ while [[ $# -gt 0 ]]; do
     --order-index)      ORDER_INDEX=$2; shift ;;
     --data-dir)         DATA_DIR=$2; shift ;;
     --prebuilt-sfm-root) PREBUILT_SFM_ROOT=$2; shift ;;
+    --result-suffix)     RESULT_SUFFIX=$2; shift ;;
     --eval-config)      EVAL_CONFIG=$2; shift ;;
     --overwrite)        OVERWRITE=1 ;;
     --clean-work)       CLEAN_WORK=1 ;;
@@ -233,6 +236,7 @@ CMD=(
 [[ -n "$OVERWRITE" ]]    && CMD+=(--overwrite)
 [[ -n "$CLEAN_WORK" ]]   && CMD+=(--clean-work)
 [[ -n "$PREBUILT_SFM_ROOT" ]] && CMD+=(--prebuilt-sfm-root "$PREBUILT_SFM_ROOT")
+[[ -n "$RESULT_SUFFIX" ]]    && CMD+=(--result-suffix "$RESULT_SUFFIX")
 
 # ---------------------------------------------------------------------------
 # Run

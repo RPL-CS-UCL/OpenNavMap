@@ -65,6 +65,7 @@ def test_light_bundle_adjustment_keeps_rig_pose_constant(monkeypatch) -> None:
             self.refine_extra_params = True
             self.refine_points3D = False
             self.refine_rig_from_world = True
+            self.refine_sensor_from_rig = True
             self.print_summary = True
             self.ceres = type("Ceres", (), {"solver_options": type("Solver", (), {"max_num_iterations": 0})()})()
 
@@ -85,6 +86,7 @@ def test_light_bundle_adjustment_keeps_rig_pose_constant(monkeypatch) -> None:
     options = captured["options"]
     assert options.refine_points3D is True
     assert options.refine_rig_from_world is False
+    assert options.refine_sensor_from_rig is False
     assert options.ceres.solver_options.max_num_iterations == 5
 
 

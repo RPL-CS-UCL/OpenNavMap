@@ -224,18 +224,20 @@ def _build_result_root(
     num_retrieval: int = _NUM_RETRIEVAL,
     geo_verify_min_matches: int = _GEO_VERIFY_MIN_MATCHES,
     pnp_min_inliers: int = _PNP_MIN_INLIERS,
+    result_suffix: str = "",
 ) -> Path:
     dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
+    suffix = f"_{result_suffix}" if result_suffix else ""
     if sfm_only:
         sfm_tag = _sfm_tag_from_method(method)
-        return dataset_root / f"s00000_sfm_{sfm_tag}{dist_tag}"
+        return dataset_root / f"s00000_sfm_{sfm_tag}{dist_tag}{suffix}"
     value_tag = _threshold_value_tag(
         method,
         num_retrieval,
         geo_verify_min_matches,
         pnp_min_inliers,
     )
-    return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}_{value_tag}"
+    return dataset_root / f"s00000_results_{order_tag}_{method}{dist_tag}_{value_tag}{suffix}"
 
 
 def _classify_merge_failure(merge_stats: dict) -> Tuple[str, str]:
@@ -428,6 +430,7 @@ def run_order(
     num_retrieval: int = _NUM_RETRIEVAL,
     geo_verify_min_matches: int = _GEO_VERIFY_MIN_MATCHES,
     pnp_min_inliers: int = _PNP_MIN_INLIERS,
+    result_suffix: str = "",
 ):
     if not submap_sfm and not submap_merge:
         raise ValueError("Specify exactly one of --submap-sfm or --submap-merge")
@@ -452,6 +455,7 @@ def run_order(
         num_retrieval=num_retrieval,
         geo_verify_min_matches=geo_verify_min_matches,
         pnp_min_inliers=pnp_min_inliers,
+        result_suffix=result_suffix,
     )
     if overwrite and result_root.exists():
         shutil.rmtree(result_root)
@@ -1191,6 +1195,9 @@ if __name__ == "__main__":
     p.add_argument("--dataset-name", type=str, default=None,
                    help="Dataset name for TUM eval export, e.g. 'vineyard_s00000'. "
                         "Defaults to <dataset_root.name>_s00000")
+    p.add_argument("--result-suffix", type=str, default="",
+                   help="Suffix appended to result directory name (e.g. 'ba10' "
+                        "produces s00000_results_..._value2_ba10)")
     args = p.parse_args()
 
     run_order(
@@ -1213,4 +1220,5 @@ if __name__ == "__main__":
         num_retrieval=args.num_retrieval,
         geo_verify_min_matches=args.geo_verify_min_matches,
         pnp_min_inliers=args.pnp_min_inliers,
+        result_suffix=args.result_suffix,
     )

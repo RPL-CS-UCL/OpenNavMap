@@ -22,12 +22,12 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     export OUT_DIR="$DATASET_PATH/results_vpr"
     
     ##### Setting for baseline comparison
-    # STR_BACKBONES="VGG16 ResNet18 ResNet18 DINOv2"
-    # STR_DESC_DIMENSIONS="4096 256 256 49152"
-    # STR_VPR_MODELS="netvlad cosplace eigenplaces anyloc-structured" 
-    # VPR_MATCH_MODELS="single_match sequence_match graph_search"
-    # VPR_MATCH_SEQ_LENS="20"
-    # IMAGE_MATCH_MODELS="none master"
+    STR_BACKBONES="VGG16 ResNet18 ResNet18 DINOv2"
+    STR_DESC_DIMENSIONS="4096 256 256 49152"
+    STR_VPR_MODELS="netvlad cosplace eigenplaces anyloc-structured" 
+    VPR_MATCH_MODELS="single_match sequence_match graph_search"
+    VPR_MATCH_SEQ_LENS="20"
+    IMAGE_MATCH_MODELS="none master"
     ##### Default Setting
     # STR_BACKBONES="ResNet18"
     # STR_DESC_DIMENSIONS="256"
@@ -36,12 +36,12 @@ for db_dir in "$DATASET_PATH"/database/*/; do
     # VPR_MATCH_SEQ_LENS="50"
     # IMAGE_MATCH_MODELS="none master"
     ##### 
-    STR_BACKBONES="ResNet18 Dinov2 Dinov2 DINOv2"
-    STR_DESC_DIMENSIONS="512 8448 8448 49152"
-    STR_VPR_MODELS="cosplace megaloc clique-mining anyloc-unstructured" 
-    VPR_MATCH_MODELS="single_match sequence_match"
-    VPR_MATCH_SEQ_LENS="20"
-    IMAGE_MATCH_MODELS="master"
+    # STR_BACKBONES="ResNet18 Dinov2 Dinov2 DINOv2"
+    # STR_DESC_DIMENSIONS="512 8448 8448 49152"
+    # STR_VPR_MODELS="cosplace megaloc clique-mining anyloc-unstructured" 
+    # VPR_MATCH_MODELS="single_match sequence_match"
+    # VPR_MATCH_SEQ_LENS="20"
+    # IMAGE_MATCH_MODELS="master"
     ### 
     
     python $PROJECT_PATH/python/benchmark_vpr/submission.py \
