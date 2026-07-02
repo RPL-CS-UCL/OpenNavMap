@@ -16,7 +16,7 @@ from typing import List, Tuple, Dict
 from codetiming import Timer
 
 from utils.utils_vpr_method import initialize_match_model
-from utils.utils_map_merging import *
+from utils_map_merging import *
 from utils.utils_geom import convert_vec_to_matrix, convert_matrix_to_vec, compute_pose_error
 from utils.utils_geom import convert_vec_gtsam_pose3, convert_matrix_gtsam_pose3
 from utils.gtsam_pose_graph import PoseGraph

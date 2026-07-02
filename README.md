@@ -38,6 +38,11 @@ conda install pytorch=2.0.1 torchvision=0.15.2 pytorch-cuda=11.8 numpy=1.24.3 -c
 pip install -r requirements.txt
 pip install -e third_party/vismatch
 ```
+
+> **Note:** `third_party/litevloc_code` is a **required** submodule, not optional. It provides the core graph structures (`image_graph.py`, `point_graph.py`, etc.) and shared utility functions used directly by OpenNavMap. If you cloned without `--recurse-submodules`, run `git submodule update --init --recursive` before proceeding. All scripts must set `PYTHONPATH` to include both `python/` and `third_party/litevloc_code/python/`, e.g.:
+> ```bash
+> export PYTHONPATH=$(pwd)/python:$(pwd)/third_party/litevloc_code/python
+> ```
 Enter this code to check whether torch-related packages are installed
 ```bash
 python test_torch_install.py
