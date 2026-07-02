@@ -1,4 +1,4 @@
-## Instraction of Running LiteVloc with Simulated Matterport3d
+## Instruction of Running Visual Navigation with Simulated Matterport3d
 
 This repository provides a setup for visual navigation using ROS, the CMU Navigation Stack, IPlanner, and the Matterport3D environment. Follow the steps below to configure your workspace and dependencies.
 
@@ -20,7 +20,7 @@ cd ~/catkin_ws/src
 ```
 Clone the CMU navigation stack (some settings were changed)
 ```bash
-git clone git@github.com:RPL-CS-UCL/autonomous_exploration_development_environment.git
+git clone https://github.com/RPL-CS-UCL/autonomous_exploration_development_environment.git
 cd autonomous_exploration_development_environment
 git checkout noetic-matterport-anymal_dev
 ```
@@ -30,8 +30,8 @@ git clone https://github.com/MichaelFYang/iplanner_path_follow.git
 ```
 Clone the navigation interface and benchmark_visual_nav
 ```bash
-git clone git@github.com:RPL-CS-UCL/navigation_interface.git
-git clone git@github.com:RPL-CS-UCL/benchmark_visual_nav.git
+git clone https://github.com/RPL-CS-UCL/navigation_interface.git
+git clone https://github.com/RPL-CS-UCL/benchmark_visual_nav.git
 ```
 Install other dependencies
 ```bash
@@ -39,15 +39,16 @@ sudo apt install ros-noetic-diagnostic-aggregator
 ```
 
 #### Setup Matterport3D Environment
-Follow the instructions in the [CMU VLA Challenge Repository](https://github.com/jizhang-cmu/cmu_vla_challenge_matterport) to download models from Matterport3D and install the habitat engine. Or use this simple command
+Follow the instructions in the [Habitat](https://github.com/facebookresearch/habitat-sim) to install the habitat engine, or use this simple command
 ```bash
 conda create --name habitat python=3.8
 conda activate habitat
 conda install habitat-sim==0.2.1  -c conda-forge -c aihabitat
 pip install numba==0.58.1 numpy==1.24.0
 ```
+Follow the instructions in [CMU VLA Challenge Repository](https://github.com/jizhang-cmu/cmu_vla_challenge_matterport) to download models from Matterport3D. 
 
-And move the environemnt files to `benchmark_visual_nav/data/matterport/{env_id}`. An example is shown below:
+Move the environemnt files to `benchmark_visual_nav/data/matterport/{env_id}`. We use ID:17DRP5sb8fy as the example:
 ```bash
 benchmark_visual_nav/data/matterport/17DRP5sb8fy
     navigation_environment/meshes/
@@ -103,7 +104,7 @@ You can see these output if you have successfully install the simulated environm
     </a>   
 </div>
 
-#### Launching the CMU Navigation Stack with IPlanner
+#### Launching the CMU Navigation Stack with iPlanner
 Follow the [tutorial](https://github.com/leggedrobotics/iPlanner) to install **iPlanner** for local planning.
 Start the environment
 ```bash
@@ -146,7 +147,7 @@ Run the iPlanner
 conda activate iplanner
 roslaunch benchmark_visual_nav iplanner.launch config:=vehicle_sim_vloc
 ```
-4. You can see these output
+You can see these output
 <div align="center">
     <a href="">
       <img src="media/ins_simu_matterport3d_vnav.gif" width="50%" 

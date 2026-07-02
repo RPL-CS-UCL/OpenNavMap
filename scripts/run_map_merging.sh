@@ -34,7 +34,7 @@ set -euo pipefail  # Fail on errors and undefined variables
 readonly START_SUBMAP_ID=0
 readonly END_SUBMAP_ID=54
 readonly DATASET_NAME="ucl_campus_aria"
-readonly PATH_SUBMAP="/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/${DATASET_NAME}"
+readonly PATH_SUBMAP="/Titan/dataset/data_opennavmap/map_multisession_eval/${DATASET_NAME}"
 
 readonly SCENE=$1
 readonly ORDER_INDEX=$2
@@ -48,12 +48,12 @@ readonly USE_IG=${6:-1}
 readonly USE_TD=${7:-1}
 
 ########################
-readonly PROJECT_PATH="/Titan/code/robohike_ws/src/litevloc"
+readonly PROJECT_PATH="/Titan/code/robohike_ws/src/opennavmap"
 readonly IMAGE_SIZE="512 288"
-readonly VPR_MATCH_MODEL="graph_search" # single_match, sequence_match, sequence_match_adaptive, graph_search
+readonly VPR_MATCH_MODEL="vpr_dp" # single_match, seqslam, vpr_dp
 readonly VPR_SEQ_LEN=10
 readonly SCENE_ORDER_FILE="${PATH_SUBMAP}/${SCENE}_orders.txt"
-readonly TRAJ_EVAL_PATH="/Rocket_ssd/dataset/data_litevloc/traj_eval_data/test_eval_data"
+readonly TRAJ_EVAL_PATH="/Titan/dataset/data_opennavmap/traj_eval_data/test_eval_data"
 
 # --------------------------
 # Initialization and Validation
@@ -153,14 +153,14 @@ merge_submaps() {
     fi
     ln -s "${input_dir}/${base_name}" "${input_dir}/merge_finalmap"
 
-    # GT and EST poses
-    rosrun litevloc utils_convert_pose_format.py \
+    # GT and EST poses (pure Python, no ROS dependency)
+    python "${PROJECT_PATH}/third_party/litevloc_code/python/utils/utils_convert_pose_format.py" \
         --input_type mapfree --output_type tum \
         --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses_abs_gt.txt" \
         --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \
         --output_pose "${TRAJ_EVAL_PATH}/groundtruth/traj/${DATASET_NAME}_${SCENE}_${DATA_TYPE}.txt"
 
-    rosrun litevloc utils_convert_pose_format.py \
+    python "${PROJECT_PATH}/third_party/litevloc_code/python/utils/utils_convert_pose_format.py" \
         --input_type mapfree --output_type tum \
         --input_pose "${input_dir}/merge_finalmap/submap_disc_0/poses.txt" \
         --input_time "${input_dir}/merge_finalmap/submap_disc_0/timestamps.txt" \

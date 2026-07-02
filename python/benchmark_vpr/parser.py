@@ -2,10 +2,8 @@ import argparse
 
 available_vpr_match_models=[
 	"single_match",
-	"topo_filter",
-	"sequence_match",
-	"sequence_match_adaptive",
-	"graph_search"
+	"seqslam",
+	"vpr_dp"
 ]
 def parse_arguments():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -36,6 +34,7 @@ def parse_arguments():
 			"anyloc-indoor",
 			"anyloc-aerial",
 			"anyloc-structured",
+			"megaloc",
 			"anyloc-unstructured",
 			"anyloc-global",
 			"salad",
