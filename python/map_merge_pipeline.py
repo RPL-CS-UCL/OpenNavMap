@@ -490,8 +490,8 @@ def perform_keyframe_culling(
 		# Go through all nodes in the current map, check IQA probability
 		for node_query in cur_submap.covis.nodes.values():
 			acc_prob = merger.lm_selector.quality_probability(node_query.iqa_data)
+			prob_str = merger.lm_selector.print_prefilter_prob(node_query.iqa_data, use_iqa=args.use_iqa)
 			if acc_prob < merger.lm_selector.P_iqa_th:
-				prob_str = merger.lm_selector.print_prefilter_prob(node_query.iqa_data, use_iqa=args.use_iqa)
 				nodes_query_to_cull.append(node_query)
 				nodes_to_cull_info.append({
 					'node_id': node_query.id,

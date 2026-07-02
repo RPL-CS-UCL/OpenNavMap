@@ -6,8 +6,8 @@ import numpy as np
 import math
 from pathlib import Path
 
-from python.image_node import ImageNode
-from python.utils.utils_vpr_method import perform_knn_search
+from image_node import ImageNode
+from utils.utils_vpr_method import perform_knn_search
 
 class LandmarkSelector:
     def __init__(self):
