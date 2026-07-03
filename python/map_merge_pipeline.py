@@ -184,6 +184,34 @@ def _iter_unique_edges(graph):
 				yield node, neighbor, weight
 
 
+def _scene_confidence_maps(scene):
+	"""Return confidence maps from current pose-estimator scenes with legacy fallback."""
+	if hasattr(scene, 'conf_i') and hasattr(scene, 'conf_j'):
+		return scene.conf_i, scene.conf_j
+	return scene.weight_i, scene.weight_j
+
+
+def _record_graph_edges(recorder, merge_step: int, submap_id: int, edge_type: str, graph):
+	if recorder is None or graph is None:
+		return
+	for node_a, node_b, weight in _iter_unique_edges(graph):
+		recorder.record_event(
+			merge_step=merge_step,
+			stage="graph_edge_observed",
+			event_type=f"{edge_type}_edge_observed",
+			submap_id=submap_id,
+			keyframe_id=max(node_a.id, node_b.id),
+			payload={
+				"edge_type": edge_type,
+				"nodeAid": node_a.id,
+				"nodeBid": node_b.id,
+				"weight": weight,
+				"position_a": node_a.trans,
+				"position_b": node_b.trans,
+			},
+		)
+
+
 def _record_submap_loaded(merger: MergePipeline, merge_step: int, submap: MapManager):
 	recorder = merger.runtime_viz_recorder
 	if recorder is None:
@@ -210,23 +238,9 @@ def _record_submap_loaded(merger: MergePipeline, merge_step: int, submap: MapMan
 				keyframe_id=node.id,
 				payload=_node_payload(submap.covis, node),
 			)
-	if submap.odom:
-		for node_a, node_b, weight in _iter_unique_edges(submap.odom):
-			recorder.record_event(
-				merge_step=merge_step,
-				stage="vio_edge_observed",
-				event_type="vio_edge_observed",
-				submap_id=submap.map_id,
-				keyframe_id=max(node_a.id, node_b.id),
-				payload={
-					"edge_type": "odom",
-					"node_a": node_a.id,
-					"node_b": node_b.id,
-					"weight": weight,
-					"position_a": node_a.trans,
-					"position_b": node_b.trans,
-				},
-			)
+	_record_graph_edges(recorder, merge_step, submap.map_id, "odom", submap.odom)
+	_record_graph_edges(recorder, merge_step, submap.map_id, "covis", submap.covis)
+	_record_graph_edges(recorder, merge_step, submap.map_id, "trav", submap.trav)
 
 
 def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray) -> pathlib.Path:
@@ -574,11 +588,11 @@ def perform_local_loc(
 				if hasattr(merger.pose_estimator, 'get_minimum_spanning_tree'):
 					top_k_matches = len(db_names) # default: 2
 					msp_edges = merger.pose_estimator.get_minimum_spanning_tree()
-					weight_i, weight_j = merger.pose_estimator.scene.weight_i, merger.pose_estimator.scene.weight_j
+					conf_i, conf_j = _scene_confidence_maps(merger.pose_estimator.scene)
 					for edge in msp_edges:
 						if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
 							edge_str = f"{edge[0]}_{edge[1]}"
-							conf = (weight_i[edge_str].mean() * weight_j[edge_str].mean()).detach().cpu().item()
+							conf = (conf_i[edge_str].mean() * conf_j[edge_str].mean()).detach().cpu().item()
 
 					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					##### Only reliable db-query pairs are considered for keyframe selection
