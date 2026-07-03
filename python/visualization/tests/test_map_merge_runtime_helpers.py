@@ -5,6 +5,7 @@ import torch
 from matplotlib import rcParams
 
 from map_merge_pipeline import (
+    _node_payload,
     _plot_runtime_dmatrix_panels,
     _record_graph_edges,
     _scene_confidence_maps,
@@ -42,6 +43,26 @@ class FakeNode:
         self.id = node_id
         self.trans = np.array([float(node_id), 0.0, 0.0])
         self.edges = {}
+
+
+def test_node_payload_records_camera_intrinsics_and_image_size(tmp_path) -> None:
+    node = FakeNode(5)
+    node.time = 123.4
+    node.quat = np.array([0.0, 0.0, 0.0, 1.0])
+    node.rgb_img_name = "seq/000005.color.jpg"
+    node.raw_K = np.array([[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]])
+    node.K = np.array([[90.0, 0.0, 45.0], [0.0, 95.0, 55.0], [0.0, 0.0, 1.0]])
+    node.raw_img_size = np.array([2880, 2880])
+    node.img_size = np.array([512, 288])
+    graph = SimpleNamespace(map_root=tmp_path)
+
+    payload = _node_payload(graph, node)
+
+    assert payload["raw_K"] == [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]]
+    assert payload["K"] == [[90.0, 0.0, 45.0], [0.0, 95.0, 55.0], [0.0, 0.0, 1.0]]
+    assert payload["raw_img_size"] == [2880, 2880]
+    assert payload["img_size"] == [512, 288]
+    assert payload["rgb_img_path"] == str(tmp_path / "seq/000005.color.jpg")
 
 
 def test_record_graph_edges_writes_node_ids_weight_and_edge_type() -> None:

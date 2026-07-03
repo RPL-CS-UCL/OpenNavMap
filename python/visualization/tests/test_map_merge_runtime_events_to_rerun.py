@@ -33,6 +33,21 @@ class FakeRerun:
     def Arrows3D(*args, **kwargs):
         return ("arrows3d", args, kwargs)
 
+    @staticmethod
+    def Transform3D(*args, **kwargs):
+        return ("transform3d", args, kwargs)
+
+    @staticmethod
+    def Pinhole(*args, **kwargs):
+        return ("pinhole", args, kwargs)
+
+    @staticmethod
+    def Quaternion(**kwargs):
+        return ("quaternion", kwargs)
+
+    class ViewCoordinates:
+        RDF = "RDF"
+
     def set_time_sequence(self, timeline, value) -> None:
         self.times.append((timeline, value))
 
@@ -57,6 +72,21 @@ def test_parse_args_accepts_event_dir_and_rerun_output() -> None:
 
     assert args.event_dir == Path("/tmp/rerun_viz")
     assert args.rerun_output == Path("/tmp/out.rrd")
+
+
+def test_parse_args_accepts_render_trace() -> None:
+    args = parse_args(
+        [
+            "--event-dir",
+            "/tmp/rerun_viz",
+            "--rerun-output",
+            "/tmp/out.rrd",
+            "--render-trace",
+            "/tmp/trace.jsonl",
+        ]
+    )
+
+    assert args.render_trace == Path("/tmp/trace.jsonl")
 
 
 def test_load_runtime_events_reads_jsonl_in_order(tmp_path: Path) -> None:
@@ -98,7 +128,14 @@ def test_renderer_logs_stage_node_edge_and_dmatrix(tmp_path: Path) -> None:
             "submap_id": 0,
             "keyframe_id": 3,
             "event_type": "vio_node_observed",
-            "payload": {"node_id": 3, "position": [1.0, 2.0, 3.0]},
+            "payload": {
+                "node_id": 3,
+                "position": [1.0, 2.0, 3.0],
+                "quat_xyzw": [0.0, 0.0, 0.0, 1.0],
+                "K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                "img_size": [512, 288],
+                "rgb_img_path": str(dmatrix_path),
+            },
             "artifacts": {},
         },
     )
@@ -135,6 +172,10 @@ def test_renderer_logs_stage_node_edge_and_dmatrix(tmp_path: Path) -> None:
 
     assert ("/status/stage_summary", ("text", "Stage 1 / 8\nLoad Reference Submap 0")) in rr.logged
     assert any(path == "/world/submaps/0/nodes/000003" for path, _ in rr.logged)
+    assert any(path == "/world/submaps/0/cameras/000003" and value[0] == "transform3d" for path, value in rr.logged)
+    assert any(path == "/world/submaps/0/cameras/000003/image" and value[0] == "pinhole" for path, value in rr.logged)
+    assert any(path == "/world/submaps/0/cameras/000003/image" and value[0] == "encoded_image" for path, value in rr.logged)
+    assert any(path == "/evidence/current_keyframe_image" and value[0] == "encoded_image" for path, value in rr.logged)
     assert any(path == "/world/submaps/0/edges/covis/000003_000004" for path, _ in rr.logged)
     assert (
         "/evidence/dmatrix",

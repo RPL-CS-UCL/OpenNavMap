@@ -13,12 +13,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--event-dir", type=Path, required=True)
     parser.add_argument("--rerun-output", type=Path, required=True)
+    parser.add_argument("--render-trace", type=Path, default=None)
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
-    MapMergeRuntimeRerunRenderer(args.event_dir).write(args.rerun_output)
+    MapMergeRuntimeRerunRenderer(args.event_dir, args.render_trace).write(args.rerun_output)
 
 
 if __name__ == "__main__":

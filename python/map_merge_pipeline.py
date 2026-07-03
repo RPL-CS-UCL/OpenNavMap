@@ -167,7 +167,7 @@ class MergePipeline:
 
 def _node_payload(graph, node):
 	image_path = graph.map_root / node.rgb_img_name if getattr(node, 'rgb_img_name', None) else None
-	return {
+	payload = {
 		"node_id": node.id,
 		"time": getattr(node, 'time', None),
 		"position": node.trans,
@@ -175,6 +175,12 @@ def _node_payload(graph, node):
 		"rgb_img_name": getattr(node, 'rgb_img_name', None),
 		"rgb_img_path": str(image_path) if image_path is not None else None,
 	}
+	for attr_name in ("raw_K", "K", "raw_img_size", "img_size"):
+		if hasattr(node, attr_name):
+			value = getattr(node, attr_name)
+			if value is not None:
+				payload[attr_name] = np.asarray(value).tolist()
+	return payload
 
 
 def _iter_unique_edges(graph):
