@@ -102,6 +102,16 @@ merge_submaps() {
     local submap_dir="${PATH_SUBMAP}/${SCENE}_aria_data"
     mkdir -p $input_dir
 
+    local rerun_flags=""
+    if [[ "${RERUN_VIZ:-0}" == "1" ]]; then
+        local rerun_output="${RERUN_OUTPUT:-${input_dir}/map_merge_process.rrd}"
+        rerun_flags="--rerun-viz --rerun-output ${rerun_output}"
+        rerun_flags+=" --rerun-image-format ${RERUN_IMAGE_FORMAT:-jpg}"
+        rerun_flags+=" --rerun-jpeg-quality ${RERUN_JPEG_QUALITY:-85}"
+        rerun_flags+=" --rerun-dmatrix-format ${RERUN_DMATRIX_FORMAT:-png}"
+        rerun_flags+=" --rerun-axis-scale ${RERUN_AXIS_SCALE:-auto}"
+    fi
+
     local output_pose_path_gt="${TRAJ_EVAL_PATH}/groundtruth/traj"
     mkdir -p $output_pose_path_gt
     local output_pose_path_alg="${TRAJ_EVAL_PATH}/algorithms/${TRAJ_NAME}/laptop/traj"
@@ -143,7 +153,8 @@ merge_submaps() {
             --vpr_match_seq_len "$VPR_SEQ_LEN" \
             --pose_estimation_method "$POSE_EST" \
             --viz \
-            $ABLATION_FLAG
+            $ABLATION_FLAG \
+            $rerun_flags
 
         base_name="${new_merged_name}"
     done

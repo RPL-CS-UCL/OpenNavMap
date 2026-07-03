@@ -27,6 +27,7 @@ from benchmark_kf_selection.metric.landmark_selector import LandmarkSelector
 from map_manager import MapManager
 from image_graph import ImageGraph
 from image_node import ImageNode
+from visualization.map_merge_viz_recorder import MapMergeVizRecorder
 
 from colorama import Fore, init
 init(autoreset=True)
@@ -614,6 +615,16 @@ def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
 	assert len(merger.submaps) > 0, "No submaps loaded."
 	logging.info(f"Processing {len(merger.submaps)} submaps.")
+	rerun_recorder = None
+	if args.rerun_viz:
+		rerun_output = pathlib.Path(args.rerun_output) if args.rerun_output else merger.log_dir / "preds" / "map_merge_process.rrd"
+		rerun_recorder = MapMergeVizRecorder(
+			rerun_output,
+			image_format=args.rerun_image_format,
+			jpeg_quality=args.rerun_jpeg_quality,
+			dmatrix_format=args.rerun_dmatrix_format,
+			axis_scale=args.rerun_axis_scale,
+		)
 	
 	# Initialize the final submap
 	final_map = MapManager(merger.log_dir)
@@ -833,6 +844,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 
 	if not final_map.is_empty:
 		final_map.save_to_file()
+		if rerun_recorder is not None:
+			rerun_recorder.record_result_map(merger.log_dir)
+			rerun_recorder.save()
 
 if __name__ == '__main__':
 	args = parse_arguments()

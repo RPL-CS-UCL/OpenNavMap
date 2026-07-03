@@ -14,6 +14,8 @@ dataset/
 *.rviz
 
 *vis*
+!python/visualization/
+!python/visualization/**
 !third_party/
 !third_party/vismatch
 !third_party/vismatch/
