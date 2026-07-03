@@ -54,6 +54,31 @@ class MapMergeRuntimeEventRecorder:
             event_file.write(json.dumps(event, sort_keys=True) + "\n")
         self.demo_step += 1
 
+    def record_stage_annotation(
+        self,
+        merge_step: int,
+        submap_id: Optional[int],
+        stage_index: int,
+        stage_total: int,
+        title: str,
+        subtitle: str,
+    ) -> None:
+        display_text = f"Stage {stage_index} / {stage_total}\n{title}\n{subtitle}"
+        self.record_event(
+            merge_step=merge_step,
+            stage="stage_annotation",
+            event_type="stage_annotation",
+            submap_id=submap_id,
+            keyframe_id=None,
+            payload={
+                "stage_index": stage_index,
+                "stage_total": stage_total,
+                "title": title,
+                "subtitle": subtitle,
+                "display_text": display_text,
+            },
+        )
+
     def _relative_artifacts(self, artifacts: Dict[str, Path]) -> Dict[str, str]:
         relative = {}
         for key, path in artifacts.items():

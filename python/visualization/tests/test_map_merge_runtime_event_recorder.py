@@ -70,3 +70,37 @@ def test_recorder_writes_artifact_relative_paths(tmp_path: Path) -> None:
     events = _read_jsonl(tmp_path / "rerun_viz" / "demo_events.jsonl")
 
     assert events[0]["artifacts"] == {"dmatrix_png": "artifacts/step_001/dmatrix.png"}
+
+
+def test_recorder_writes_stage_annotation_event(tmp_path: Path) -> None:
+    recorder = MapMergeRuntimeEventRecorder(tmp_path / "rerun_viz")
+
+    recorder.record_stage_annotation(
+        merge_step=1,
+        submap_id=1,
+        stage_index=8,
+        stage_total=8,
+        title="Submap Merging and Edge Updating",
+        subtitle="Merge the optimized query submap and update graph edges.",
+    )
+
+    events = _read_jsonl(tmp_path / "rerun_viz" / "demo_events.jsonl")
+
+    assert events == [
+        {
+            "demo_step": 0,
+            "merge_step": 1,
+            "stage": "stage_annotation",
+            "event_type": "stage_annotation",
+            "submap_id": 1,
+            "keyframe_id": None,
+            "payload": {
+                "stage_index": 8,
+                "stage_total": 8,
+                "title": "Submap Merging and Edge Updating",
+                "subtitle": "Merge the optimized query submap and update graph edges.",
+                "display_text": "Stage 8 / 8\nSubmap Merging and Edge Updating\nMerge the optimized query submap and update graph edges.",
+            },
+            "artifacts": {},
+        }
+    ]

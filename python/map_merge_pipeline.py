@@ -274,6 +274,27 @@ def _record_pgo_event(merger: MergePipeline, stage: str, event_type: str, g2o_pa
 		payload=payload,
 		artifacts={"g2o": pathlib.Path(g2o_path)},
 	)
+
+
+def _record_stage_annotation(
+	merger: MergePipeline,
+	merge_step: int,
+	submap_id: int,
+	stage_index: int,
+	title: str,
+	subtitle: str,
+):
+	recorder = merger.runtime_viz_recorder
+	if recorder is None:
+		return
+	recorder.record_stage_annotation(
+		merge_step=merge_step,
+		submap_id=submap_id,
+		stage_index=stage_index,
+		stage_total=8,
+		title=title,
+		subtitle=subtitle,
+	)
 		
 def compute_lm_pairwise(
 	db_nodes, 
@@ -406,6 +427,14 @@ def perform_global_loc(
 				payload={"shape": D_all.shape},
 				artifacts={"dmatrix_png": dmatrix_path},
 			)
+			_record_stage_annotation(
+				merger,
+				merge_step=merger.runtime_merge_step,
+				submap_id=cur_graph_id,
+				stage_index=4,
+				title="VPR Sequence Matching",
+				subtitle="Search the difference matrix for topological matches between reference and query frames.",
+			)
 		
 		# VPR sequence matching for all query nodes
 		connected_db_query_indices = []
@@ -452,6 +481,14 @@ def perform_global_loc(
 			raise ValueError(f"Unsupported VPR match model: {type(merger.vpr_match_model).__name__}")
 
 		# Geometric Verification
+		_record_stage_annotation(
+			merger,
+			merge_step=merger.runtime_merge_step,
+			submap_id=cur_graph_id,
+			stage_index=5,
+			title="Geometric Verification",
+			subtitle="Reject false positive topological matches using feature inlier checks.",
+		)
 		coarse_edges = []
 		for db_idx, query_idx, _ in connected_db_query_indices:
 			db_node = final_graph.get_node(db_idx)	
@@ -894,6 +931,24 @@ def perform_submap_merging(merger: MergePipeline, args):
 	# Incrementally merge each submap to the final map, only care about the first two submaps
 	for merge_step, cur_submap in enumerate(merger.submaps):
 		merger.runtime_merge_step = merge_step
+		if merge_step == 0:
+			_record_stage_annotation(
+				merger,
+				merge_step=merge_step,
+				submap_id=cur_submap.map_id,
+				stage_index=1,
+				title=f"Load Reference Submap {cur_submap.map_id}",
+				subtitle="Replay keyframes and odom/covis/trav graph edges for the reference submap.",
+			)
+		elif merge_step == 1:
+			_record_stage_annotation(
+				merger,
+				merge_step=merge_step,
+				submap_id=cur_submap.map_id,
+				stage_index=2,
+				title=f"Load Query Submap {cur_submap.map_id}",
+				subtitle="Replay keyframes and odom/covis/trav graph edges for the query submap.",
+			)
 		_record_submap_loaded(merger, merge_step, cur_submap)
 		# The offset of node.id in cur_submap 
 		merger.id_offset = final_map.get_max_node_id() + 1
@@ -901,6 +956,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 		if not final_map.is_empty:
 			edge_history = dict()
 			# Identify coarse covisibility relationship 
+			_record_stage_annotation(
+				merger,
+				merge_step=merge_step,
+				submap_id=cur_submap.map_id,
+				stage_index=3,
+				title="Compute Difference Matrix",
+				subtitle="Compare query and reference descriptors to build the localization cost matrix.",
+			)
 			edges_nodeAB_coarse_covis, D_matrix = perform_global_loc(
 				merger,
 				final_map.covis, 
@@ -909,6 +972,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 				edge_history
 			)
 			# Identify strong covisibility relationship 
+			_record_stage_annotation(
+				merger,
+				merge_step=merge_step,
+				submap_id=cur_submap.map_id,
+				stage_index=6,
+				title="Metric Localization",
+				subtitle="Estimate metric inter-submap constraints from geometrically verified candidates.",
+			)
 			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query, lloc_history = perform_local_loc(
 				edges_nodeAB_coarse_covis,
 				merger, 
@@ -919,6 +990,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 			)
 
 			##### Perform Pose Graph Optimization #####
+			_record_stage_annotation(
+				merger,
+				merge_step=merge_step,
+				submap_id=cur_submap.map_id,
+				stage_index=7,
+				title="Pose Graph Optimization",
+				subtitle="Optimize the combined pose graph before committing the merged map.",
+			)
 			# Initialize the pose graph
 			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
 			pose_graph, subgraph_keys = merger.create_pose_graph_from_map(
@@ -1083,6 +1162,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 					)
 
 			##### Perform map update and merging
+			_record_stage_annotation(
+				merger,
+				merge_step=merge_step,
+				submap_id=cur_submap.map_id,
+				stage_index=8,
+				title="Submap Merging and Edge Updating",
+				subtitle="Merge the optimized query submap into the reference map and update graph edges.",
+			)
 			# Merge two submap into one with optimized poses
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 			# Enforce all node id in edges_nodeAB_refine_covis to be adjusted
