@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
+import _bootstrap_imports  # noqa: F401
 import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
 
 import glob
 import matplotlib.pyplot as plt
@@ -11,7 +10,7 @@ import numpy as np
 import argparse
 from datetime import datetime
 from scipy.spatial.transform import Rotation
-from python.utils.utils_setting_color_font import acquire_color_palette, acquire_marker, acquire_linestyle, setting_font
+from utils.utils_setting_color_font import acquire_color_palette, acquire_marker, acquire_linestyle, setting_font
 
 setting_font(fontsize=18, titlesize=18, legend_fontsize=18)
 colors = acquire_color_palette()

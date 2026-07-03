@@ -1,15 +1,14 @@
 #!/usr/bin/env python
 
+import _bootstrap_imports  # noqa: F401
 import os
-import sys
 import argparse
 import glob
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
-from python.utils.utils_setting_color_font import *
+from utils.utils_setting_color_font import *
 
 setting_font(fontsize=14, titlesize=14, legend_fontsize=14)
 PALLETE = acquire_color_palette()

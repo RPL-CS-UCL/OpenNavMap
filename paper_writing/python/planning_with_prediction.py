@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../python"))
+import _bootstrap_imports  # noqa: F401
 
 import argparse
 import numpy as np

@@ -1,15 +1,14 @@
 #!/usr/bin/env python
 
+import _bootstrap_imports  # noqa: F401
 import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 
-from python.utils.utils_setting_color_font import *
+from utils.utils_setting_color_font import *
 
 setting_font(fontsize=22, titlesize=22, legend_fontsize=22)
 

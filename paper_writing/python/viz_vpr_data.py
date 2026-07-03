@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+from __future__ import annotations
+
+import _bootstrap_imports  # noqa: F401
 
 import logging
 import argparse
@@ -15,9 +15,9 @@ from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Subset
 from PIL import Image
 
-from python.benchmark_vpr.dataloader import TestDataset
-from python.utils.utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font, acquire_linestyle
-from python.utils.utils_geom import compute_pose_error, convert_vec_to_matrix, convert_matrix_to_vec
+from benchmark_vpr.dataloader import TestDataset
+from utils.utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font, acquire_linestyle
+from utils.utils_geom import compute_pose_error, convert_vec_to_matrix, convert_matrix_to_vec
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
@@ -547,34 +547,6 @@ def evaluate_vpr_system(args: argparse.Namespace) -> None:
                     proposed_gv_pairs,
                     output_dir / f'dmatrix_{query_folder.name}.png',
                 )
-
-                if args.graph_none_dir is not None and args.graph_master_dir is not None:
-                    graph_none_path = args.graph_none_dir / submission_name
-                    graph_master_path = args.graph_master_dir / submission_name
-                    if graph_none_path.exists() and graph_master_path.exists():
-                        graph_none_pairs = parse_submission_pairs(
-                            graph_none_path,
-                            test_ds.queries_image_names,
-                            test_ds.database_image_names,
-                        )
-                        graph_master_pairs = parse_submission_pairs(
-                            graph_master_path,
-                            test_ds.queries_image_names,
-                            test_ds.database_image_names,
-                            keep_only_positive_label=True,
-                        )
-                        visualize_graph_master_dmatrix(
-                            D_all,
-                            valid_pairs,
-                            graph_none_pairs,
-                            graph_master_pairs,
-                            output_dir / f'dmatrix_graph_master_{query_folder.name}.png',
-                        )
-                    else:
-                        logging.warning(
-                            f'Graph master comparison submission missing: '
-                            f'{graph_none_path} or {graph_master_path}'
-                        )
 
     visualize_vpr_data_queries(
         db_poses, all_query_poses, all_best_valid_pairs, query_names, output_dir,

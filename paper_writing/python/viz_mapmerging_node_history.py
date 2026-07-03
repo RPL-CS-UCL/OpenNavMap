@@ -1,8 +1,6 @@
 #! /usr/bin/env python
 
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
+import _bootstrap_imports  # noqa: F401
 
 import torch
 import pathlib
@@ -16,11 +14,11 @@ from typing import List, Tuple
 from PIL import Image
 import cv2
 
-from python.map_manager import MapManager
-from python.utils.utils_map_merging import initialize_pose_estimator
-from python.utils.utils_geom import convert_vec_to_matrix
-from python.utils.utils_image import to_numpy
-from python.utils.utils_setting_color_font import setting_font, acquire_color_palette
+from map_manager import MapManager
+from utils_map_merging import initialize_pose_estimator
+from utils.utils_geom import convert_vec_to_matrix
+from utils.utils_image import to_numpy
+from utils.utils_setting_color_font import setting_font, acquire_color_palette
 
 setting_font(fontsize=16, titlesize=16, legend_fontsize=16)
 PALLETE = acquire_color_palette()

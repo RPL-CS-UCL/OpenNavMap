@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+from __future__ import annotations
+
+import _bootstrap_imports  # noqa: F401
 
 import argparse
 import random
@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
-from python.utils.utils_setting_color_font import acquire_color_palette, setting_font
+from utils.utils_setting_color_font import acquire_color_palette, setting_font
 
 setting_font(fontsize=16, titlesize=16, legend_fontsize=16)
 PALLETE = acquire_color_palette()

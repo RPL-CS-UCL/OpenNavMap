@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 
-import os
-import sys
+import _bootstrap_imports  # noqa: F401
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../python'))
 from utils.utils_setting_color_font import acquire_color_palette, acquire_marker, setting_font
 from utils.utils_viz2d_camera import _draw_orientation_arrow
 from utils.utils_geom import convert_vec_to_matrix

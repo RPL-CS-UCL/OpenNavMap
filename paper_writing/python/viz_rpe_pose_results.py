@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
+import _bootstrap_imports  # noqa: F401
 import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
 from pathlib import Path
 from zipfile import ZipFile
 from io import TextIOWrapper
@@ -10,9 +9,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
-from python.utils.utils_setting_color_font import acquire_color_palette, acquire_marker, acquire_linestyle, setting_font
-from python.utils.benchmark.utils import load_poses
-from python.utils.utils_geom import convert_vec_to_matrix
+from utils.utils_setting_color_font import acquire_color_palette, acquire_marker, acquire_linestyle, setting_font
+from utils.benchmark.utils import load_poses
+from utils.utils_geom import convert_vec_to_matrix
 
 setting_font(fontsize=14, titlesize=14, legend_fontsize=14)
 PALLETE = acquire_color_palette()

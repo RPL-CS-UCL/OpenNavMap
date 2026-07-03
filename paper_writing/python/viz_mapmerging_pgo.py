@@ -2,9 +2,8 @@
 
 # Usage: rosrun litevloc viz_mapmerging_pgo.py --folder data_litevloc/map_multisession_eval/ucl_campus_aria/s00000_results_r0_kf_spgo_cc_seqmatch/
 
+import _bootstrap_imports  # noqa: F401
 import os
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../'))
 
 import argparse
 import matplotlib.pyplot as plt
@@ -12,8 +11,8 @@ import gtsam
 import numpy as np
 from pathlib import Path
 
-from python.utils.gtsam_pose_graph import PoseGraph
-from python.utils.utils_setting_color_font import acquire_color_palette, setting_font
+from utils.gtsam_pose_graph import PoseGraph
+from utils.utils_setting_color_font import acquire_color_palette, setting_font
 
 # Visualization setup
 setting_font(fontsize=18, titlesize=18, legend_fontsize=18)
