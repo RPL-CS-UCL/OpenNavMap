@@ -16,6 +16,8 @@ dataset/
 *vis*
 !python/visualization/
 !python/visualization/**
+python/visualization/**/__pycache__/
+python/visualization/**/*.pyc
 !third_party/
 !third_party/vismatch
 !third_party/vismatch/

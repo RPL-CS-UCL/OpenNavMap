@@ -27,7 +27,7 @@ from benchmark_kf_selection.metric.landmark_selector import LandmarkSelector
 from map_manager import MapManager
 from image_graph import ImageGraph
 from image_node import ImageNode
-from visualization.map_merge_viz_recorder import MapMergeVizRecorder
+from visualization.map_merge_runtime_event_recorder import MapMergeRuntimeEventRecorder
 
 from colorama import Fore, init
 init(autoreset=True)
@@ -54,6 +54,8 @@ class MergePipeline:
 
 		self.submaps = []
 		self.id_offset = 0
+		self.runtime_viz_recorder = None
+		self.runtime_merge_step = -1
 
 		self.lm_selector = LandmarkSelector()
 
@@ -161,6 +163,103 @@ class MergePipeline:
 		submap_a.merge_graphs_from(submap_b)
 
 		logging.warning(f"Merged map info - {submap_a}")
+
+
+def _node_payload(graph, node):
+	image_path = graph.map_root / node.rgb_img_name if getattr(node, 'rgb_img_name', None) else None
+	return {
+		"node_id": node.id,
+		"time": getattr(node, 'time', None),
+		"position": node.trans,
+		"quat_xyzw": node.quat,
+		"rgb_img_name": getattr(node, 'rgb_img_name', None),
+		"rgb_img_path": str(image_path) if image_path is not None else None,
+	}
+
+
+def _iter_unique_edges(graph):
+	for node in graph.nodes.values():
+		for neighbor, weight in node.edges.values():
+			if node.id < neighbor.id:
+				yield node, neighbor, weight
+
+
+def _record_submap_loaded(merger: MergePipeline, merge_step: int, submap: MapManager):
+	recorder = merger.runtime_viz_recorder
+	if recorder is None:
+		return
+	recorder.record_event(
+		merge_step=merge_step,
+		stage="submap_loaded",
+		event_type="submap_loaded",
+		submap_id=submap.map_id,
+		keyframe_id=None,
+		payload={
+			"map_root": str(submap.map_root),
+			"num_covis_nodes": submap.covis.get_num_node() if submap.covis else 0,
+			"num_odom_nodes": submap.odom.get_num_node() if submap.odom else 0,
+		},
+	)
+	if submap.covis:
+		for node in submap.covis.nodes.values():
+			recorder.record_event(
+				merge_step=merge_step,
+				stage="vio_node_observed",
+				event_type="vio_node_observed",
+				submap_id=submap.map_id,
+				keyframe_id=node.id,
+				payload=_node_payload(submap.covis, node),
+			)
+	if submap.odom:
+		for node_a, node_b, weight in _iter_unique_edges(submap.odom):
+			recorder.record_event(
+				merge_step=merge_step,
+				stage="vio_edge_observed",
+				event_type="vio_edge_observed",
+				submap_id=submap.map_id,
+				keyframe_id=max(node_a.id, node_b.id),
+				payload={
+					"edge_type": "odom",
+					"node_a": node_a.id,
+					"node_b": node_b.id,
+					"weight": weight,
+					"position_a": node_a.trans,
+					"position_b": node_b.trans,
+				},
+			)
+
+
+def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray) -> pathlib.Path:
+	import matplotlib.pyplot as plt
+
+	artifact_path = recorder.artifact_path(merge_step, "dmatrix.png")
+	fig, ax = plt.subplots(figsize=(8, 6))
+	ax.imshow(D_matrix, cmap="viridis", aspect="auto")
+	ax.set_xlabel("Reference row")
+	ax.set_ylabel("Query row")
+	ax.set_title("Difference Matrix")
+	fig.tight_layout()
+	fig.savefig(artifact_path, dpi=160)
+	plt.close(fig)
+	return artifact_path
+
+
+def _record_pgo_event(merger: MergePipeline, stage: str, event_type: str, g2o_path: str, error: float = None):
+	recorder = merger.runtime_viz_recorder
+	if recorder is None:
+		return
+	payload = {"g2o_path": g2o_path}
+	if error is not None:
+		payload["error"] = error
+	recorder.record_event(
+		merge_step=merger.runtime_merge_step,
+		stage=stage,
+		event_type=event_type,
+		submap_id=None,
+		keyframe_id=None,
+		payload=payload,
+		artifacts={"g2o": pathlib.Path(g2o_path)},
+	)
 		
 def compute_lm_pairwise(
 	db_nodes, 
@@ -262,11 +361,37 @@ def perform_global_loc(
 		[node.get_descriptor() for node in cur_graph.nodes.values()], dtype=np.float32
 	)
 	query_node_ids = [node.id for node in cur_graph.nodes.values()]
+	recorder = merger.runtime_viz_recorder
+	if recorder is not None:
+		recorder.record_event(
+			merge_step=merger.runtime_merge_step,
+			stage="descriptor_computed",
+			event_type="descriptor_computed",
+			submap_id=cur_graph_id,
+			keyframe_id=None,
+			payload={
+				"reference_descriptor_shape": db_descriptors.shape,
+				"query_descriptor_shape": query_descriptors.shape,
+				"reference_node_ids": db_node_ids,
+				"query_node_ids": query_node_ids,
+			},
+		)
 
 	with Timer(name="Global Localization", text=Fore.GREEN + "{name} costs: {milliseconds:.3f} ms"):
 		merger.vpr_match_model.initialize_model(db_descriptors)
 		D_all = merger.vpr_match_model.compute_diff_matrix(query_descriptors)
 		logging.info(f"D_all shape: {D_all.shape}")
+		if recorder is not None:
+			dmatrix_path = _save_dmatrix_artifact(recorder, merger.runtime_merge_step, D_all)
+			recorder.record_event(
+				merge_step=merger.runtime_merge_step,
+				stage="dmatrix_computed",
+				event_type="dmatrix_computed",
+				submap_id=cur_graph_id,
+				keyframe_id=None,
+				payload={"shape": D_all.shape},
+				artifacts={"dmatrix_png": dmatrix_path},
+			)
 		
 		# VPR sequence matching for all query nodes
 		connected_db_query_indices = []
@@ -275,6 +400,15 @@ def perform_global_loc(
 			for db_row, query_row in pred_db_query_rows:
 				db_idx, query_idx = db_node_ids[db_row], query_node_ids[query_row]
 				connected_db_query_indices.append((db_idx, query_idx, score))
+				if recorder is not None:
+					recorder.record_event(
+						merge_step=merger.runtime_merge_step,
+						stage="vpr_candidate",
+						event_type="vpr_candidate",
+						submap_id=cur_graph_id,
+						keyframe_id=query_idx,
+						payload={"db_node_id": db_idx, "query_node_id": query_idx, "db_row": db_row, "query_row": query_row, "score": score},
+					)
 				update_edge_history(
 					edge_history, 
 					(db_idx, query_idx), 
@@ -286,6 +420,15 @@ def perform_global_loc(
 				_, db_row, score = merger.vpr_match_model.match(query_descs)
 				db_idx, query_idx = db_node_ids[db_row], query_node_ids[query_row]
 				connected_db_query_indices.append((db_idx, query_idx, score))
+				if recorder is not None:
+					recorder.record_event(
+						merge_step=merger.runtime_merge_step,
+						stage="vpr_candidate",
+						event_type="vpr_candidate",
+						submap_id=cur_graph_id,
+						keyframe_id=query_idx,
+						payload={"db_node_id": db_idx, "query_node_id": query_idx, "db_row": db_row, "query_row": query_row, "score": score},
+					)
 				update_edge_history(
 					edge_history, 
 					(db_idx, query_idx), 
@@ -317,8 +460,25 @@ def perform_global_loc(
 			#################
 			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
+				accepted_by_gv = True
 			else:
 				update_edge_history(edge_history, (db_idx, query_idx), action='removed_by_gv')
+				accepted_by_gv = False
+			if recorder is not None:
+				recorder.record_event(
+					merge_step=merger.runtime_merge_step,
+					stage="gv_candidate",
+					event_type="gv_candidate",
+					submap_id=cur_graph_id,
+					keyframe_id=query_idx,
+					payload={
+						"db_node_id": db_idx,
+						"query_node_id": query_idx,
+						"num_inliers": num_inlier,
+						"accepted": accepted_by_gv,
+						"threshold": REFINE_GV_SCORE_THRESHOLD,
+					},
+				)
 	
 	return coarse_edges, D_all
 
@@ -423,6 +583,24 @@ def perform_local_loc(
 					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					##### Only reliable db-query pairs are considered for keyframe selection
 					lloc_history[(db_node.id, query_node.id)] = {'conf': conf, 'trans_err': dis_tsl, 'rot_err': dis_angle}
+					if merger.runtime_viz_recorder is not None:
+						merger.runtime_viz_recorder.record_event(
+							merge_step=merger.runtime_merge_step,
+							stage="metric_localization_result",
+							event_type="metric_localization_result",
+							submap_id=cur_graph_id,
+							keyframe_id=query_node.id,
+							payload={
+								"db_node_id": db_node.id,
+								"query_node_id": query_node.id,
+								"conf": conf,
+								"accepted": conf > REFINE_CONF_THRESHOLD,
+								"reliable": conf > RELIABLE_CONF_THRESHOLD,
+								"trans_err": dis_tsl,
+								"rot_err": dis_angle,
+								"relative_pose": T_rel_est,
+							},
+						)
 					if conf < REFINE_CONF_THRESHOLD:
 						update_edge_history(edge_history, (db_node.id, query_node.id), action='removed_by_ccm')
 					
@@ -443,17 +621,76 @@ def perform_local_loc(
 									lm_gain_query[node_i] = dict()
 								lm_gain_query[node_i][node_j] = gain
 
-						if conf > REFINE_CONF_THRESHOLD:
-							refined_edges.append(
-								(db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node])
-							)							
+					if conf > REFINE_CONF_THRESHOLD:
+						refined_edges.append(
+							(db_node, query_node, T_rel_est, conf, 1.0-lm_gain_db[db_node][query_node])
+						)
+						if merger.runtime_viz_recorder is not None:
+							merger.runtime_viz_recorder.record_event(
+								merge_step=merger.runtime_merge_step,
+								stage="metric_edge_added",
+								event_type="metric_edge_added",
+								submap_id=cur_graph_id,
+								keyframe_id=query_node.id,
+								payload={
+									"db_node_id": db_node.id,
+									"query_node_id": query_node.id,
+									"conf": conf,
+									"trans_err": dis_tsl,
+									"rot_err": dis_angle,
+									"relative_pose": T_rel_est,
+								},
+							)
 				# Applicable to other estimators
 				else:
 					conf = MAX_LOSS - result["loss"]
+					if merger.runtime_viz_recorder is not None:
+						merger.runtime_viz_recorder.record_event(
+							merge_step=merger.runtime_merge_step,
+							stage="metric_localization_result",
+							event_type="metric_localization_result",
+							submap_id=cur_graph_id,
+							keyframe_id=query_node.id,
+							payload={
+								"db_node_id": db_node.id,
+								"query_node_id": query_node.id,
+								"conf": conf,
+								"accepted": True,
+								"relative_pose": T_rel_est,
+							},
+						)
 					refined_edges.append((db_node, query_node, T_rel_est, conf, conf / MAX_LOSS))
+					if merger.runtime_viz_recorder is not None:
+						merger.runtime_viz_recorder.record_event(
+							merge_step=merger.runtime_merge_step,
+							stage="metric_edge_added",
+							event_type="metric_edge_added",
+							submap_id=cur_graph_id,
+							keyframe_id=query_node.id,
+							payload={
+								"db_node_id": db_node.id,
+								"query_node_id": query_node.id,
+								"conf": conf,
+								"relative_pose": T_rel_est,
+							},
+						)
 			
 		except Exception as e:
 			update_edge_history(edge_history, (db_node.id, query_node.id), action='removed_by_ccm')
+			if merger.runtime_viz_recorder is not None:
+				merger.runtime_viz_recorder.record_event(
+					merge_step=merger.runtime_merge_step,
+					stage="metric_localization_result",
+					event_type="metric_localization_result",
+					submap_id=cur_graph_id,
+					keyframe_id=query_node.id,
+					payload={
+						"db_node_id": db_node.id,
+						"query_node_id": query_node.id,
+						"accepted": False,
+						"error": str(e),
+					},
+				)
 			logging.warning(f"{Fore.RED} Pose estimation failed: {str(e)}")
 			continue
 
@@ -615,15 +852,25 @@ def perform_submap_merging(merger: MergePipeline, args):
 	"""Main loop for processing submap merging"""
 	assert len(merger.submaps) > 0, "No submaps loaded."
 	logging.info(f"Processing {len(merger.submaps)} submaps.")
-	rerun_recorder = None
 	if args.rerun_viz:
-		rerun_output = pathlib.Path(args.rerun_output) if args.rerun_output else merger.log_dir / "preds" / "map_merge_process.rrd"
-		rerun_recorder = MapMergeVizRecorder(
-			rerun_output,
-			image_format=args.rerun_image_format,
-			jpeg_quality=args.rerun_jpeg_quality,
-			dmatrix_format=args.rerun_dmatrix_format,
-			axis_scale=args.rerun_axis_scale,
+		rerun_viz_dir = pathlib.Path(args.rerun_viz_dir) if args.rerun_viz_dir else pathlib.Path(args.output_map_path) / "rerun_viz"
+		merger.runtime_viz_recorder = MapMergeRuntimeEventRecorder(rerun_viz_dir)
+		merger.runtime_viz_recorder.write_metadata(
+			{
+				"input_submap_path": args.input_submap_path,
+				"output_map_path": args.output_map_path,
+				"vpr_match_model": args.vpr_match_model,
+				"vpr_match_seq_len": args.vpr_match_seq_len,
+				"pose_estimation_method": args.pose_estimation_method,
+			}
+		)
+		merger.runtime_viz_recorder.record_event(
+			merge_step=-1,
+			stage="recording_started",
+			event_type="recording_started",
+			submap_id=None,
+			keyframe_id=None,
+			payload={"output_dir": str(rerun_viz_dir)},
 		)
 	
 	# Initialize the final submap
@@ -631,7 +878,9 @@ def perform_submap_merging(merger: MergePipeline, args):
 	final_map.init_graphs(merger.graph_configs)
 
 	# Incrementally merge each submap to the final map, only care about the first two submaps
-	for cur_submap in merger.submaps:
+	for merge_step, cur_submap in enumerate(merger.submaps):
+		merger.runtime_merge_step = merge_step
+		_record_submap_loaded(merger, merge_step, cur_submap)
 		# The offset of node.id in cur_submap 
 		merger.id_offset = final_map.get_max_node_id() + 1
 
@@ -665,6 +914,13 @@ def perform_submap_merging(merger: MergePipeline, args):
 			)	
 			g2o_path = str(merger.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+			_record_pgo_event(
+				merger,
+				stage="pgo_before",
+				event_type="pgo_before",
+				g2o_path=g2o_path,
+				error=pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()),
+			)
 			
 			# Optimize the pose graph
 			logging.info(f"PGO: initial error: {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
@@ -747,6 +1003,13 @@ def perform_submap_merging(merger: MergePipeline, args):
 				pose_graph.add_init_estimate(key, update_estimate)
 			g2o_path = str(merger.log_dir / "preds" / "refine_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+			_record_pgo_event(
+				merger,
+				stage="pgo_after",
+				event_type="pgo_after",
+				g2o_path=g2o_path,
+				error=pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()),
+			)
 			
 			##### Perform keyframe culling #####
 			# Culling nodes in covis graph only, nodes in odom and trav graph are kept
@@ -794,6 +1057,16 @@ def perform_submap_merging(merger: MergePipeline, args):
 						f.write(f"{node_id},{type_},{compared_to},{prob:.3f},{method},{prob_str}\n")						
 			else:
 				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = [], [], []
+			if merger.runtime_viz_recorder is not None:
+				for record in nodes_to_cull_info:
+					merger.runtime_viz_recorder.record_event(
+						merge_step=merger.runtime_merge_step,
+						stage="keyframe_culling_decision",
+						event_type="keyframe_culling_decision",
+						submap_id=cur_submap.map_id,
+						keyframe_id=record.get("node_id"),
+						payload=record,
+					)
 
 			##### Perform map update and merging
 			# Merge two submap into one with optimized poses
@@ -818,6 +1091,19 @@ def perform_submap_merging(merger: MergePipeline, args):
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 			
 			logging.info(f"Final map info:\n{final_map}")
+			if merger.runtime_viz_recorder is not None:
+				merger.runtime_viz_recorder.record_event(
+					merge_step=merger.runtime_merge_step,
+					stage="map_committed",
+					event_type="map_committed",
+					submap_id=cur_submap.map_id,
+					keyframe_id=None,
+					payload={
+						"num_final_covis_nodes": final_map.covis.get_num_node(),
+						"num_final_odom_nodes": final_map.odom.get_num_node(),
+						"num_culled_nodes": len(nodes_to_cull),
+					},
+				)
 		else:
 			pose_graph, _ = merger.create_pose_graph_from_map(
 				final_map.odom, 
@@ -826,6 +1112,13 @@ def perform_submap_merging(merger: MergePipeline, args):
 			)
 			g2o_path = str(merger.log_dir / "preds" / "initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+			_record_pgo_event(
+				merger,
+				stage="pgo_before",
+				event_type="pgo_before",
+				g2o_path=g2o_path,
+				error=pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()),
+			)
 			
 			if args.viz:
 				save_dir = str(merger.log_dir / "preds")
@@ -841,12 +1134,31 @@ def perform_submap_merging(merger: MergePipeline, args):
 				)
 
 			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
+			if merger.runtime_viz_recorder is not None:
+				merger.runtime_viz_recorder.record_event(
+					merge_step=merger.runtime_merge_step,
+					stage="map_committed",
+					event_type="map_committed",
+					submap_id=cur_submap.map_id,
+					keyframe_id=None,
+					payload={
+						"num_final_covis_nodes": final_map.covis.get_num_node(),
+						"num_final_odom_nodes": final_map.odom.get_num_node(),
+						"num_culled_nodes": 0,
+					},
+				)
 
 	if not final_map.is_empty:
 		final_map.save_to_file()
-		if rerun_recorder is not None:
-			rerun_recorder.record_result_map(merger.log_dir)
-			rerun_recorder.save()
+	if merger.runtime_viz_recorder is not None:
+		merger.runtime_viz_recorder.record_event(
+			merge_step=merger.runtime_merge_step,
+			stage="recording_finished",
+			event_type="recording_finished",
+			submap_id=None,
+			keyframe_id=None,
+			payload={"output_map_path": args.output_map_path},
+		)
 
 if __name__ == '__main__':
 	args = parse_arguments()
