@@ -130,6 +130,8 @@ submap_loaded
 descriptors_ready
 dmatrix_ready
 vpr_candidate
+sequence_match_result
+gv_result
 metric_localization_result
 keyframe_culling_result
 pose_graph_before_pgo
@@ -140,6 +142,10 @@ submap_merged
 `payload` stores lightweight structured data such as node ids, query/reference ids, scores, inlier counts, confidence, poses, edge endpoints, and PGO error values.
 
 `artifact_refs` stores paths to heavier artifacts such as query/reference JPEG images, D-matrix PNG images, matching JPEG images, culling evidence images, and G2O files.
+
+`sequence_match_result` represents the temporal VPR output when the configured matcher uses sequence matching or graph/DP search over the D-matrix. It should include the query row, reference row, path or point sequence when available, score, and D-matrix PNG artifact reference. If the matcher produces only independent candidates, `vpr_candidate` is sufficient.
+
+`gv_result` represents geometric verification for a candidate. Its payload must include the database node id, query node id, retained/rejected status, inlier count, score or confidence when available, and optional matching image artifact reference. `retained` maps to green visualization; `rejected` maps to gray visualization.
 
 ---
 
@@ -158,6 +164,7 @@ perform_global_loc:
   descriptors_ready
   dmatrix_ready
   vpr_candidate per keyframe
+  sequence_match_result when using sequence or DP matching
   gv_result per candidate
 
 perform_local_loc:
@@ -192,6 +199,7 @@ Recoverable from existing result directories:
 Potentially missing in old results:
 
 - raw per-keyframe D-matrix values;
+- exact sequence matching path when only rendered stage images were saved;
 - per-candidate inlier keypoints;
 - exact rejected edge history;
 - metric localization in-memory confidence and landmark gain.
@@ -200,6 +208,7 @@ When details are missing, the `.rrd` should show an English status note, for exa
 
 ```text
 GV per-keyframe details unavailable in saved result; showing saved stage artifact.
+Sequence matching path unavailable in saved result; showing saved D-matrix artifact.
 Only read-only replay is enabled; no recomputation was performed.
 ```
 
@@ -288,7 +297,7 @@ Additional timelines:
 
 ```text
 merge_step: the current submap merge step
-stage: load_submap, descriptor, vpr, gv, metric_loc, culling, pgo_before, pgo_after, merged
+stage: load_submap, descriptor, vpr, sequence_matching, gv, metric_loc, culling, pgo_before, pgo_after, merged
 ```
 
 Stage-level events without a natural keyframe should use a synthetic keyframe slot around the current merge step. The exact synthetic keyframe rule should be deterministic and documented in code.
@@ -376,8 +385,10 @@ python python/visualization/map_merge_result_to_rerun.py \
   --result-dir /Titan/dataset/data_opennavmap/map_multisession_eval/vineyard/s00000_results_in_kf_spgo_cc_seqmatch \
   --output /path/to/vineyard_map_merge_process.rrd \
   --mode readonly \
-  --dmatrix-format png \
-  --axis-scale auto
+  --rerun-image-format jpg \
+  --rerun-jpeg-quality 85 \
+  --rerun-dmatrix-format png \
+  --rerun-axis-scale auto
 ```
 
 `scripts/run_map_merging.sh` should only add optional forwarding for these flags. Default script behavior should not change.
