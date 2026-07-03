@@ -383,13 +383,15 @@ Read-only conversion from an existing result directory:
 ```bash
 python python/visualization/map_merge_result_to_rerun.py \
   --result-dir /Titan/dataset/data_opennavmap/map_multisession_eval/vineyard/s00000_results_in_kf_spgo_cc_seqmatch \
-  --output /path/to/vineyard_map_merge_process.rrd \
+  --rerun-output /path/to/vineyard_map_merge_process.rrd \
   --mode readonly \
   --rerun-image-format jpg \
   --rerun-jpeg-quality 85 \
   --rerun-dmatrix-format png \
   --rerun-axis-scale auto
 ```
+
+Both runtime recording and read-only conversion should share the Rerun-specific option names: `--rerun-output`, `--rerun-image-format`, `--rerun-jpeg-quality`, `--rerun-dmatrix-format`, and `--rerun-axis-scale`.
 
 `scripts/run_map_merging.sh` should only add optional forwarding for these flags. Default script behavior should not change.
 
