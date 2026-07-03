@@ -243,18 +243,83 @@ def _record_submap_loaded(merger: MergePipeline, merge_step: int, submap: MapMan
 	_record_graph_edges(recorder, merge_step, submap.map_id, "trav", submap.trav)
 
 
-def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray) -> pathlib.Path:
+def _plot_runtime_dmatrix_panels(
+	D_all: np.ndarray,
+	panels: List[Tuple[str, List[Tuple[int, int]], tuple]],
+	output_path: pathlib.Path,
+	figsize: Tuple[float, float],
+) -> None:
+	"""Plot D-matrix panels using the paper VPR visualization style."""
 	import matplotlib.pyplot as plt
+	from utils.utils_setting_color_font import (
+		acquire_color_palette,
+		acquire_marker,
+		setting_font,
+		acquire_linestyle,
+	)
+
+	setting_font(fontsize=14, titlesize=14, legend_fontsize=14, font_family="Palatino")
+	palette = acquire_color_palette()
+	markers = acquire_marker()
+	linestyles = acquire_linestyle()
+	label_fontsize = 24
+	title_fontsize = 28
+	colorbar_ticksize = 20
+
+	fig, axes = plt.subplots(1, len(panels), figsize=figsize)
+	axes = np.atleast_1d(axes)
+
+	for panel_idx, (ax, (title, pairs, color)) in enumerate(zip(axes, panels)):
+		panel_color = color if color is not None else palette[panel_idx]
+		im = ax.imshow(D_all, cmap="Greys", aspect="auto")
+		if pairs:
+			query_indices, db_indices = zip(*pairs)
+			ax.plot(
+				query_indices,
+				db_indices,
+				color=panel_color,
+				linestyle=linestyles[0],
+				linewidth=1.2,
+				alpha=0.75,
+			)
+			ax.scatter(
+				query_indices,
+				db_indices,
+				c=[panel_color],
+				s=16,
+				alpha=1.0,
+				marker=markers[0],
+			)
+		colorbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+		colorbar.ax.tick_params(labelsize=colorbar_ticksize)
+		im.set_clim(0.0, 1.0)
+		ax.set_xlabel("Query Index", fontsize=label_fontsize)
+		ax.set_ylabel("Reference Index", fontsize=label_fontsize)
+		ax.set_title(title, fontsize=title_fontsize)
+		ax.tick_params(axis="both", labelsize=colorbar_ticksize)
+
+	plt.tight_layout()
+	try:
+		plt.savefig(output_path, dpi=300, bbox_inches="tight")
+	except RuntimeError:
+		# Palatino is still requested above; disable TeX if the runtime lacks LaTeX.
+		plt.rcParams["text.usetex"] = False
+		plt.savefig(output_path, dpi=300, bbox_inches="tight")
+	finally:
+		plt.close(fig)
+
+
+def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray) -> pathlib.Path:
+	from utils.utils_setting_color_font import acquire_color_palette
 
 	artifact_path = recorder.artifact_path(merge_step, "dmatrix.png")
-	fig, ax = plt.subplots(figsize=(8, 6))
-	ax.imshow(D_matrix, cmap="viridis", aspect="auto")
-	ax.set_xlabel("Reference row")
-	ax.set_ylabel("Query row")
-	ax.set_title("Difference Matrix")
-	fig.tight_layout()
-	fig.savefig(artifact_path, dpi=160)
-	plt.close(fig)
+	palette = acquire_color_palette()
+	_plot_runtime_dmatrix_panels(
+		D_all=D_matrix,
+		panels=[("Difference Matrix", [], palette[0])],
+		output_path=artifact_path,
+		figsize=(6, 5),
+	)
 	return artifact_path
 
 

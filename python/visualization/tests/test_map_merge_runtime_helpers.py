@@ -2,8 +2,13 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+from matplotlib import rcParams
 
-from map_merge_pipeline import _record_graph_edges, _scene_confidence_maps
+from map_merge_pipeline import (
+    _plot_runtime_dmatrix_panels,
+    _record_graph_edges,
+    _scene_confidence_maps,
+)
 
 
 def test_scene_confidence_maps_uses_current_conf_interface() -> None:
@@ -64,3 +69,18 @@ def test_record_graph_edges_writes_node_ids_weight_and_edge_type() -> None:
     assert event["payload"]["nodeAid"] == 3
     assert event["payload"]["nodeBid"] == 8
     assert event["payload"]["weight"] == 0.75
+
+
+def test_plot_runtime_dmatrix_panels_uses_paper_style_and_palatino(tmp_path) -> None:
+    output_path = tmp_path / "dmatrix.png"
+
+    _plot_runtime_dmatrix_panels(
+        D_all=np.eye(4),
+        panels=[("Difference Matrix", [(1, 2)], (0.0, 152 / 255, 83 / 255))],
+        output_path=output_path,
+        figsize=(4, 3),
+    )
+
+    assert output_path.exists()
+    assert rcParams["font.family"] == ["serif"]
+    assert rcParams["font.serif"][0] == "Palatino"
