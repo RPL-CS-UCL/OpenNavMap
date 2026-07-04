@@ -33,8 +33,7 @@ class MapMergeRuntimeRerunRenderer:
         "trav": [255, 255, 255],
     }
 
-    AXIS_LEN = 0.6
-    AXIS_RADII = 0.18
+    AXIS_LEN = 0.9
     WORLD_AXIS_LEN = 10.0
 
     def __init__(self, event_dir: Path, render_trace_path: Optional[Path] = None) -> None:
@@ -192,21 +191,6 @@ class MapMergeRuntimeRerunRenderer:
     def _camera_group(submap_id: int) -> str:
         return "ref" if submap_id == 0 else "query"
 
-    def _log_camera_axes(self, rr, event: Dict[str, Any], base_path: str) -> None:
-        L = self.AXIS_LEN
-        self._log(
-            rr,
-            event,
-            f"{base_path}/axis",
-            "Arrows3D",
-            rr.Arrows3D(
-                origins=[[0.0, 0.0, 0.0]] * 3,
-                vectors=[[L, 0.0, 0.0], [0.0, L, 0.0], [0.0, 0.0, L]],
-                radii=self.AXIS_RADII,
-                colors=np.asarray([[220, 50, 50], [50, 180, 50], [50, 50, 220]], dtype=np.uint8),
-            ),
-        )
-
     def _log_camera(
         self,
         rr,
@@ -223,7 +207,6 @@ class MapMergeRuntimeRerunRenderer:
         if quat_xyzw is not None:
             transform_kwargs["rotation"] = rr.Quaternion(xyzw=np.asarray(quat_xyzw, dtype=np.float32))
         self._log(rr, event, base_path, "Transform3D", rr.Transform3D(**transform_kwargs))
-        self._log_camera_axes(rr, event, base_path)
 
         if intrinsics is not None and image_size is not None:
             K = np.asarray(intrinsics, dtype=np.float32)

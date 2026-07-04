@@ -181,10 +181,8 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
     assert len(stage_entries) == 1
     assert stage_entries[0] == ("text", "# Load Reference Map", "text/markdown")
 
-    # ref keyframe: Transform3D without axis_length + separate Arrows3D
+    # ref keyframe: Transform3D without axis_length (no separate axes)
     assert any(p == "cameras/ref/3" and v[0] == "transform3d" for p, v in rr.logged)
-    assert "axis_length" not in str([v for p, v in rr.logged if p == "cameras/ref/3"][0])
-    assert any(p == "cameras/ref/3/axis" and v[0] == "arrows3d" for p, v in rr.logged)
 
     # ref keyframe: Pinhole uses raw_K
     pinhole_entries = [v for p, v in rr.logged if p == "cameras/ref/3/image" and v[0] == "pinhole"]
@@ -204,7 +202,6 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
     assert any(p == "cameras/" and v[0] == "clear" for p, v in rr.logged)
     assert any(p == "edges/" and v[0] == "clear" for p, v in rr.logged)
     assert any(p == "final_map/cameras/3" and v[0] == "transform3d" for p, v in rr.logged)
-    assert any(p == "final_map/cameras/3/axis" and v[0] == "arrows3d" for p, v in rr.logged)
     assert any(p == "final_map/nodes" and v[0] == "points3d" for p, v in rr.logged)
     assert any(p == "final_map/edges/odom" and v[0] == "lines3d" for p, v in rr.logged)
 
@@ -357,7 +354,6 @@ def test_final_map_renders_nodes_edges_and_cameras(tmp_path: Path) -> None:
     assert any(p == "edges/" and v[0] == "clear" for p, v in rr.logged)
     assert any(p == "final_map/nodes" and v[0] == "points3d" for p, v in rr.logged)
     assert any(p == "final_map/cameras/3" and v[0] == "transform3d" for p, v in rr.logged)
-    assert any(p == "final_map/cameras/3/axis" and v[0] == "arrows3d" for p, v in rr.logged)
     assert any(p == "final_map/cameras/3/image" and v[0] == "pinhole" for p, v in rr.logged)
     assert any(p == "final_map/cameras/3/image" and v[0] == "image_encoded" for p, v in rr.logged)
     assert any(p == "final_map/edges/odom" and v[0] == "lines3d" for p, v in rr.logged)

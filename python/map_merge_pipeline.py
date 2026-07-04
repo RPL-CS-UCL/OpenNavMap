@@ -264,15 +264,15 @@ def _plot_runtime_dmatrix_panels(
 		acquire_linestyle,
 	)
 
-	setting_font(fontsize=9, titlesize=9, legend_fontsize=9, font_family="Palatino")
+	setting_font(fontsize=11, titlesize=11, legend_fontsize=11, font_family="Palatino")
 	plt.rcParams["text.usetex"] = False
 	plt.rcParams["font.serif"] = ["DejaVu Serif"]
 	palette = acquire_color_palette()
 	markers = acquire_marker()
 	linestyles = acquire_linestyle()
-	label_fontsize = 9
-	title_fontsize = 9
-	ticksize = 8
+	label_fontsize = 11
+	title_fontsize = 11
+	ticksize = 9
 
 	fig, axes = plt.subplots(1, len(panels), figsize=figsize)
 	axes = np.atleast_1d(axes)
@@ -282,19 +282,11 @@ def _plot_runtime_dmatrix_panels(
 		im = ax.imshow(D_all, cmap="Greys", aspect="auto")
 		if pairs:
 			query_indices, db_indices = zip(*pairs)
-			ax.plot(
-				query_indices,
-				db_indices,
-				color=panel_color,
-				linestyle=linestyles[0],
-				linewidth=1.2,
-				alpha=0.75,
-			)
 			ax.scatter(
 				query_indices,
 				db_indices,
 				c=[panel_color],
-				s=16,
+				s=40,
 				alpha=1.0,
 				marker=markers[0],
 			)
@@ -553,7 +545,7 @@ def perform_global_loc(
 			merge_step=merger.runtime_merge_step,
 			submap_id=cur_graph_id,
 			stage_index=5,
-			title=f"Geometric Verification - Reference Map-Submap {cur_graph_id}",
+			title=f"Geometric Verification: Reference Map-Submap {cur_graph_id}",
 			subtitle="Reject false positive topological matches using feature inlier checks.",
 		)
 		coarse_edges = []
@@ -1090,7 +1082,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=7,
-				title=f"Pose Graph Optimization - Reference Map-Submap {cur_submap.map_id}",
+				title=f"Pose Graph Optimization: Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Optimize the combined pose graph before committing the merged map.",
 			)
 			# Initialize the pose graph
@@ -1262,7 +1254,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=8,
-				title=f"Submap Merging - Reference Map-Submap {cur_submap.map_id}",
+				title="Finish Map Merging",
 				subtitle="Merge the optimized query submap into the reference map and update graph edges.",
 			)
 			# Merge two submap into one with optimized poses
