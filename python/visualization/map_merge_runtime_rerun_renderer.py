@@ -34,6 +34,7 @@ class MapMergeRuntimeRerunRenderer:
     }
 
     AXIS_LEN = 0.6
+    AXIS_RADII = 0.18
     WORLD_AXIS_LEN = 10.0
 
     def __init__(self, event_dir: Path, render_trace_path: Optional[Path] = None) -> None:
@@ -191,31 +192,46 @@ class MapMergeRuntimeRerunRenderer:
     def _camera_group(submap_id: int) -> str:
         return "ref" if submap_id == 0 else "query"
 
-    def _log_keyframe_camera(self, rr, event: Dict[str, Any]) -> None:
-        payload = event["payload"]
-        submap_id = int(event["submap_id"])
-        node_id = int(payload["node_id"])
-        group = self._camera_group(submap_id)
-        translation = np.asarray(payload["position"], dtype=np.float32)
-        quat_xyzw = payload.get("quat_xyzw")
-        axis_len = self.AXIS_LEN
+    def _log_camera_axes(self, rr, event: Dict[str, Any], base_path: str) -> None:
+        L = self.AXIS_LEN
+        self._log(
+            rr,
+            event,
+            f"{base_path}/axis",
+            "Arrows3D",
+            rr.Arrows3D(
+                origins=[[0.0, 0.0, 0.0]] * 3,
+                vectors=[[L, 0.0, 0.0], [0.0, L, 0.0], [0.0, 0.0, L]],
+                radii=self.AXIS_RADII,
+                colors=np.asarray([[220, 50, 50], [50, 180, 50], [50, 50, 220]], dtype=np.uint8),
+            ),
+        )
 
-        transform_kwargs: Dict[str, Any] = {"translation": translation, "axis_length": axis_len}
+    def _log_camera(
+        self,
+        rr,
+        event: Dict[str, Any],
+        base_path: str,
+        position,
+        quat_xyzw,
+        intrinsics,
+        image_size,
+        image_path: Optional[str],
+    ) -> None:
+        axis_len = self.AXIS_LEN
+        transform_kwargs: Dict[str, Any] = {"translation": np.asarray(position, dtype=np.float32)}
         if quat_xyzw is not None:
             transform_kwargs["rotation"] = rr.Quaternion(xyzw=np.asarray(quat_xyzw, dtype=np.float32))
+        self._log(rr, event, base_path, "Transform3D", rr.Transform3D(**transform_kwargs))
+        self._log_camera_axes(rr, event, base_path)
 
-        camera_path = f"cameras/{group}/{node_id}"
-        self._log(rr, event, camera_path, "Transform3D", rr.Transform3D(**transform_kwargs))
-
-        intrinsics = payload.get("raw_K", payload.get("K"))
-        image_size = payload.get("raw_img_size", payload.get("img_size"))
         if intrinsics is not None and image_size is not None:
             K = np.asarray(intrinsics, dtype=np.float32)
             width, height = int(image_size[0]), int(image_size[1])
             self._log(
                 rr,
                 event,
-                f"{camera_path}/image",
+                f"{base_path}/image",
                 "Pinhole",
                 rr.Pinhole(
                     focal_length=[float(K[0, 0]), float(K[1, 1])],
@@ -227,17 +243,37 @@ class MapMergeRuntimeRerunRenderer:
                 ),
             )
 
-        image_path = payload.get("rgb_img_path")
         if image_path is not None:
             resolved = self._resolve_image_path(image_path)
             if resolved is not None and resolved.exists():
                 self._log(
                     rr,
                     event,
-                    f"{camera_path}/image",
+                    f"{base_path}/image",
                     "ImageEncoded",
                     rr.ImageEncoded(path=resolved),
                 )
+
+    def _log_keyframe_camera(self, rr, event: Dict[str, Any]) -> None:
+        payload = event["payload"]
+        submap_id = int(event["submap_id"])
+        node_id = int(payload["node_id"])
+        group = self._camera_group(submap_id)
+        camera_path = f"cameras/{group}/{node_id}"
+
+        self._log_camera(
+            rr, event, camera_path,
+            position=payload["position"],
+            quat_xyzw=payload.get("quat_xyzw"),
+            intrinsics=payload.get("raw_K", payload.get("K")),
+            image_size=payload.get("raw_img_size", payload.get("img_size")),
+            image_path=payload.get("rgb_img_path"),
+        )
+
+        image_path = payload.get("rgb_img_path")
+        if image_path is not None:
+            resolved = self._resolve_image_path(image_path)
+            if resolved is not None and resolved.exists():
                 self._log(
                     rr,
                     event,
@@ -304,6 +340,12 @@ class MapMergeRuntimeRerunRenderer:
         nodes = payload.get("nodes", [])
         if not nodes:
             return
+
+        merge_step = event.get("merge_step", 0)
+        if int(merge_step) >= 1:
+            self._log(rr, event, "cameras/", "Clear", rr.Clear(recursive=True))
+            self._log(rr, event, "edges/", "Clear", rr.Clear(recursive=True))
+
         positions = np.asarray(
             [n["position"] for n in nodes],
             dtype=np.float32,
@@ -319,6 +361,20 @@ class MapMergeRuntimeRerunRenderer:
                 colors=np.asarray([[255, 255, 0]] * len(nodes), dtype=np.uint8),
             ),
         )
+
+        if int(merge_step) >= 1:
+            for n in nodes:
+                node_id = int(n["node_id"])
+                camera_path = f"final_map/cameras/{node_id}"
+                self._log_camera(
+                    rr, event, camera_path,
+                    position=n["position"],
+                    quat_xyzw=n.get("quat_xyzw"),
+                    intrinsics=n.get("raw_K"),
+                    image_size=n.get("raw_img_size"),
+                    image_path=n.get("rgb_img_path"),
+                )
+
         final_positions: Dict[int, np.ndarray] = {}
         for n in nodes:
             final_positions[int(n["node_id"])] = np.asarray(n["position"], dtype=np.float32)

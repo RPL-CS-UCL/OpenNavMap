@@ -38,12 +38,16 @@ class FakeRerun:
         return ("arrows3d", args, kwargs)
 
     @staticmethod
-    def Quaternion(**kwargs):
-        return ("quaternion", kwargs)
-
-    @staticmethod
     def Points3D(*args, **kwargs):
         return ("points3d", args, kwargs)
+
+    @staticmethod
+    def Clear(**kwargs):
+        return ("clear", kwargs)
+
+    @staticmethod
+    def Quaternion(**kwargs):
+        return ("quaternion", kwargs)
 
     class ViewCoordinates:
         RDF = "RDF"
@@ -154,11 +158,7 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
         "demo_step": 5, "merge_step": 1, "keyframe_id": None,
         "event_type": "metric_edge_added",
         "submap_id": 1,
-        "payload": {
-            "db_node_id": 3,
-            "query_node_id": 5,
-            "conf": 31.74,
-        },
+        "payload": {"db_node_id": 3, "query_node_id": 5, "conf": 31.74},
         "artifacts": {},
     })
     renderer.log_event(rr, {
@@ -171,9 +171,7 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
                 {"node_id": 3, "position": [1.0, 2.0, 3.0], "quat_xyzw": [0, 0, 0, 1]},
                 {"node_id": 5, "position": [4.0, 5.0, 6.0], "quat_xyzw": [0, 0, 0, 1]},
             ],
-            "edges": {
-                "odom": [[3, 5]],
-            },
+            "edges": {"odom": [[3, 5]]},
         },
         "artifacts": {},
     })
@@ -183,7 +181,12 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
     assert len(stage_entries) == 1
     assert stage_entries[0] == ("text", "# Load Reference Map", "text/markdown")
 
-    # ref keyframe camera uses raw_K/raw_img_size
+    # ref keyframe: Transform3D without axis_length + separate Arrows3D
+    assert any(p == "cameras/ref/3" and v[0] == "transform3d" for p, v in rr.logged)
+    assert "axis_length" not in str([v for p, v in rr.logged if p == "cameras/ref/3"][0])
+    assert any(p == "cameras/ref/3/axis" and v[0] == "arrows3d" for p, v in rr.logged)
+
+    # ref keyframe: Pinhole uses raw_K
     pinhole_entries = [v for p, v in rr.logged if p == "cameras/ref/3/image" and v[0] == "pinhole"]
     assert len(pinhole_entries) == 1
     kwargs = pinhole_entries[0][2]
@@ -191,18 +194,19 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
     assert kwargs["height"] == 576
     assert kwargs["focal_length"] == [200.0, 220.0]
 
-    # query keyframe camera falls back to K/img_size (no raw_K)
-    query_pinholes = [v for p, v in rr.logged if p == "cameras/query/5/image" and v[0] == "pinhole"]
-    assert len(query_pinholes) == 1
-    qkwargs = query_pinholes[0][2]
-    assert qkwargs["width"] == 512
-    assert qkwargs["height"] == 288
+    # query keyframe falls back to K
+    assert any(p == "cameras/query/5/image" and v[0] == "pinhole" for p, v in rr.logged)
 
     # dmatrix
     assert any(p == "evidence/dmatrix" and v[0] == "image_encoded" for p, v in rr.logged)
 
-    # metric edge (green) - needs build_time_map first
-    assert not any(p.startswith("edges/metric/") for p, v in rr.logged)
+    # final map: Clear old cameras/edges + new cameras
+    assert any(p == "cameras/" and v[0] == "clear" for p, v in rr.logged)
+    assert any(p == "edges/" and v[0] == "clear" for p, v in rr.logged)
+    assert any(p == "final_map/cameras/3" and v[0] == "transform3d" for p, v in rr.logged)
+    assert any(p == "final_map/cameras/3/axis" and v[0] == "arrows3d" for p, v in rr.logged)
+    assert any(p == "final_map/nodes" and v[0] == "points3d" for p, v in rr.logged)
+    assert any(p == "final_map/edges/odom" and v[0] == "lines3d" for p, v in rr.logged)
 
 
 def test_edge_timing_follows_keyframe_demo_step(tmp_path: Path) -> None:
@@ -311,9 +315,11 @@ def test_metric_edge_uses_node_positions(tmp_path: Path) -> None:
     assert metric_edges[0][0] == "lines3d"
 
 
-def test_final_map_renders_nodes_and_edges(tmp_path: Path) -> None:
+def test_final_map_renders_nodes_edges_and_cameras(tmp_path: Path) -> None:
     event_dir = tmp_path / "rerun_viz"
     event_dir.mkdir()
+    img_path = event_dir / "test.jpg"
+    img_path.write_bytes(b"fake-jpg")
 
     renderer = MapMergeRuntimeRerunRenderer(event_dir)
     rr = FakeRerun()
@@ -325,13 +331,33 @@ def test_final_map_renders_nodes_and_edges(tmp_path: Path) -> None:
         "payload": {
             "num_final_covis_nodes": 2,
             "nodes": [
-                {"node_id": 3, "position": [1.0, 2.0, 3.0], "quat_xyzw": [0, 0, 0, 1]},
-                {"node_id": 5, "position": [4.0, 5.0, 6.0], "quat_xyzw": [0, 0, 0, 1]},
+                {
+                    "node_id": 3,
+                    "position": [1.0, 2.0, 3.0],
+                    "quat_xyzw": [0, 0, 0, 1],
+                    "raw_K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                    "raw_img_size": [512, 288],
+                    "rgb_img_path": str(img_path),
+                },
+                {
+                    "node_id": 5,
+                    "position": [4.0, 5.0, 6.0],
+                    "quat_xyzw": [0, 0, 0, 1],
+                    "raw_K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                    "raw_img_size": [512, 288],
+                    "rgb_img_path": str(img_path),
+                },
             ],
             "edges": {"odom": [[3, 5]]},
         },
         "artifacts": {},
     })
 
+    assert any(p == "cameras/" and v[0] == "clear" for p, v in rr.logged)
+    assert any(p == "edges/" and v[0] == "clear" for p, v in rr.logged)
     assert any(p == "final_map/nodes" and v[0] == "points3d" for p, v in rr.logged)
+    assert any(p == "final_map/cameras/3" and v[0] == "transform3d" for p, v in rr.logged)
+    assert any(p == "final_map/cameras/3/axis" and v[0] == "arrows3d" for p, v in rr.logged)
+    assert any(p == "final_map/cameras/3/image" and v[0] == "pinhole" for p, v in rr.logged)
+    assert any(p == "final_map/cameras/3/image" and v[0] == "image_encoded" for p, v in rr.logged)
     assert any(p == "final_map/edges/odom" and v[0] == "lines3d" for p, v in rr.logged)

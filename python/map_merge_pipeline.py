@@ -264,15 +264,15 @@ def _plot_runtime_dmatrix_panels(
 		acquire_linestyle,
 	)
 
-	setting_font(fontsize=14, titlesize=14, legend_fontsize=14, font_family="Palatino")
+	setting_font(fontsize=9, titlesize=9, legend_fontsize=9, font_family="Palatino")
 	plt.rcParams["text.usetex"] = False
 	plt.rcParams["font.serif"] = ["DejaVu Serif"]
 	palette = acquire_color_palette()
 	markers = acquire_marker()
 	linestyles = acquire_linestyle()
-	label_fontsize = 14
-	title_fontsize = 14
-	colorbar_ticksize = 12
+	label_fontsize = 9
+	title_fontsize = 9
+	ticksize = 8
 
 	fig, axes = plt.subplots(1, len(panels), figsize=figsize)
 	axes = np.atleast_1d(axes)
@@ -298,29 +298,29 @@ def _plot_runtime_dmatrix_panels(
 				alpha=1.0,
 				marker=markers[0],
 			)
-		colorbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-		colorbar.ax.tick_params(labelsize=colorbar_ticksize)
 		im.set_clim(0.0, 1.0)
 		ax.set_xlabel("Query Index", fontsize=label_fontsize)
 		ax.set_ylabel("Reference Index", fontsize=label_fontsize)
 		ax.set_title(title, fontsize=title_fontsize)
-		ax.tick_params(axis="both", labelsize=colorbar_ticksize)
+		ax.tick_params(axis="both", labelsize=ticksize)
 
 	plt.tight_layout()
 	plt.savefig(output_path, dpi=300, bbox_inches="tight")
 	plt.close(fig)
 
 
-def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray) -> pathlib.Path:
+def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray, panels=None) -> pathlib.Path:
 	from utils.utils_setting_color_font import acquire_color_palette
 
 	artifact_path = recorder.artifact_path(merge_step, "dmatrix.png")
 	palette = acquire_color_palette()
+	if panels is None:
+		panels = [("Difference Matrix", [], palette[0])]
 	_plot_runtime_dmatrix_panels(
 		D_all=D_matrix,
-		panels=[("Difference Matrix", [], palette[0])],
+		panels=panels,
 		output_path=artifact_path,
-		figsize=(6, 5),
+		figsize=(6 * len(panels), 5),
 	)
 	return artifact_path
 
@@ -598,6 +598,34 @@ def perform_global_loc(
 					},
 				)
 	
+		if recorder is not None and connected_db_query_indices:
+			db_id_to_row = {nid: i for i, nid in enumerate(db_node_ids)}
+			query_id_to_row = {nid: i for i, nid in enumerate(query_node_ids)}
+			vpr_pairs = [
+				(query_id_to_row[qidx], db_id_to_row[didx])
+				for didx, qidx, _ in connected_db_query_indices
+				if didx in db_id_to_row and qidx in query_id_to_row
+			]
+			gv_pairs = [
+				(query_id_to_row[qnode.id], db_id_to_row[dnode.id])
+				for dnode, qnode, _, _ in coarse_edges
+				if dnode.id in db_id_to_row and qnode.id in query_id_to_row
+			]
+			panels = [
+				("Difference Matrix (Before GV)", vpr_pairs, "green"),
+				("Difference Matrix (After GV)", gv_pairs, "green"),
+			]
+			dmatrix_path = _save_dmatrix_artifact(recorder, merger.runtime_merge_step, D_all, panels=panels)
+			recorder.record_event(
+				merge_step=merger.runtime_merge_step,
+				stage="dmatrix_computed",
+				event_type="dmatrix_computed",
+				submap_id=cur_graph_id,
+				keyframe_id=None,
+				payload={"shape": D_all.shape, "panels": "before_after_gv"},
+				artifacts={"dmatrix_png": dmatrix_path},
+			)
+
 	return coarse_edges, D_all
 
 def perform_local_loc(
@@ -1271,7 +1299,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 						"num_final_odom_nodes": final_map.odom.get_num_node(),
 						"num_culled_nodes": len(nodes_to_cull),
 						"nodes": [
-							{"node_id": node.id, "position": node.trans.tolist(), "quat_xyzw": node.quat.tolist()}
+							{
+								"node_id": node.id,
+								"position": node.trans.tolist(),
+								"quat_xyzw": node.quat.tolist(),
+								"raw_K": np.asarray(node.raw_K).tolist() if hasattr(node, "raw_K") and node.raw_K is not None else None,
+								"raw_img_size": list(node.raw_img_size) if hasattr(node, "raw_img_size") and node.raw_img_size is not None else None,
+								"rgb_img_path": str(final_map.covis.map_root / node.rgb_img_name) if hasattr(node, "rgb_img_name") and node.rgb_img_name else None,
+							}
 							for node in final_map.covis.nodes.values()
 						],
 						"edges": {
@@ -1326,7 +1361,14 @@ def perform_submap_merging(merger: MergePipeline, args):
 						"num_final_odom_nodes": final_map.odom.get_num_node(),
 						"num_culled_nodes": 0,
 						"nodes": [
-							{"node_id": node.id, "position": node.trans.tolist(), "quat_xyzw": node.quat.tolist()}
+							{
+								"node_id": node.id,
+								"position": node.trans.tolist(),
+								"quat_xyzw": node.quat.tolist(),
+								"raw_K": np.asarray(node.raw_K).tolist() if hasattr(node, "raw_K") and node.raw_K is not None else None,
+								"raw_img_size": list(node.raw_img_size) if hasattr(node, "raw_img_size") and node.raw_img_size is not None else None,
+								"rgb_img_path": str(final_map.covis.map_root / node.rgb_img_name) if hasattr(node, "rgb_img_name") and node.rgb_img_name else None,
+							}
 							for node in final_map.covis.nodes.values()
 						],
 						"edges": {
