@@ -1,5 +1,5 @@
-"""Export merged map poses to TUM format and copy to slam_trajectory_evaluation
-directory structure for ATE/RPE computation."""
+"""Export merged map poses to TUM format and copy to trajectory evaluation
+directory structure (third_party/slam_trajectory_evaluation) for ATE/RPE computation."""
 
 import os
 import shutil
@@ -89,7 +89,7 @@ def export_to_eval_structure(
     dataset_order_name: str,
     method_name: str,
 ):
-    """Export TUM files to slam_trajectory_evaluation directory structure.
+    """Export TUM files to trajectory evaluation directory structure.
 
     GT: <root>/groundtruth/traj/<dataset_order_name>.txt
     EST: <root>/algorithms/<method_name>/laptop/traj/<dataset_order_name>.txt

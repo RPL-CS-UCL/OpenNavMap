@@ -1126,7 +1126,8 @@ def run_order(
             pnp_min_inliers,
         )
         _dist_tag = f"_{int(sfm_sample_dist * 100):03d}" if sfm_sample_dist > 0 else ""
-        eval_method_name = f"{method}{_dist_tag}_{value_tag}"
+        _suffix = f"_{result_suffix}" if result_suffix else ""
+        eval_method_name = f"{method}{_dist_tag}_{value_tag}{_suffix}"
         try:
             gt_path, est_path = export_to_eval_structure(
                 merge_dir, traj_eval_data_root, dataset_order_name, eval_method_name
@@ -1156,7 +1157,7 @@ if __name__ == "__main__":
                    help="Limit to first N submaps (for subset/first-test)")
     p.add_argument("--traj-eval-data-root", type=Path,
                    default=Path("/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data"),
-                   help="Root for slam_trajectory_evaluation output")
+                   help="Root for trajectory evaluation output (third_party/slam_trajectory_evaluation)")
     p.add_argument("--skip-eval-export", action="store_true",
                     help="Skip exporting TUM trajectories for evaluation")
     p.add_argument("--data-dir", type=str, default="s00000_aria_data_000",

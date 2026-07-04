@@ -421,10 +421,15 @@ def _run_light_bundle_adjustment(
     options.refine_focal_length = False
     options.refine_principal_point = False
     options.refine_extra_params = False
-    options.refine_points3D = True
-    options.refine_rig_from_world = False
-    options.refine_sensor_from_rig = False
     options.print_summary = False
+    if hasattr(options, "refine_extrinsics"):
+        options.refine_extrinsics = False
+    if hasattr(options, "refine_points3D"):
+        options.refine_points3D = True
+    if hasattr(options, "refine_rig_from_world"):
+        options.refine_rig_from_world = False
+    if hasattr(options, "refine_sensor_from_rig"):
+        options.refine_sensor_from_rig = False
     _set_ba_max_iterations(options, max_iter)
     pycolmap.bundle_adjustment(model, options)
 
