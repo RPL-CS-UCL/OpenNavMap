@@ -264,15 +264,15 @@ def _plot_runtime_dmatrix_panels(
 		acquire_linestyle,
 	)
 
-	setting_font(fontsize=11, titlesize=11, legend_fontsize=11, font_family="Palatino")
+	setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino")
 	plt.rcParams["text.usetex"] = False
 	plt.rcParams["font.serif"] = ["DejaVu Serif"]
 	palette = acquire_color_palette()
 	markers = acquire_marker()
 	linestyles = acquire_linestyle()
-	label_fontsize = 11
-	title_fontsize = 11
-	ticksize = 9
+	label_fontsize = 13
+	title_fontsize = 13
+	ticksize = 10
 
 	fig, axes = plt.subplots(1, len(panels), figsize=figsize)
 	axes = np.atleast_1d(axes)

@@ -33,7 +33,8 @@ class MapMergeRuntimeRerunRenderer:
         "trav": [255, 255, 255],
     }
 
-    AXIS_LEN = 0.9
+    AXIS_LEN = 0.297
+    IMAGE_PLANE_DISTANCE = 1.35
     WORLD_AXIS_LEN = 10.0
 
     def __init__(self, event_dir: Path, render_trace_path: Optional[Path] = None) -> None:
@@ -202,8 +203,10 @@ class MapMergeRuntimeRerunRenderer:
         image_size,
         image_path: Optional[str],
     ) -> None:
-        axis_len = self.AXIS_LEN
-        transform_kwargs: Dict[str, Any] = {"translation": np.asarray(position, dtype=np.float32)}
+        transform_kwargs: Dict[str, Any] = {
+            "translation": np.asarray(position, dtype=np.float32),
+            "axis_length": self.AXIS_LEN,
+        }
         if quat_xyzw is not None:
             transform_kwargs["rotation"] = rr.Quaternion(xyzw=np.asarray(quat_xyzw, dtype=np.float32))
         self._log(rr, event, base_path, "Transform3D", rr.Transform3D(**transform_kwargs))
@@ -221,7 +224,7 @@ class MapMergeRuntimeRerunRenderer:
                     principal_point=[float(K[0, 2]), float(K[1, 2])],
                     width=width,
                     height=height,
-                    image_plane_distance=float(axis_len * 0.5),
+                    image_plane_distance=self.IMAGE_PLANE_DISTANCE,
                     camera_xyz=rr.ViewCoordinates.RDF,
                 ),
             )
