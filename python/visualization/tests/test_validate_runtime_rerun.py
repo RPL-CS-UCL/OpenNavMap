@@ -36,6 +36,29 @@ def test_validate_reports_complete_coverage(tmp_path: Path) -> None:
         "payload": {"edge_type": "odom", "nodeAid": 3, "nodeBid": 4},
         "demo_step": 3,
     })
+    _append_jsonl(events_path, {
+        "event_type": "dmatrix_computed",
+        "submap_id": 1,
+        "payload": {"shape": [66, 45]},
+        "artifacts": {"dmatrix_png": "artifacts/dmatrix.png"},
+        "demo_step": 4,
+    })
+    _append_jsonl(events_path, {
+        "event_type": "metric_edge_added",
+        "submap_id": 1,
+        "payload": {"db_node_id": 3, "query_node_id": 5, "conf": 31.0},
+        "demo_step": 5,
+    })
+    _append_jsonl(events_path, {
+        "event_type": "map_committed",
+        "submap_id": 1,
+        "payload": {
+            "num_final_covis_nodes": 2,
+            "nodes": [{"node_id": 3, "position": [1, 2, 3]}, {"node_id": 5, "position": [4, 5, 6]}],
+            "edges": {"odom": [[3, 5]]},
+        },
+        "demo_step": 6,
+    })
 
     for entity_path, archetype in [
         ("/status/stage_summary", "TextDocument"),
@@ -47,6 +70,10 @@ def test_validate_reports_complete_coverage(tmp_path: Path) -> None:
         ("cameras/query/5/image", "Pinhole"),
         ("cameras/query/5/image", "ImageEncoded"),
         ("edges/ref/odom/3_4", "LineStrips3D"),
+        ("evidence/dmatrix", "ImageEncoded"),
+        ("edges/metric/3_5", "LineStrips3D"),
+        ("final_map/nodes", "Points3D"),
+        ("final_map/edges/odom", "LineStrips3D"),
     ]:
         _append_jsonl(trace_path, {"entity_path": entity_path, "archetype": archetype})
 
@@ -59,6 +86,9 @@ def test_validate_reports_complete_coverage(tmp_path: Path) -> None:
     assert summary["keyframe_image_coverage"] == "2 / 2"
     assert summary["current_keyframe_image_rendered"] is True
     assert summary["odom_edges_rendered"] == "1 / 1"
+    assert summary["dmatrix_rendered"] is True
+    assert summary["metric_edges_rendered"] == "1 / 1"
+    assert summary["final_map_nodes_rendered"] is True
     assert summary["passed"] is True
 
 

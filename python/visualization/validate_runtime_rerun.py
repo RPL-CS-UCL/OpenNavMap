@@ -74,6 +74,15 @@ def validate_runtime_rerun(event_dir: Path, render_trace: Path, rrd: Path) -> Di
     lines = _entity_set(trace, "LineStrips3D")
     text = _entity_set(trace, "TextDocument")
 
+    metric_events = [e for e in events if e.get("event_type") == "metric_edge_added"]
+    dmatrix_events = [e for e in events if e.get("event_type") == "dmatrix_computed"]
+    map_committed_events = [e for e in events if e.get("event_type") == "map_committed"]
+
+    expected_metric_edges = {
+        f"edges/metric/{int(e['payload']['db_node_id'])}_{int(e['payload']['query_node_id'])}"
+        for e in metric_events
+    }
+
     summary: Dict[str, object] = {
         "rrd_non_empty": Path(rrd).exists() and Path(rrd).stat().st_size > 0,
         "stage_summary_rendered": "/status/stage_summary" in text if stage_count else True,
@@ -84,6 +93,11 @@ def validate_runtime_rerun(event_dir: Path, render_trace: Path, rrd: Path) -> Di
         "odom_edges_rendered": _coverage(lines, expected_edge_paths["odom"]),
         "covis_edges_rendered": _coverage(lines, expected_edge_paths["covis"]),
         "trav_edges_rendered": _coverage(lines, expected_edge_paths["trav"]),
+        "dmatrix_rendered": "evidence/dmatrix" in encoded if dmatrix_events else True,
+        "metric_edges_rendered": _coverage(lines, expected_metric_edges),
+        "final_map_nodes_rendered": "final_map/nodes" in _entity_set(trace, "Points3D") if any(
+            e.get("payload", {}).get("nodes") for e in map_committed_events
+        ) else True,
     }
     summary["passed"] = all(
         [
@@ -96,6 +110,9 @@ def validate_runtime_rerun(event_dir: Path, render_trace: Path, rrd: Path) -> Di
             summary["odom_edges_rendered"] == f"{len(edges['odom'])} / {len(edges['odom'])}",
             summary["covis_edges_rendered"] == f"{len(edges['covis'])} / {len(edges['covis'])}",
             summary["trav_edges_rendered"] == f"{len(edges['trav'])} / {len(edges['trav'])}",
+            summary["dmatrix_rendered"],
+            summary["metric_edges_rendered"] == f"{len(expected_metric_edges)} / {len(expected_metric_edges)}" if expected_metric_edges else True,
+            summary["final_map_nodes_rendered"],
         ]
     )
     return summary

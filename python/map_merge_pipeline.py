@@ -265,12 +265,14 @@ def _plot_runtime_dmatrix_panels(
 	)
 
 	setting_font(fontsize=14, titlesize=14, legend_fontsize=14, font_family="Palatino")
+	plt.rcParams["text.usetex"] = False
+	plt.rcParams["font.serif"] = ["DejaVu Serif"]
 	palette = acquire_color_palette()
 	markers = acquire_marker()
 	linestyles = acquire_linestyle()
-	label_fontsize = 24
-	title_fontsize = 28
-	colorbar_ticksize = 20
+	label_fontsize = 14
+	title_fontsize = 14
+	colorbar_ticksize = 12
 
 	fig, axes = plt.subplots(1, len(panels), figsize=figsize)
 	axes = np.atleast_1d(axes)
@@ -305,14 +307,8 @@ def _plot_runtime_dmatrix_panels(
 		ax.tick_params(axis="both", labelsize=colorbar_ticksize)
 
 	plt.tight_layout()
-	try:
-		plt.savefig(output_path, dpi=300, bbox_inches="tight")
-	except RuntimeError:
-		# Palatino is still requested above; disable TeX if the runtime lacks LaTeX.
-		plt.rcParams["text.usetex"] = False
-		plt.savefig(output_path, dpi=300, bbox_inches="tight")
-	finally:
-		plt.close(fig)
+	plt.savefig(output_path, dpi=300, bbox_inches="tight")
+	plt.close(fig)
 
 
 def _save_dmatrix_artifact(recorder, merge_step: int, D_matrix: np.ndarray) -> pathlib.Path:
@@ -503,7 +499,7 @@ def perform_global_loc(
 				merge_step=merger.runtime_merge_step,
 				submap_id=cur_graph_id,
 				stage_index=4,
-				title="VPR Sequence Matching",
+				title=f"VPR Sequence Matching - Reference Map-Submap {cur_graph_id}",
 				subtitle="Search the difference matrix for topological matches between reference and query frames.",
 			)
 		
@@ -557,7 +553,7 @@ def perform_global_loc(
 			merge_step=merger.runtime_merge_step,
 			submap_id=cur_graph_id,
 			stage_index=5,
-			title="Geometric Verification",
+			title=f"Geometric Verification - Reference Map-Submap {cur_graph_id}",
 			subtitle="Reject false positive topological matches using feature inlier checks.",
 		)
 		coarse_edges = []
@@ -1008,7 +1004,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=1,
-				title=f"Load Reference Submap {cur_submap.map_id}",
+				title="Load Reference Map",
 				subtitle="Replay keyframes and odom/covis/trav graph edges for the reference submap.",
 			)
 		elif merge_step == 1:
@@ -1017,7 +1013,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=2,
-				title=f"Load Query Submap {cur_submap.map_id}",
+				title=f"Load Submap {cur_submap.map_id}",
 				subtitle="Replay keyframes and odom/covis/trav graph edges for the query submap.",
 			)
 		_record_submap_loaded(merger, merge_step, cur_submap)
@@ -1032,7 +1028,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=3,
-				title="Compute Difference Matrix",
+				title=f"Compute Difference Matrix - Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Compare query and reference descriptors to build the localization cost matrix.",
 			)
 			edges_nodeAB_coarse_covis, D_matrix = perform_global_loc(
@@ -1048,7 +1044,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=6,
-				title="Metric Localization",
+				title=f"Metric Localization - Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Estimate metric inter-submap constraints from geometrically verified candidates.",
 			)
 			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query, lloc_history = perform_local_loc(
@@ -1066,7 +1062,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=7,
-				title="Pose Graph Optimization",
+				title=f"Pose Graph Optimization - Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Optimize the combined pose graph before committing the merged map.",
 			)
 			# Initialize the pose graph
@@ -1238,7 +1234,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				merge_step=merge_step,
 				submap_id=cur_submap.map_id,
 				stage_index=8,
-				title="Submap Merging and Edge Updating",
+				title=f"Submap Merging - Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Merge the optimized query submap into the reference map and update graph edges.",
 			)
 			# Merge two submap into one with optimized poses
@@ -1274,6 +1270,18 @@ def perform_submap_merging(merger: MergePipeline, args):
 						"num_final_covis_nodes": final_map.covis.get_num_node(),
 						"num_final_odom_nodes": final_map.odom.get_num_node(),
 						"num_culled_nodes": len(nodes_to_cull),
+						"nodes": [
+							{"node_id": node.id, "position": node.trans.tolist(), "quat_xyzw": node.quat.tolist()}
+							for node in final_map.covis.nodes.values()
+						],
+						"edges": {
+							etype: [
+								[int(node_a.id), int(node_b.id)]
+								for node_a, node_b, _ in _iter_unique_edges(getattr(final_map, etype))
+							]
+							for etype in ("odom", "covis", "trav")
+							if getattr(final_map, etype, None) is not None
+						},
 					},
 				)
 		else:
@@ -1317,6 +1325,18 @@ def perform_submap_merging(merger: MergePipeline, args):
 						"num_final_covis_nodes": final_map.covis.get_num_node(),
 						"num_final_odom_nodes": final_map.odom.get_num_node(),
 						"num_culled_nodes": 0,
+						"nodes": [
+							{"node_id": node.id, "position": node.trans.tolist(), "quat_xyzw": node.quat.tolist()}
+							for node in final_map.covis.nodes.values()
+						],
+						"edges": {
+							etype: [
+								[int(node_a.id), int(node_b.id)]
+								for node_a, node_b, _ in _iter_unique_edges(getattr(final_map, etype))
+							]
+							for etype in ("odom", "covis", "trav")
+							if getattr(final_map, etype, None) is not None
+						},
 					},
 				)
 

@@ -41,6 +41,10 @@ class FakeRerun:
     def Quaternion(**kwargs):
         return ("quaternion", kwargs)
 
+    @staticmethod
+    def Points3D(*args, **kwargs):
+        return ("points3d", args, kwargs)
+
     class ViewCoordinates:
         RDF = "RDF"
 
@@ -94,8 +98,8 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
         "submap_id": 0,
         "event_type": "stage_annotation",
         "payload": {
-            "display_text": "Stage 1 / 8\nLoad Reference Submap 0\nReplay keyframes.",
-            "title": "Load Reference Submap 0",
+            "display_text": "Stage 1 / 8\nLoad Reference Map\nReplay keyframes.",
+            "title": "Load Reference Map",
             "subtitle": "Replay keyframes.",
         },
         "artifacts": {},
@@ -108,7 +112,9 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
             "position": [1.0, 2.0, 3.0],
             "quat_xyzw": [0.0, 0.0, 0.0, 1.0],
             "K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+            "raw_K": [[200.0, 0.0, 100.0], [0.0, 220.0, 120.0], [0.0, 0.0, 1.0]],
             "img_size": [512, 288],
+            "raw_img_size": [1024, 576],
             "rgb_img_path": str(img_path),
         },
         "artifacts": {},
@@ -141,34 +147,62 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
     renderer.log_event(rr, {
         "demo_step": 4, "merge_step": 1, "keyframe_id": None,
         "event_type": "dmatrix_computed",
-        "payload": {},
+        "payload": {"shape": [66, 45]},
+        "artifacts": {"dmatrix_png": str(img_path)},
+    })
+    renderer.log_event(rr, {
+        "demo_step": 5, "merge_step": 1, "keyframe_id": None,
+        "event_type": "metric_edge_added",
+        "submap_id": 1,
+        "payload": {
+            "db_node_id": 3,
+            "query_node_id": 5,
+            "conf": 31.74,
+        },
+        "artifacts": {},
+    })
+    renderer.log_event(rr, {
+        "demo_step": 6, "merge_step": 1, "keyframe_id": None,
+        "event_type": "map_committed",
+        "submap_id": 1,
+        "payload": {
+            "num_final_covis_nodes": 2,
+            "nodes": [
+                {"node_id": 3, "position": [1.0, 2.0, 3.0], "quat_xyzw": [0, 0, 0, 1]},
+                {"node_id": 5, "position": [4.0, 5.0, 6.0], "quat_xyzw": [0, 0, 0, 1]},
+            ],
+            "edges": {
+                "odom": [[3, 5]],
+            },
+        },
         "artifacts": {},
     })
 
-    # stage: h1 markdown title only, no subtitle
+    # stage: h1 markdown title only
     stage_entries = [v for p, v in rr.logged if p == "/status/stage_summary"]
     assert len(stage_entries) == 1
-    assert stage_entries[0] == ("text", "# Load Reference Submap 0", "text/markdown")
+    assert stage_entries[0] == ("text", "# Load Reference Map", "text/markdown")
 
-    # ref keyframe camera (no sfm/ prefix)
-    assert any(p == "cameras/ref/3" and v[0] == "transform3d" for p, v in rr.logged)
-    assert any(p == "cameras/ref/3/image" and v[0] == "pinhole" for p, v in rr.logged)
-    assert any(p == "cameras/ref/3/image" and v[0] == "image_encoded" for p, v in rr.logged)
+    # ref keyframe camera uses raw_K/raw_img_size
+    pinhole_entries = [v for p, v in rr.logged if p == "cameras/ref/3/image" and v[0] == "pinhole"]
+    assert len(pinhole_entries) == 1
+    kwargs = pinhole_entries[0][2]
+    assert kwargs["width"] == 1024
+    assert kwargs["height"] == 576
+    assert kwargs["focal_length"] == [200.0, 220.0]
 
-    # query keyframe camera
-    assert any(p == "cameras/query/5" and v[0] == "transform3d" for p, v in rr.logged)
-    assert any(p == "cameras/query/5/image" and v[0] == "pinhole" for p, v in rr.logged)
+    # query keyframe camera falls back to K/img_size (no raw_K)
+    query_pinholes = [v for p, v in rr.logged if p == "cameras/query/5/image" and v[0] == "pinhole"]
+    assert len(query_pinholes) == 1
+    qkwargs = query_pinholes[0][2]
+    assert qkwargs["width"] == 512
+    assert qkwargs["height"] == 288
 
-    # current keyframe image
-    assert any(p == "evidence/current_keyframe_image" and v[0] == "image_encoded" for p, v in rr.logged)
+    # dmatrix
+    assert any(p == "evidence/dmatrix" and v[0] == "image_encoded" for p, v in rr.logged)
 
-    # edge (no sfm/ prefix)
-    assert any(p == "edges/ref/covis/3_4" and v[0] == "lines3d" for p, v in rr.logged)
-
-    # unsupported event ignored
-    assert not any(p == "/evidence/dmatrix" for p, v in rr.logged)
-
-    assert ("demo_step", 3) in rr.times
+    # metric edge (green) - needs build_time_map first
+    assert not any(p.startswith("edges/metric/") for p, v in rr.logged)
 
 
 def test_edge_timing_follows_keyframe_demo_step(tmp_path: Path) -> None:
@@ -222,7 +256,82 @@ def test_edge_timing_follows_keyframe_demo_step(tmp_path: Path) -> None:
     for event in events:
         renderer.log_event(rr, event)
 
-    # edge keyframe_id=4 maps to node 4's demo_step=2, not the edge's own demo_step=10
     edge_times = [v for timeline, v in rr.times if timeline == "demo_step"]
-    # last demo_step entry is from the edge event
     assert edge_times[-1] == 2
+
+
+def test_metric_edge_uses_node_positions(tmp_path: Path) -> None:
+    event_dir = tmp_path / "rerun_viz"
+    event_dir.mkdir()
+    img_path = event_dir / "test.jpg"
+    img_path.write_bytes(b"fake-jpg")
+
+    events = [
+        {
+            "demo_step": 1, "merge_step": 0, "submap_id": 0, "keyframe_id": 3,
+            "event_type": "vio_node_observed",
+            "payload": {
+                "node_id": 3,
+                "position": [1.0, 2.0, 3.0],
+                "quat_xyzw": [0.0, 0.0, 0.0, 1.0],
+                "K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                "img_size": [512, 288],
+                "rgb_img_path": str(img_path),
+            },
+        },
+        {
+            "demo_step": 2, "merge_step": 1, "submap_id": 1, "keyframe_id": 5,
+            "event_type": "vio_node_observed",
+            "payload": {
+                "node_id": 5,
+                "position": [4.0, 5.0, 6.0],
+                "quat_xyzw": [0.0, 0.0, 0.0, 1.0],
+                "K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                "img_size": [512, 288],
+                "rgb_img_path": str(img_path),
+            },
+        },
+        {
+            "demo_step": 3, "merge_step": 1, "submap_id": 1, "keyframe_id": None,
+            "event_type": "metric_edge_added",
+            "payload": {"db_node_id": 3, "query_node_id": 5, "conf": 31.74},
+            "artifacts": {},
+        },
+    ]
+
+    renderer = MapMergeRuntimeRerunRenderer(event_dir)
+    renderer.build_time_map(events)
+    rr = FakeRerun()
+
+    for event in events:
+        renderer.log_event(rr, event)
+
+    metric_edges = [v for p, v in rr.logged if p.startswith("edges/metric/")]
+    assert len(metric_edges) == 1
+    assert metric_edges[0][0] == "lines3d"
+
+
+def test_final_map_renders_nodes_and_edges(tmp_path: Path) -> None:
+    event_dir = tmp_path / "rerun_viz"
+    event_dir.mkdir()
+
+    renderer = MapMergeRuntimeRerunRenderer(event_dir)
+    rr = FakeRerun()
+
+    renderer.log_event(rr, {
+        "demo_step": 10, "merge_step": 1, "keyframe_id": None,
+        "event_type": "map_committed",
+        "submap_id": 1,
+        "payload": {
+            "num_final_covis_nodes": 2,
+            "nodes": [
+                {"node_id": 3, "position": [1.0, 2.0, 3.0], "quat_xyzw": [0, 0, 0, 1]},
+                {"node_id": 5, "position": [4.0, 5.0, 6.0], "quat_xyzw": [0, 0, 0, 1]},
+            ],
+            "edges": {"odom": [[3, 5]]},
+        },
+        "artifacts": {},
+    })
+
+    assert any(p == "final_map/nodes" and v[0] == "points3d" for p, v in rr.logged)
+    assert any(p == "final_map/edges/odom" and v[0] == "lines3d" for p, v in rr.logged)
