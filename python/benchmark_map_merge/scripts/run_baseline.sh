@@ -78,6 +78,7 @@ Options:
   --prebuilt-sfm-root DIR Pre-built submaps_sfm/ root; skips SfM rebuild in merge mode
   --result-suffix TAG    Suffix appended to result dir name (e.g. 'ba10')
   --eval-config NAME      yaml config for run_evaluation.sh
+  --skip-eval             Skip trajectory evaluation after merge (default: run eval)
   --overwrite             Remove existing result dir before running
   --clean-work            Delete large _work/merge_subN/ intermediates after each
                           submap merge, and also delete _work/merge_sub* and
@@ -119,6 +120,7 @@ PREBUILT_SFM_ROOT=
 CLEAN_WORK=
 DRY_RUN=
 RESULT_SUFFIX=
+SKIP_EVAL=
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -140,6 +142,7 @@ while [[ $# -gt 0 ]]; do
     --prebuilt-sfm-root) PREBUILT_SFM_ROOT=$2; shift ;;
     --result-suffix)     RESULT_SUFFIX=$2; shift ;;
     --eval-config)      EVAL_CONFIG=$2; shift ;;
+    --skip-eval)        SKIP_EVAL=1 ;;
     --overwrite)        OVERWRITE=1 ;;
     --clean-work)       CLEAN_WORK=1 ;;
     --dry-run)          DRY_RUN=1 ;;
@@ -269,7 +272,9 @@ echo ""
 # ---------------------------------------------------------------------------
 # Trajectory evaluation (merge mode only)
 # ---------------------------------------------------------------------------
-if [[ "$MODE" == "merge" ]]; then
+if [[ "$MODE" == "merge" && -z "$SKIP_EVAL" ]]; then
   echo "=== Running trajectory evaluation ==="
   bash "${SCRIPT_DIR}/run_evaluation.sh" --config "$EVAL_CONFIG"
+elif [[ "$MODE" == "merge" && -n "$SKIP_EVAL" ]]; then
+  echo "=== Skipping trajectory evaluation (--skip-eval) ==="
 fi

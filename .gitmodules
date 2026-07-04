@@ -14,3 +14,6 @@
 	path = third_party/pose_estimation_models
 	url = https://github.com/gogojjh/pose_estimation_models.git
 	branch = main
+[submodule "third_party/slam_trajectory_evaluation"]
+	path = third_party/slam_trajectory_evaluation
+	url = git@github.com:gogojjh/slam_trajectory_evaluation.git

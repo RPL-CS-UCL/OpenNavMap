@@ -26,12 +26,16 @@
 
 set -euo pipefail
 
+export PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_PATH="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PYTHON=${PYTHON:-/root/miniconda3/envs/traj_evaluation/bin/python}
 TRAJ_PATH=${TRAJ_PATH:-/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data}
-EVAL_PROJ=${EVAL_PROJ:-/Titan/code/robohike_ws/src/slam_trajectory_evaluation}
+EVAL_PROJ=${EVAL_PROJ:-"$PROJECT_PATH/third_party/slam_trajectory_evaluation"}
 EVAL_SCRIPT_PATH="$EVAL_PROJ/evaluation/rpg_trajectory_evaluation"
 REPORT_DIR="$TRAJ_PATH/report"
 
