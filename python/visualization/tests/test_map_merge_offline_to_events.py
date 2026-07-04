@@ -79,3 +79,24 @@ def test_load_descriptors_parses_256_dim(tmp_path: Path) -> None:
     assert result["seq/000000.color.jpg"].shape == (256,)
     assert result["seq/000000.color.jpg"][0] == 0.0
     assert result["seq/000000.color.jpg"][255] == 255.0
+
+
+from visualization.map_merge_offline_to_events import identify_new_nodes
+
+
+def test_identify_new_nodes_returns_indices_not_in_prev(tmp_path: Path) -> None:
+    prev_names = ["seq/000000.color.jpg", "seq/000001.color.jpg", "seq/000002.color.jpg"]
+    curr_names = ["seq/000000.color.jpg", "seq/000001.color.jpg",
+                  "seq/000002.color.jpg", "seq/000003.color.jpg", "seq/000004.color.jpg"]
+    result = identify_new_nodes(prev_names, curr_names)
+    assert result == [3, 4]
+
+
+def test_identify_new_nodes_empty_when_no_new(tmp_path: Path) -> None:
+    names = ["seq/000000.color.jpg", "seq/000001.color.jpg"]
+    assert identify_new_nodes(names, names) == []
+
+
+def test_identify_new_nodes_all_new_when_prev_empty(tmp_path: Path) -> None:
+    curr = ["seq/000000.color.jpg", "seq/000001.color.jpg"]
+    assert identify_new_nodes([], curr) == [0, 1]

@@ -90,3 +90,11 @@ def load_descriptors(desc_file: Path) -> dict[str, np.ndarray]:
         desc = np.array([float(x) for x in parts[1:]], dtype=np.float32)
         result[img_name] = desc
     return result
+
+
+def identify_new_nodes(
+    prev_img_names: list[str], curr_img_names: list[str]
+) -> list[int]:
+    """Return indices of curr_img_names whose image name is not in prev_img_names."""
+    prev_set = set(prev_img_names)
+    return [i for i, name in enumerate(curr_img_names) if name not in prev_set]
