@@ -126,3 +126,14 @@ def test_compute_dmatrix_empty_query_returns_empty() -> None:
     ref = {"a.jpg": np.array([1.0, 0.0], dtype=np.float32)}
     result = compute_dmatrix(ref, {})
     assert result.shape == (1, 0)
+
+
+from visualization.map_merge_offline_to_events import plot_dmatrix
+
+
+def test_plot_dmatrix_creates_png(tmp_path: Path) -> None:
+    dmatrix = np.random.rand(10, 5).astype(np.float32)
+    output_path = tmp_path / "dmatrix.png"
+    plot_dmatrix(dmatrix, output_path, ref_label="Ref", query_label="Query")
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0

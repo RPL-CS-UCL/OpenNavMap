@@ -5,6 +5,10 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 
 @dataclass
 class PoseEntry:
@@ -127,3 +131,32 @@ def get_new_descriptors(
     """Return descriptors in curr_descs whose key is not in prev_descs."""
     prev_keys = set(prev_descs.keys())
     return {k: v for k, v in curr_descs.items() if k not in prev_keys}
+
+
+def plot_dmatrix(
+    dmatrix: np.ndarray,
+    output_path: Path,
+    ref_label: str,
+    query_label: str,
+) -> Path:
+    """Plot D-matrix as scatter (no colorbar, font 13/13/13/10, s=40).
+
+    Follows runtime renderer styling conventions.
+    """
+    fig, ax = plt.subplots(figsize=(8, 6))
+    if dmatrix.size > 0:
+        y_idx, x_idx = np.meshgrid(
+            range(dmatrix.shape[0]), range(dmatrix.shape[1]), indexing="ij"
+        )
+        ax.scatter(
+            x_idx.ravel(), y_idx.ravel(), c=dmatrix.ravel(),
+            s=40, cmap="RdYlGn", vmin=0.0, vmax=1.0,
+        )
+    ax.set_xlabel(query_label, fontsize=13)
+    ax.set_ylabel(ref_label, fontsize=13)
+    ax.set_title("Difference Matrix", fontsize=13)
+    ax.tick_params(labelsize=10)
+    fig.tight_layout()
+    fig.savefig(str(output_path), dpi=100)
+    plt.close(fig)
+    return output_path
