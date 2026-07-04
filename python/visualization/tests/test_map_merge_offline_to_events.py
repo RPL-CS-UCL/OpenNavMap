@@ -100,3 +100,29 @@ def test_identify_new_nodes_empty_when_no_new(tmp_path: Path) -> None:
 def test_identify_new_nodes_all_new_when_prev_empty(tmp_path: Path) -> None:
     curr = ["seq/000000.color.jpg", "seq/000001.color.jpg"]
     assert identify_new_nodes([], curr) == [0, 1]
+
+
+from visualization.map_merge_offline_to_events import compute_dmatrix
+
+
+def test_compute_dmatrix_shape_and_values() -> None:
+    ref = {
+        "a.jpg": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        "b.jpg": np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    }
+    query = {
+        "c.jpg": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        "d.jpg": np.array([0.0, 0.0, 1.0], dtype=np.float32),
+    }
+    result = compute_dmatrix(ref, query)
+    assert result.shape == (2, 2)
+    assert abs(result[0, 0] - 1.0) < 1e-5  # a-c identical
+    assert abs(result[0, 1] - 0.0) < 1e-5  # a-d orthogonal
+    assert abs(result[1, 0] - 0.0) < 1e-5  # b-c orthogonal
+    assert abs(result[1, 1] - 0.0) < 1e-5  # b-d orthogonal
+
+
+def test_compute_dmatrix_empty_query_returns_empty() -> None:
+    ref = {"a.jpg": np.array([1.0, 0.0], dtype=np.float32)}
+    result = compute_dmatrix(ref, {})
+    assert result.shape == (1, 0)

@@ -98,3 +98,32 @@ def identify_new_nodes(
     """Return indices of curr_img_names whose image name is not in prev_img_names."""
     prev_set = set(prev_img_names)
     return [i for i, name in enumerate(curr_img_names) if name not in prev_set]
+
+
+def compute_dmatrix(
+    ref_descs: dict[str, np.ndarray], query_descs: dict[str, np.ndarray]
+) -> np.ndarray:
+    """Compute cosine similarity matrix between reference and query descriptors.
+
+    Returns matrix of shape (len(ref), len(query)).
+    """
+    ref_keys = list(ref_descs.keys())
+    query_keys = list(query_descs.keys())
+    if not ref_keys or not query_keys:
+        return np.zeros((len(ref_keys), len(query_keys)), dtype=np.float32)
+
+    ref_mat = np.stack([ref_descs[k] for k in ref_keys])
+    query_mat = np.stack([query_descs[k] for k in query_keys])
+
+    ref_norm = ref_mat / (np.linalg.norm(ref_mat, axis=1, keepdims=True) + 1e-8)
+    query_norm = query_mat / (np.linalg.norm(query_mat, axis=1, keepdims=True) + 1e-8)
+
+    return ref_norm @ query_norm.T
+
+
+def get_new_descriptors(
+    prev_descs: dict[str, np.ndarray], curr_descs: dict[str, np.ndarray]
+) -> dict[str, np.ndarray]:
+    """Return descriptors in curr_descs whose key is not in prev_descs."""
+    prev_keys = set(prev_descs.keys())
+    return {k: v for k, v in curr_descs.items() if k not in prev_keys}
