@@ -137,3 +137,86 @@ def test_plot_dmatrix_creates_png(tmp_path: Path) -> None:
     plot_dmatrix(dmatrix, output_path, ref_label="Ref", query_label="Query")
     assert output_path.exists()
     assert output_path.stat().st_size > 0
+
+
+from visualization.map_merge_offline_to_events import generate_events
+
+
+def _make_fake_merge_dir(base: Path, name: str, num_poses: int, start_idx: int = 0) -> Path:
+    """Create a fake merge directory with minimal data files."""
+    merge_dir = base / name
+    merge_dir.mkdir()
+    seq_dir = merge_dir / "seq"
+    seq_dir.mkdir()
+
+    pose_lines = []
+    intr_lines = []
+    desc_lines = []
+    for i in range(start_idx, start_idx + num_poses):
+        img_name = f"seq/{i:06d}.color.jpg"
+        pose_lines.append(f"{img_name} 0.0 0.0 0.0 1.0 {float(i)} 0.0 0.0")
+        intr_lines.append(f"{img_name} 444.0 444.0 511.5 287.5 1024 576")
+        (seq_dir / f"{i:06d}.color.jpg").write_bytes(b"fake-jpg")
+        desc_vals = " ".join(str(float(j) / 256.0) for j in range(256))
+        desc_lines.append(f"{img_name} {desc_vals}")
+    (merge_dir / "poses.txt").write_text("\n".join(pose_lines) + "\n")
+    (merge_dir / "intrinsics.txt").write_text("\n".join(intr_lines) + "\n")
+    (merge_dir / "database_descriptors.txt").write_text("\n".join(desc_lines) + "\n")
+
+    edge_lines = []
+    for i in range(num_poses - 1):
+        edge_lines.append(f"{start_idx + i} {start_idx + i + 1} 0.5")
+    for et in ("odom", "covis", "trav"):
+        (merge_dir / f"edges_{et}.txt").write_text("\n".join(edge_lines) + "\n")
+
+    return merge_dir
+
+
+def test_generate_events_produces_valid_sequence(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    _make_fake_merge_dir(results_dir, "merge_0", num_poses=3, start_idx=0)
+    _make_fake_merge_dir(results_dir, "merge_0_1", num_poses=5, start_idx=0)
+
+    events = generate_events(results_dir, tmp_path / "output")
+
+    types = [e["event_type"] for e in events]
+    assert "stage_annotation" in types
+    assert "vio_node_observed" in types
+    assert "odom_edge_observed" in types
+    assert "covis_edge_observed" in types
+    assert "trav_edge_observed" in types
+    assert "dmatrix_computed" in types
+    assert "map_committed" in types
+
+    assert events[0]["event_type"] == "stage_annotation"
+    assert events[0]["payload"]["title"] == "Load Reference Map"
+
+    vio_step0 = [e for e in events
+                 if e["event_type"] == "vio_node_observed" and e["merge_step"] == 0]
+    assert len(vio_step0) == 3
+
+    vio_step1 = [e for e in events
+                 if e["event_type"] == "vio_node_observed" and e["merge_step"] == 1]
+    assert len(vio_step1) == 2
+
+    dmatrix_events = [e for e in events if e["event_type"] == "dmatrix_computed"]
+    assert len(dmatrix_events) == 1
+    assert dmatrix_events[0]["merge_step"] == 1
+
+    committed = [e for e in events if e["event_type"] == "map_committed"]
+    assert len(committed) == 2
+
+    assert events[-1]["event_type"] == "stage_annotation"
+    assert events[-1]["payload"]["title"] == "Finish Map Merging"
+
+
+def test_generate_events_demo_steps_are_monotonic(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    _make_fake_merge_dir(results_dir, "merge_0", num_poses=2, start_idx=0)
+
+    events = generate_events(results_dir, tmp_path / "output")
+    demo_steps = [e["demo_step"] for e in events]
+    assert demo_steps == sorted(demo_steps)
+    assert demo_steps[0] == 0

@@ -160,3 +160,295 @@ def plot_dmatrix(
     fig.savefig(str(output_path), dpi=100)
     plt.close(fig)
     return output_path
+
+
+def _load_merge_data(merge_dir: Path) -> dict:
+    """Load all data files from a merge directory."""
+    return {
+        "poses": load_poses(merge_dir / "poses.txt"),
+        "edges": {
+            "odom": load_edges(merge_dir / "edges_odom.txt"),
+            "covis": load_edges(merge_dir / "edges_covis.txt"),
+            "trav": load_edges(merge_dir / "edges_trav.txt"),
+        },
+        "intrinsics": load_intrinsics(merge_dir / "intrinsics.txt"),
+        "descriptors": (
+            load_descriptors(merge_dir / "database_descriptors.txt")
+            if (merge_dir / "database_descriptors.txt").exists()
+            else {}
+        ),
+        "seq_dir": merge_dir / "seq",
+    }
+
+
+def _make_k_and_size(
+    img_name: str, intrinsics: dict[str, IntrinsicsEntry]
+) -> tuple[list[list[float]] | None, list[int] | None]:
+    """Look up intrinsics for an image; return (K, img_size) or (None, None)."""
+    entry = intrinsics.get(img_name)
+    if entry is None:
+        return None, None
+    return entry.K, entry.img_size
+
+
+def _build_map_committed_nodes(
+    poses: list[PoseEntry],
+    intrinsics: dict[str, IntrinsicsEntry],
+    seq_dir: Path,
+) -> list[dict]:
+    """Build nodes list for map_committed event from all poses."""
+    nodes = []
+    for i, pose in enumerate(poses):
+        K, img_size = _make_k_and_size(pose.img_name, intrinsics)
+        img_path = seq_dir / Path(pose.img_name).name
+        node = {
+            "node_id": i,
+            "position": pose.position,
+            "quat_xyzw": pose.quat_xyzw,
+        }
+        if K is not None:
+            node["raw_K"] = K
+            node["raw_img_size"] = img_size
+        if img_path.exists():
+            node["rgb_img_path"] = str(img_path)
+        nodes.append(node)
+    return nodes
+
+
+def _build_map_committed_edges(edges: dict[str, list[EdgeEntry]]) -> dict[str, list[list[int]]]:
+    """Build edges dict for map_committed event."""
+    result: dict[str, list[list[int]]] = {}
+    for edge_type, edge_list in edges.items():
+        result[edge_type] = [[e.src, e.dst] for e in edge_list]
+    return result
+
+
+def _emit_stage(
+    events: list[dict], demo_step: int, merge_step: int, title: str,
+    subtitle: str = "", stage_index: int = 0, stage_total: int = 1,
+) -> int:
+    events.append({
+        "demo_step": demo_step,
+        "merge_step": merge_step,
+        "submap_id": merge_step,
+        "keyframe_id": None,
+        "event_type": "stage_annotation",
+        "payload": {
+            "title": title,
+            "subtitle": subtitle,
+            "display_text": f"Stage {stage_index}/{stage_total}\n{title}\n{subtitle}",
+            "stage_index": stage_index,
+            "stage_total": stage_total,
+        },
+        "artifacts": {},
+    })
+    return demo_step + 1
+
+
+def _emit_vio_node(
+    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
+    keyframe_id: int, pose: PoseEntry,
+    intrinsics: dict[str, IntrinsicsEntry], seq_dir: Path,
+) -> int:
+    K, img_size = _make_k_and_size(pose.img_name, intrinsics)
+    img_path = seq_dir / Path(pose.img_name).name
+    payload = {
+        "node_id": keyframe_id,
+        "position": pose.position,
+        "quat_xyzw": pose.quat_xyzw,
+    }
+    if K is not None:
+        payload["raw_K"] = K
+        payload["raw_img_size"] = img_size
+    if img_path.exists():
+        payload["rgb_img_path"] = str(img_path)
+    events.append({
+        "demo_step": demo_step,
+        "merge_step": merge_step,
+        "submap_id": submap_id,
+        "keyframe_id": keyframe_id,
+        "event_type": "vio_node_observed",
+        "payload": payload,
+        "artifacts": {},
+    })
+    return demo_step + 1
+
+
+def _emit_edge(
+    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
+    edge_type: str, edge: EdgeEntry, poses: list[PoseEntry],
+) -> int:
+    pos_a = poses[edge.src].position if edge.src < len(poses) else [0, 0, 0]
+    pos_b = poses[edge.dst].position if edge.dst < len(poses) else [0, 0, 0]
+    events.append({
+        "demo_step": demo_step,
+        "merge_step": merge_step,
+        "submap_id": submap_id,
+        "keyframe_id": max(edge.src, edge.dst),
+        "event_type": f"{edge_type}_edge_observed",
+        "payload": {
+            "edge_type": edge_type,
+            "nodeAid": edge.src,
+            "nodeBid": edge.dst,
+            "position_a": pos_a,
+            "position_b": pos_b,
+            "weight": edge.weight,
+        },
+        "artifacts": {},
+    })
+    return demo_step + 1
+
+
+def _emit_dmatrix(
+    events: list[dict], demo_step: int, merge_step: int,
+    dmatrix: np.ndarray, png_path: Path,
+) -> int:
+    events.append({
+        "demo_step": demo_step,
+        "merge_step": merge_step,
+        "submap_id": merge_step,
+        "keyframe_id": None,
+        "event_type": "dmatrix_computed",
+        "payload": {"shape": list(dmatrix.shape)},
+        "artifacts": {"dmatrix_png": str(png_path)},
+    })
+    return demo_step + 1
+
+
+def _emit_map_committed(
+    events: list[dict], demo_step: int, merge_step: int,
+    nodes: list[dict], edges: dict[str, list[list[int]]],
+) -> int:
+    events.append({
+        "demo_step": demo_step,
+        "merge_step": merge_step,
+        "submap_id": merge_step,
+        "keyframe_id": None,
+        "event_type": "map_committed",
+        "payload": {
+            "nodes": nodes,
+            "edges": edges,
+            "num_final_covis_nodes": len(nodes),
+        },
+        "artifacts": {},
+    })
+    return demo_step + 1
+
+
+def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
+    """Generate demo_events.jsonl-compatible events from offline merge data.
+
+    Reads merge_* directories in order, produces events for the existing
+    MapMergeRuntimeRerunRenderer.
+    """
+    merge_dirs = detect_merge_dirs(results_dir)
+    if not merge_dirs:
+        return []
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = output_dir / "artifacts"
+    artifacts_dir.mkdir(exist_ok=True)
+
+    events: list[dict] = []
+    demo_step = 0
+    prev_data: dict | None = None
+
+    for merge_step, merge_dir in enumerate(merge_dirs):
+        data = _load_merge_data(merge_dir)
+        poses = data["poses"]
+        img_names = [p.img_name for p in poses]
+        intrinsics = data["intrinsics"]
+        seq_dir = data["seq_dir"]
+
+        if merge_step == 0:
+            demo_step = _emit_stage(
+                events, demo_step, 0, "Load Reference Map",
+                subtitle="Replay keyframes from reference submap.",
+                stage_index=1, stage_total=3,
+            )
+            for i, pose in enumerate(poses):
+                demo_step = _emit_vio_node(
+                    events, demo_step, 0, 0, i, pose, intrinsics, seq_dir
+                )
+            for edge_type in ("odom", "covis", "trav"):
+                for edge in data["edges"][edge_type]:
+                    demo_step = _emit_edge(
+                        events, demo_step, 0, 0, edge_type, edge, poses
+                    )
+            nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
+            edges = _build_map_committed_edges(data["edges"])
+            demo_step = _emit_map_committed(events, demo_step, 0, nodes, edges)
+        else:
+            submap_id = merge_step
+            new_submap_name = merge_dir.name.split("_")[-1]
+            demo_step = _emit_stage(
+                events, demo_step, merge_step,
+                f"Load Submap {new_submap_name}",
+                subtitle=f"Add submap {new_submap_name} to merged map.",
+                stage_index=1, stage_total=4,
+            )
+
+            prev_img_names = [p.img_name for p in prev_data["poses"]] if prev_data else []
+            new_indices = identify_new_nodes(prev_img_names, img_names)
+            for idx in new_indices:
+                demo_step = _emit_vio_node(
+                    events, demo_step, merge_step, submap_id,
+                    idx, poses[idx], intrinsics, seq_dir
+                )
+
+            prev_edge_set: set[tuple[int, int]] = set()
+            if prev_data:
+                for et in ("odom", "covis", "trav"):
+                    for e in prev_data["edges"][et]:
+                        prev_edge_set.add((e.src, e.dst))
+            for edge_type in ("odom", "covis", "trav"):
+                for edge in data["edges"][edge_type]:
+                    if (edge.src, edge.dst) not in prev_edge_set:
+                        demo_step = _emit_edge(
+                            events, demo_step, merge_step, submap_id,
+                            edge_type, edge, poses
+                        )
+
+            if prev_data and prev_data["descriptors"] and data["descriptors"]:
+                query_descs = get_new_descriptors(
+                    prev_data["descriptors"], data["descriptors"]
+                )
+                if query_descs:
+                    dmatrix = compute_dmatrix(prev_data["descriptors"], query_descs)
+                    png_path = artifacts_dir / f"dmatrix_merge_{merge_step}.png"
+                    plot_dmatrix(
+                        dmatrix, png_path,
+                        ref_label=f"Reference ({len(prev_data['descriptors'])} frames)",
+                        query_label=f"Submap {new_submap_name} ({len(query_descs)} frames)",
+                    )
+                    demo_step = _emit_stage(
+                        events, demo_step, merge_step,
+                        f"Compute Difference Matrix - Reference Map-Submap {new_submap_name}",
+                        subtitle=f"Cosine similarity {dmatrix.shape[0]}x{dmatrix.shape[1]}.",
+                        stage_index=2, stage_total=4,
+                    )
+                    demo_step = _emit_dmatrix(
+                        events, demo_step, merge_step, dmatrix, png_path
+                    )
+
+            demo_step = _emit_stage(
+                events, demo_step, merge_step,
+                f"Pose Graph Optimization: Reference Map-Submap {new_submap_name}",
+                subtitle="PGO refines all poses in the merged map.",
+                stage_index=3, stage_total=4,
+            )
+
+            nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
+            edges = _build_map_committed_edges(data["edges"])
+            demo_step = _emit_map_committed(events, demo_step, merge_step, nodes, edges)
+
+        prev_data = data
+
+    demo_step = _emit_stage(
+        events, demo_step, len(merge_dirs) - 1,
+        "Finish Map Merging",
+        subtitle="All submaps merged into final map.",
+        stage_index=4, stage_total=4,
+    )
+
+    return events
