@@ -1027,7 +1027,7 @@ def perform_submap_merging(merger: MergePipeline, args):
 				title="Load Reference Map",
 				subtitle="Replay keyframes and odom/covis/trav graph edges for the reference submap.",
 			)
-		elif merge_step == 1:
+		elif merge_step >= 1:
 			_record_stage_annotation(
 				merger,
 				merge_step=merge_step,

@@ -33,8 +33,8 @@ class MapMergeRuntimeRerunRenderer:
         "trav": [255, 255, 255],
     }
 
-    AXIS_LEN = 0.297
-    IMAGE_PLANE_DISTANCE = 1.35
+    AXIS_LEN = 0.45
+    IMAGE_PLANE_DISTANCE = 1.0
     WORLD_AXIS_LEN = 10.0
 
     def __init__(self, event_dir: Path, render_trace_path: Optional[Path] = None) -> None:
@@ -331,6 +331,10 @@ class MapMergeRuntimeRerunRenderer:
         if int(merge_step) >= 1:
             self._log(rr, event, "cameras/", "Clear", rr.Clear(recursive=True))
             self._log(rr, event, "edges/", "Clear", rr.Clear(recursive=True))
+
+        for n in nodes:
+            nid = int(n["node_id"])
+            self._node_positions[(0, nid)] = np.asarray(n["position"], dtype=np.float32)
 
         positions = np.asarray(
             [n["position"] for n in nodes],
