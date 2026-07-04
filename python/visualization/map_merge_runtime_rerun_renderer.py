@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -25,17 +25,29 @@ class MapMergeRuntimeRerunRenderer:
     }
 
     EDGE_COLORS = {
-        "odom": [230, 150, 50],
-        "covis": [70, 130, 220],
-        "trav": [90, 170, 90],
+        "odom": [0, 255, 0],
+        "covis": [0, 100, 255],
+        "trav": [255, 255, 255],
     }
 
-    AXIS_LEN = 0.3
+    AXIS_LEN = 0.6
+    WORLD_AXIS_LEN = 10.0
 
     def __init__(self, event_dir: Path, render_trace_path: Optional[Path] = None) -> None:
         self.event_dir = Path(event_dir)
         self.render_trace_path = Path(render_trace_path) if render_trace_path else None
         self.render_trace: List[Dict[str, Any]] = []
+        self._node_demo_step: Dict[Tuple[int, int], int] = {}
+
+    def build_time_map(self, events: List[Dict[str, Any]]) -> None:
+        self._node_demo_step = {}
+        for event in events:
+            if event.get("event_type") == "vio_node_observed":
+                sid = event.get("submap_id")
+                kf_id = event.get("keyframe_id")
+                step = event.get("demo_step")
+                if sid is not None and kf_id is not None and step is not None:
+                    self._node_demo_step[(int(sid), int(kf_id))] = int(step)
 
     def write(self, output_path: Path) -> None:
         import rerun as rr
@@ -46,7 +58,9 @@ class MapMergeRuntimeRerunRenderer:
         rr.init("opennavmap_runtime_map_merge", spawn=False)
         self._send_blueprint(rr, rrb)
         self._log_world_axes(rr)
-        for event in load_runtime_events(self.event_dir):
+        events = load_runtime_events(self.event_dir)
+        self.build_time_map(events)
+        for event in events:
             self.log_event(rr, event)
         rr.save(str(output_path))
         self.write_trace()
@@ -77,24 +91,32 @@ class MapMergeRuntimeRerunRenderer:
     def _send_blueprint(rr, rrb) -> None:
         blueprint = rrb.Blueprint(
             rrb.Horizontal(
-                rrb.Spatial3DView(name="Map Merge Process", origin="/"),
+                rrb.Spatial3DView(
+                    name="Map Merge Process",
+                    origin="/",
+                    background=[0, 0, 0, 255],
+                ),
                 rrb.Vertical(
                     rrb.TextDocumentView(name="Stage Summary", origin="/status/stage_summary"),
-                    rrb.Spatial2DView(name="Current Keyframe Image", origin="evidence/current_keyframe_image"),
+                    rrb.Spatial2DView(
+                        name="Current Keyframe Image",
+                        origin="evidence/current_keyframe_image",
+                        background=[0, 0, 0, 255],
+                    ),
                 ),
                 column_shares=[3, 1],
             ),
         )
         rr.send_blueprint(blueprint)
 
-    @staticmethod
-    def _log_world_axes(rr) -> None:
+    def _log_world_axes(self, rr) -> None:
+        L = self.WORLD_AXIS_LEN
         rr.log(
             "world/axes",
             rr.Arrows3D(
                 origins=[[0.0, 0.0, 0.0]] * 3,
-                vectors=[[5.0, 0.0, 0.0], [0.0, 5.0, 0.0], [0.0, 0.0, 5.0]],
-                radii=0.06,
+                vectors=[[L, 0.0, 0.0], [0.0, L, 0.0], [0.0, 0.0, L]],
+                radii=0.08,
                 colors=np.asarray([[220, 50, 50], [50, 180, 50], [50, 50, 220]], dtype=np.uint8),
             ),
         )
@@ -111,9 +133,15 @@ class MapMergeRuntimeRerunRenderer:
         elif event_type in {"odom_edge_observed", "covis_edge_observed", "trav_edge_observed"}:
             self._log_graph_edge(rr, event)
 
-    @staticmethod
-    def _set_time(rr, event: Dict[str, Any]) -> None:
-        rr.set_time_sequence("demo_step", int(event.get("demo_step", 0)))
+    def _set_time(self, rr, event: Dict[str, Any]) -> None:
+        event_type = event.get("event_type")
+        demo_step = int(event.get("demo_step", 0))
+        if event_type in {"odom_edge_observed", "covis_edge_observed", "trav_edge_observed"}:
+            sid = event.get("submap_id")
+            kf_id = event.get("keyframe_id")
+            if sid is not None and kf_id is not None:
+                demo_step = self._node_demo_step.get((int(sid), int(kf_id)), demo_step)
+        rr.set_time_sequence("demo_step", demo_step)
         merge_step = event.get("merge_step")
         if merge_step is not None:
             rr.set_time_sequence("merge_step", int(merge_step))
@@ -122,8 +150,15 @@ class MapMergeRuntimeRerunRenderer:
             rr.set_time_sequence("keyframe_id", int(keyframe_id))
 
     def _log_stage(self, rr, event: Dict[str, Any]) -> None:
-        display_text = event.get("payload", {}).get("display_text", "")
-        self._log(rr, event, "/status/stage_summary", "TextDocument", rr.TextDocument(display_text))
+        title = event.get("payload", {}).get("title", "")
+        markdown = f"# {title}" if title else ""
+        self._log(
+            rr,
+            event,
+            "/status/stage_summary",
+            "TextDocument",
+            rr.TextDocument(markdown, media_type="text/markdown"),
+        )
 
     @staticmethod
     def _camera_group(submap_id: int) -> str:
@@ -142,7 +177,7 @@ class MapMergeRuntimeRerunRenderer:
         if quat_xyzw is not None:
             transform_kwargs["rotation"] = rr.Quaternion(xyzw=np.asarray(quat_xyzw, dtype=np.float32))
 
-        camera_path = f"sfm/cameras/{group}/{node_id}"
+        camera_path = f"cameras/{group}/{node_id}"
         self._log(rr, event, camera_path, "Transform3D", rr.Transform3D(**transform_kwargs))
 
         intrinsics = payload.get("K")
@@ -197,7 +232,7 @@ class MapMergeRuntimeRerunRenderer:
         self._log(
             rr,
             event,
-            f"sfm/edges/{group}/{edge_type}/{node_a}_{node_b}",
+            f"edges/{group}/{edge_type}/{node_a}_{node_b}",
             "LineStrips3D",
             rr.LineStrips3D(
                 strips=[np.asarray([position_a, position_b], dtype=np.float32)],

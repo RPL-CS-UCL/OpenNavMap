@@ -39,14 +39,14 @@ def test_validate_reports_complete_coverage(tmp_path: Path) -> None:
 
     for entity_path, archetype in [
         ("/status/stage_summary", "TextDocument"),
-        ("sfm/cameras/ref/3", "Transform3D"),
-        ("sfm/cameras/ref/3/image", "Pinhole"),
-        ("sfm/cameras/ref/3/image", "ImageEncoded"),
+        ("cameras/ref/3", "Transform3D"),
+        ("cameras/ref/3/image", "Pinhole"),
+        ("cameras/ref/3/image", "ImageEncoded"),
         ("evidence/current_keyframe_image", "ImageEncoded"),
-        ("sfm/cameras/query/5", "Transform3D"),
-        ("sfm/cameras/query/5/image", "Pinhole"),
-        ("sfm/cameras/query/5/image", "ImageEncoded"),
-        ("sfm/edges/ref/odom/3_4", "LineStrips3D"),
+        ("cameras/query/5", "Transform3D"),
+        ("cameras/query/5/image", "Pinhole"),
+        ("cameras/query/5/image", "ImageEncoded"),
+        ("edges/ref/odom/3_4", "LineStrips3D"),
     ]:
         _append_jsonl(trace_path, {"entity_path": entity_path, "archetype": archetype})
 
@@ -76,7 +76,7 @@ def test_validate_fails_when_camera_missing(tmp_path: Path) -> None:
         "payload": {"node_id": 3},
         "demo_step": 1,
     })
-    _append_jsonl(trace_path, {"entity_path": "sfm/cameras/ref/3", "archetype": "Transform3D"})
+    _append_jsonl(trace_path, {"entity_path": "cameras/ref/3", "archetype": "Transform3D"})
 
     summary = validate_runtime_rerun(event_dir, trace_path, rrd_path)
 

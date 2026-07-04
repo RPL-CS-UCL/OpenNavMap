@@ -14,8 +14,8 @@ class FakeRerun:
         self.times = []
 
     @staticmethod
-    def TextDocument(text):
-        return ("text", text)
+    def TextDocument(text, media_type=None):
+        return ("text", text, media_type)
 
     @staticmethod
     def Transform3D(*args, **kwargs):
@@ -93,7 +93,11 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
         "demo_step": 0, "merge_step": 0, "keyframe_id": None,
         "submap_id": 0,
         "event_type": "stage_annotation",
-        "payload": {"display_text": "Stage 1 / 8\nLoad Reference Submap 0"},
+        "payload": {
+            "display_text": "Stage 1 / 8\nLoad Reference Submap 0\nReplay keyframes.",
+            "title": "Load Reference Submap 0",
+            "subtitle": "Replay keyframes.",
+        },
         "artifacts": {},
     })
     renderer.log_event(rr, {
@@ -141,19 +145,84 @@ def test_renderer_logs_stage_keyframe_and_edges(tmp_path: Path) -> None:
         "artifacts": {},
     })
 
-    assert ("/status/stage_summary", ("text", "Stage 1 / 8\nLoad Reference Submap 0")) in rr.logged
+    # stage: h1 markdown title only, no subtitle
+    stage_entries = [v for p, v in rr.logged if p == "/status/stage_summary"]
+    assert len(stage_entries) == 1
+    assert stage_entries[0] == ("text", "# Load Reference Submap 0", "text/markdown")
 
-    assert any(p == "sfm/cameras/ref/3" and v[0] == "transform3d" for p, v in rr.logged)
-    assert any(p == "sfm/cameras/ref/3/image" and v[0] == "pinhole" for p, v in rr.logged)
-    assert any(p == "sfm/cameras/ref/3/image" and v[0] == "image_encoded" for p, v in rr.logged)
+    # ref keyframe camera (no sfm/ prefix)
+    assert any(p == "cameras/ref/3" and v[0] == "transform3d" for p, v in rr.logged)
+    assert any(p == "cameras/ref/3/image" and v[0] == "pinhole" for p, v in rr.logged)
+    assert any(p == "cameras/ref/3/image" and v[0] == "image_encoded" for p, v in rr.logged)
 
-    assert any(p == "sfm/cameras/query/5" and v[0] == "transform3d" for p, v in rr.logged)
-    assert any(p == "sfm/cameras/query/5/image" and v[0] == "pinhole" for p, v in rr.logged)
+    # query keyframe camera
+    assert any(p == "cameras/query/5" and v[0] == "transform3d" for p, v in rr.logged)
+    assert any(p == "cameras/query/5/image" and v[0] == "pinhole" for p, v in rr.logged)
 
+    # current keyframe image
     assert any(p == "evidence/current_keyframe_image" and v[0] == "image_encoded" for p, v in rr.logged)
 
-    assert any(p == "sfm/edges/ref/covis/3_4" and v[0] == "lines3d" for p, v in rr.logged)
+    # edge (no sfm/ prefix)
+    assert any(p == "edges/ref/covis/3_4" and v[0] == "lines3d" for p, v in rr.logged)
 
+    # unsupported event ignored
     assert not any(p == "/evidence/dmatrix" for p, v in rr.logged)
 
     assert ("demo_step", 3) in rr.times
+
+
+def test_edge_timing_follows_keyframe_demo_step(tmp_path: Path) -> None:
+    event_dir = tmp_path / "rerun_viz"
+    event_dir.mkdir()
+    img_path = event_dir / "test.jpg"
+    img_path.write_bytes(b"fake-jpg")
+
+    events = [
+        {
+            "demo_step": 1, "merge_step": 0, "submap_id": 0, "keyframe_id": 3,
+            "event_type": "vio_node_observed",
+            "payload": {
+                "node_id": 3,
+                "position": [1.0, 2.0, 3.0],
+                "quat_xyzw": [0.0, 0.0, 0.0, 1.0],
+                "K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                "img_size": [512, 288],
+                "rgb_img_path": str(img_path),
+            },
+        },
+        {
+            "demo_step": 2, "merge_step": 0, "submap_id": 0, "keyframe_id": 4,
+            "event_type": "vio_node_observed",
+            "payload": {
+                "node_id": 4,
+                "position": [2.0, 3.0, 4.0],
+                "quat_xyzw": [0.0, 0.0, 0.0, 1.0],
+                "K": [[100.0, 0.0, 50.0], [0.0, 110.0, 60.0], [0.0, 0.0, 1.0]],
+                "img_size": [512, 288],
+                "rgb_img_path": str(img_path),
+            },
+        },
+        {
+            "demo_step": 10, "merge_step": 0, "submap_id": 0, "keyframe_id": 4,
+            "event_type": "odom_edge_observed",
+            "payload": {
+                "edge_type": "odom",
+                "nodeAid": 3, "nodeBid": 4,
+                "position_a": [1.0, 2.0, 3.0],
+                "position_b": [2.0, 3.0, 4.0],
+                "weight": 0.5,
+            },
+        },
+    ]
+
+    renderer = MapMergeRuntimeRerunRenderer(event_dir)
+    renderer.build_time_map(events)
+    rr = FakeRerun()
+
+    for event in events:
+        renderer.log_event(rr, event)
+
+    # edge keyframe_id=4 maps to node 4's demo_step=2, not the edge's own demo_step=10
+    edge_times = [v for timeline, v in rr.times if timeline == "demo_step"]
+    # last demo_step entry is from the edge event
+    assert edge_times[-1] == 2

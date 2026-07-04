@@ -56,13 +56,13 @@ def validate_runtime_rerun(event_dir: Path, render_trace: Path, rrd: Path) -> Di
     }
     stage_count = sum(1 for e in events if e.get("event_type") == "stage_annotation")
 
-    expected_transforms = {f"sfm/cameras/{_camera_group(sid)}/{nid}" for sid, nid in nodes}
-    expected_pinholes = {f"sfm/cameras/{_camera_group(sid)}/{nid}/image" for sid, nid in nodes}
+    expected_transforms = {f"cameras/{_camera_group(sid)}/{nid}" for sid, nid in nodes}
+    expected_pinholes = {f"cameras/{_camera_group(sid)}/{nid}/image" for sid, nid in nodes}
     expected_images = set(expected_pinholes)
 
     expected_edge_paths = {
         etype: {
-            f"sfm/edges/{_camera_group(sid)}/{etype}/{na}_{nb}"
+            f"edges/{_camera_group(sid)}/{etype}/{na}_{nb}"
             for sid, _et, na, nb in edge_set
         }
         for etype, edge_set in edges.items()
