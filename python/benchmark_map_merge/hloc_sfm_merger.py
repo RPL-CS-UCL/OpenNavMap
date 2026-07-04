@@ -286,17 +286,6 @@ def _image_cam_from_world(img) -> pycolmap.Rigid3d:
     return cfw() if callable(cfw) else cfw
 
 
-def _rigid3d_to_c2w_matrix(cam_from_world: pycolmap.Rigid3d) -> np.ndarray:
-    """Convert pycolmap's W2C cam_from_world to a 4x4 C2W matrix."""
-    r_w2c = cam_from_world.rotation.matrix()
-    t_w2c = cam_from_world.translation
-    r_c2w = r_w2c.T
-    T_c2w = np.eye(4, dtype=np.float64)
-    T_c2w[:3, :3] = r_c2w
-    T_c2w[:3, 3] = -r_c2w @ t_w2c
-    return T_c2w
-
-
 def _extract_w2c_vec_from_image(img) -> np.ndarray:
     """Extract dataset-format W2C vec7 from a pycolmap image.
 
@@ -585,51 +574,6 @@ def _make_vio_guided_pairs(
             f.write(f"{a} {b}\n")
 
 
-def _propagate_vio_fallback(
-    pnp_results: Dict[str, np.ndarray],
-    inc_vio: Dict[str, np.ndarray],
-    inc_images: List[str],
-) -> Dict[str, np.ndarray]:
-    """Fill PnP-failed frames by propagating VIO odometry from nearest successful frame.
-
-    For each failed frame, finds the closest successful frame by index distance,
-    then computes:
-        T_fail_world = T_anchor_world @ T_anchor_vio^{-1} @ T_fail_vio
-
-    Args:
-        pnp_results: {img_name: 4x4 C2W matrix} from successful PnP
-        inc_vio: {img_name: [qw,qx,qy,qz,tx,ty,tz]} VIO poses in local frame
-        inc_images: ordered list of inc image names
-
-    Returns:
-        dict with all frames filled (successful PnP + VIO-propagated estimates).
-    """
-    n_total = len(inc_images)
-    n_pnp = len(pnp_results)
-    if n_pnp == 0:
-        logger.warning("No PnP successes, cannot propagate VIO fallback")
-        return pnp_results
-
-    filled: Dict[str, np.ndarray] = dict(pnp_results)
-
-    success_idxs = [i for i, img in enumerate(inc_images) if img in pnp_results]
-    for i, img in enumerate(inc_images):
-        if img in filled:
-            continue
-        nearest_idx = min(success_idxs, key=lambda j: abs(j - i))
-        anchor_img = inc_images[nearest_idx]
-
-        T_anchor_world = pnp_results[anchor_img]
-        T_anchor_vio = _vec_to_T(inc_vio[anchor_img])
-        T_fail_vio = _vec_to_T(inc_vio[img])
-
-        T_fail_world = T_anchor_world @ np.linalg.inv(T_anchor_vio) @ T_fail_vio
-        filled[img] = T_fail_world
-
-    logger.info(f"VIO fallback: filled {len(filled) - n_pnp}/{n_total - n_pnp} missing frames")
-    return filled
-
-
 def _estimate_se3_umeyama(
     src_pts: np.ndarray,
     dst_pts: np.ndarray,
@@ -693,13 +637,6 @@ def _estimate_se3_umeyama(
     inlier_indices = np.array(best_inliers, dtype=np.int64)
     transform = _fit_se3(src_pts[inlier_indices], dst_pts[inlier_indices])
     return transform, best_inliers
-
-
-def _copy_if_newer(src: Path, dst: Path) -> None:
-    """Copy src to dst when src exists and dst is absent."""
-    if src.exists() and not dst.exists():
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src), str(dst))
 
 
 class HlocSfmMapMerger:
@@ -880,40 +817,6 @@ class HlocSfmMapMerger:
             feature_path=global_feats, overwrite=False,
         )
         print(f"[build_submap_sfm] done.")
-        return model
-
-    def build_ref_map(
-        self,
-        ref_dir: Path,
-        ref_images: List[str],
-        intrinsics: Tuple[float, float, float, float, int, int],
-        vio_poses: Optional[Dict[str, np.ndarray]] = None,
-        num_pose_neighbors: int = 10,
-        seq_window: int = 3,
-        sfm_sample_dist: float = 0.0,
-        use_vio_prior: bool = True,
-        sfm_ba_iter: int = 0,
-        overwrite: bool = False,
-    ) -> Optional[pycolmap.Reconstruction]:
-        """Backward-compatible wrapper that builds the reference submap SfM."""
-        model = self.build_submap_sfm(
-            ref_dir,
-            ref_images,
-            intrinsics,
-            vio_poses=vio_poses,
-            num_pose_neighbors=num_pose_neighbors,
-            seq_window=seq_window,
-            sfm_sample_dist=sfm_sample_dist,
-            use_vio_prior=use_vio_prior,
-            sfm_ba_iter=sfm_ba_iter,
-            overwrite=overwrite,
-            submap_tag="sub0",
-        )
-        _copy_if_newer(self.out_dir / "sub0" / self.local_feature_name, self.out_dir / "feats-ref.h5")
-        _copy_if_newer(
-            self.out_dir / "sub0" / "feats-netvlad.h5",
-            self.out_dir / "global-feats-netvlad.h5",
-        )
         return model
 
     @staticmethod

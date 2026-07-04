@@ -43,7 +43,7 @@ from benchmark_map_merge.hloc_sfm_merger import (
 )
 from benchmark_map_merge.merge_writer import (
     read_poses, read_timestamps,
-    apply_transform, merge_poses, write_poses_txt, write_timestamps_txt,
+    apply_transform, write_poses_txt, write_timestamps_txt,
     write_summary_json, create_merge_dir, create_finalmap_symlink,
     read_intrinsics, read_gps, read_edges_odom,
     write_intrinsics_txt, write_gps_txt, write_edges_odom_txt,
@@ -195,24 +195,6 @@ def _write_sfm_summary(summary: dict, output_path: Path) -> None:
     with open(output_path, "w") as f:
         json.dump(summary, f, indent=2)
         f.write("\n")
-
-
-def _ensure_ba_summary_defaults(
-    summary: dict,
-    submap_idx: int,
-    num_pnp_frames_sampled: int,
-    num_pnp_success: int,
-) -> dict:
-    """Fill missing BA summary fields used by logging and diagnostics."""
-    summary.setdefault("num_pnp_success", int(num_pnp_success))
-    summary.setdefault("num_pose_refined", 0)
-    summary.setdefault("num_registered_to_reconstruction", 0)
-    summary.setdefault("global_ba_iterations", 0)
-    summary.setdefault("submap_idx", int(submap_idx))
-    summary.setdefault("geometric_verification", {})
-    summary.setdefault("num_pnp_frames_sampled", int(num_pnp_frames_sampled))
-    summary.setdefault("num_vio_fallback_frames", 0)
-    return summary
 
 
 def _build_result_root(

@@ -59,42 +59,6 @@ def _matrix_to_vec(T: np.ndarray, mode: str = "wxyz") -> Tuple[np.ndarray, np.nd
     return t, q
 
 
-def estimate_umeyama(
-    est_poses: List[np.ndarray],
-    vio_poses: List[np.ndarray],
-) -> np.ndarray:
-    """Estimate similarity transform from vio frame to estimated frame using Umeyama.
-
-    est_poses: 4x4 camera-to-world matrices from HLoc PnP (in reference frame)
-    vio_poses: 4x4 camera-to-world matrices from VIO (in incoming submap frame)
-    Returns 4x4 transform T_ref_incoming.
-    """
-    from numpy.linalg import svd
-    est_pts = np.array([p[:3, 3] for p in est_poses])
-    vio_pts = np.array([p[:3, 3] for p in vio_poses])
-
-    n = est_pts.shape[0]
-    e_mean = est_pts.mean(axis=0)
-    v_mean = vio_pts.mean(axis=0)
-    est_centered = est_pts - e_mean
-    vio_centered = vio_pts - v_mean
-
-    C = est_centered.T @ vio_centered / n
-    U, _, Vt = svd(C)
-    R = U @ Vt
-    if np.linalg.det(R) < 0:
-        Vt[-1, :] *= -1
-        R = U @ Vt
-
-    s = np.trace(C.T @ R) / np.trace(vio_centered.T @ vio_centered)
-    t = e_mean - s * R @ v_mean
-
-    T = np.eye(4)
-    T[:3, :3] = s * R
-    T[:3, 3] = t
-    return T
-
-
 def apply_transform(pose_dict: Dict[str, np.ndarray], T: np.ndarray) -> Dict[str, np.ndarray]:
     """Apply 4x4 transform to all poses in dict. Poses are camera-to-world."""
     result = {}
@@ -105,15 +69,6 @@ def apply_transform(pose_dict: Dict[str, np.ndarray], T: np.ndarray) -> Dict[str
         cam_to_world_new = T @ cam_to_world
         t_new, q_new = _matrix_to_vec(cam_to_world_new, mode="wxyz")
         result[img] = np.concatenate([q_new, t_new])
-    return result
-
-
-def merge_poses(
-    merged: Dict[str, np.ndarray],
-    incoming: Dict[str, np.ndarray],
-) -> Dict[str, np.ndarray]:
-    result = dict(merged)
-    result.update(incoming)
     return result
 
 
