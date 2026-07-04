@@ -220,3 +220,40 @@ def test_generate_events_demo_steps_are_monotonic(tmp_path: Path) -> None:
     demo_steps = [e["demo_step"] for e in events]
     assert demo_steps == sorted(demo_steps)
     assert demo_steps[0] == 0
+
+
+import json
+from visualization.map_merge_offline_to_events import write_events, parse_args
+
+
+def test_write_events_creates_jsonl(tmp_path: Path) -> None:
+    event_dir = tmp_path / "rerun_viz"
+    events = [
+        {"demo_step": 0, "event_type": "stage_annotation", "payload": {}, "artifacts": {}},
+        {"demo_step": 1, "event_type": "vio_node_observed", "payload": {}, "artifacts": {}},
+    ]
+    write_events(events, event_dir)
+    jsonl_path = event_dir / "demo_events.jsonl"
+    assert jsonl_path.exists()
+    lines = jsonl_path.read_text().strip().splitlines()
+    assert len(lines) == 2
+    parsed = [json.loads(l) for l in lines]
+    assert parsed[0]["event_type"] == "stage_annotation"
+    assert parsed[1]["event_type"] == "vio_node_observed"
+
+
+def test_parse_args_accepts_required_args() -> None:
+    args = parse_args(["--results-dir", "/tmp/results", "--output-dir", "/tmp/output"])
+    assert args.results_dir == Path("/tmp/results")
+    assert args.output_dir == Path("/tmp/output")
+
+
+def test_parse_args_accepts_render_flag() -> None:
+    args = parse_args([
+        "--results-dir", "/tmp/results",
+        "--output-dir", "/tmp/output",
+        "--render",
+        "--rerun-output", "/tmp/out.rrd",
+    ])
+    assert args.render is True
+    assert args.rerun_output == Path("/tmp/out.rrd")

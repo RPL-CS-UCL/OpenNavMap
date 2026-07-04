@@ -9,6 +9,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+import argparse
+import json
+from typing import Optional, Sequence
+
 
 @dataclass
 class PoseEntry:
@@ -452,3 +456,48 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
     )
 
     return events
+
+
+def write_events(events: list[dict], event_dir: Path) -> None:
+    """Write events as demo_events.jsonl in event_dir."""
+    event_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = event_dir / "demo_events.jsonl"
+    with jsonl_path.open("w", encoding="utf-8") as f:
+        for event in events:
+            f.write(json.dumps(event) + "\n")
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Convert offline map-merge results to Rerun .rrd visualization."
+    )
+    parser.add_argument("--results-dir", type=Path, required=True,
+                        help="Path to s00000_results_in_* directory")
+    parser.add_argument("--output-dir", type=Path, required=True,
+                        help="Output directory for rerun_viz/")
+    parser.add_argument("--render", action="store_true",
+                        help="Render .rrd after generating events")
+    parser.add_argument("--rerun-output", type=Path, default=None,
+                        help="Path for .rrd file (requires --render)")
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = parse_args(argv)
+    event_dir = args.output_dir / "rerun_viz"
+    events = generate_events(args.results_dir, event_dir)
+    write_events(events, event_dir)
+    print(f"Wrote {len(events)} events to {event_dir / 'demo_events.jsonl'}")
+
+    if args.render:
+        if args.rerun_output is None:
+            args.rerun_output = args.output_dir / "output.rrd"
+        from visualization.map_merge_runtime_rerun_renderer import (
+            MapMergeRuntimeRerunRenderer,
+        )
+        MapMergeRuntimeRerunRenderer(event_dir).write(args.rerun_output)
+        print(f"Rendered .rrd to {args.rerun_output}")
+
+
+if __name__ == "__main__":
+    main()
