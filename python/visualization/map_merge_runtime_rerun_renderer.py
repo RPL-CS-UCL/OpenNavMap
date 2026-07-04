@@ -94,14 +94,20 @@ class MapMergeRuntimeRerunRenderer:
                 rrb.Spatial3DView(
                     name="Map Merge Process",
                     origin="/",
-                    background=[0, 0, 0, 255],
+                    background=rrb.BackgroundKind.GradientDark,
+                    overrides={
+                        "edges/ref/covis/**": [rrb.components.Visible(False)],
+                        "edges/query/covis/**": [rrb.components.Visible(False)],
+                        "edges/ref/trav/**": [rrb.components.Visible(False)],
+                        "edges/query/trav/**": [rrb.components.Visible(False)],
+                    },
                 ),
                 rrb.Vertical(
                     rrb.TextDocumentView(name="Stage Summary", origin="/status/stage_summary"),
                     rrb.Spatial2DView(
                         name="Current Keyframe Image",
                         origin="evidence/current_keyframe_image",
-                        background=[0, 0, 0, 255],
+                        background=rrb.BackgroundKind.GradientDark,
                     ),
                 ),
                 column_shares=[3, 1],
