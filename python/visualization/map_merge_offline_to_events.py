@@ -160,8 +160,8 @@ def _build_map_committed_nodes(
         if K is not None:
             node["raw_K"] = K
             node["raw_img_size"] = img_size
-        if img_path.exists():
-            node["rgb_img_path"] = str(img_path)
+            if img_path.exists():
+                node["rgb_img_path"] = str(img_path)
         nodes.append(node)
     return nodes
 
@@ -211,8 +211,8 @@ def _emit_vio_node(
     if K is not None:
         payload["raw_K"] = K
         payload["raw_img_size"] = img_size
-    if img_path.exists():
-        payload["rgb_img_path"] = str(img_path)
+        if img_path.exists():
+            payload["rgb_img_path"] = str(img_path)
     events.append({
         "demo_step": demo_step,
         "merge_step": merge_step,
