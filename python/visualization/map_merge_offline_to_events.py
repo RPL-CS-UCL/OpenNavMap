@@ -9,6 +9,30 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+try:
+    from utils.utils_setting_color_font import (
+        setting_font,
+        acquire_color_palette,
+        acquire_marker,
+    )
+except ImportError:
+    def setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino"):
+        plt.rcParams["font.family"] = "serif"
+        plt.rcParams["font.serif"] = ["DejaVu Serif"]
+        plt.rcParams["font.size"] = fontsize
+        plt.rcParams["axes.titlesize"] = titlesize
+        plt.rcParams["legend.fontsize"] = legend_fontsize
+        plt.rcParams["text.usetex"] = False
+
+    def acquire_color_palette():
+        palette = np.zeros((60, 3), dtype=np.float32)
+        palette[0] = [0, 152 / 255, 83 / 255]
+        palette[1] = [228 / 255, 53 / 255, 39 / 255]
+        return palette
+
+    def acquire_marker():
+        return ['o', 's', '^', 'D', 'X', '*', '+']
+
 import argparse
 import json
 from typing import Optional, Sequence
@@ -140,28 +164,47 @@ def get_new_descriptors(
 def plot_dmatrix(
     dmatrix: np.ndarray,
     output_path: Path,
-    ref_label: str,
-    query_label: str,
+    threshold: float = 0.5,
 ) -> Path:
-    """Plot D-matrix as scatter (no colorbar, font 13/13/13/10, s=40).
+    """Plot D-matrix in online paper style: Greys imshow + green scatter overlay.
 
-    Follows runtime renderer styling conventions.
+    Matches _plot_runtime_dmatrix_panels styling in map_merge_pipeline.py:
+    - setting_font(fontsize=13, titlesize=13, font_family="Palatino")
+    - cmap="Greys" background, clim=[0,1]
+    - green scatter (s=40, marker='o') for pairs above threshold
+    - dpi=300, bbox_inches="tight", figsize=(6,5)
     """
-    fig, ax = plt.subplots(figsize=(8, 6))
+    setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino")
+    plt.rcParams["text.usetex"] = False
+    plt.rcParams["font.serif"] = ["DejaVu Serif"]
+
+    palette = acquire_color_palette()
+    markers = acquire_marker()
+    green = palette[0]
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(dmatrix, cmap="Greys", aspect="auto")
+    im.set_clim(0.0, 1.0)
+
     if dmatrix.size > 0:
-        y_idx, x_idx = np.meshgrid(
-            range(dmatrix.shape[0]), range(dmatrix.shape[1]), indexing="ij"
-        )
-        ax.scatter(
-            x_idx.ravel(), y_idx.ravel(), c=dmatrix.ravel(),
-            s=40, cmap="RdYlGn", vmin=0.0, vmax=1.0,
-        )
-    ax.set_xlabel(query_label, fontsize=13)
-    ax.set_ylabel(ref_label, fontsize=13)
+        query_idx, ref_idx = np.where(dmatrix >= threshold)
+        if len(query_idx) > 0:
+            ax.scatter(
+                query_idx,
+                ref_idx,
+                c=[green],
+                s=40,
+                alpha=1.0,
+                marker=markers[0],
+            )
+
+    ax.set_xlabel("Query Index", fontsize=13)
+    ax.set_ylabel("Reference Index", fontsize=13)
     ax.set_title("Difference Matrix", fontsize=13)
-    ax.tick_params(labelsize=10)
-    fig.tight_layout()
-    fig.savefig(str(output_path), dpi=100)
+    ax.tick_params(axis="both", labelsize=10)
+
+    plt.tight_layout()
+    plt.savefig(str(output_path), dpi=300, bbox_inches="tight")
     plt.close(fig)
     return output_path
 
@@ -420,11 +463,7 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                 if query_descs:
                     dmatrix = compute_dmatrix(prev_data["descriptors"], query_descs)
                     png_path = artifacts_dir / f"dmatrix_merge_{merge_step}.png"
-                    plot_dmatrix(
-                        dmatrix, png_path,
-                        ref_label=f"Reference ({len(prev_data['descriptors'])} frames)",
-                        query_label=f"Submap {new_submap_name} ({len(query_descs)} frames)",
-                    )
+                    plot_dmatrix(dmatrix, png_path, threshold=0.5)
                     demo_step = _emit_stage(
                         events, demo_step, merge_step,
                         f"Compute Difference Matrix - Reference Map-Submap {new_submap_name}",

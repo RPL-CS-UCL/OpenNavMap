@@ -134,7 +134,16 @@ from visualization.map_merge_offline_to_events import plot_dmatrix
 def test_plot_dmatrix_creates_png(tmp_path: Path) -> None:
     dmatrix = np.random.rand(10, 5).astype(np.float32)
     output_path = tmp_path / "dmatrix.png"
-    plot_dmatrix(dmatrix, output_path, ref_label="Ref", query_label="Query")
+    plot_dmatrix(dmatrix, output_path, threshold=0.5)
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+
+
+def test_plot_dmatrix_overlays_high_similarity_pairs(tmp_path: Path) -> None:
+    dmatrix = np.zeros((5, 5), dtype=np.float32)
+    dmatrix[2, 3] = 0.9
+    output_path = tmp_path / "dmatrix.png"
+    plot_dmatrix(dmatrix, output_path, threshold=0.5)
     assert output_path.exists()
     assert output_path.stat().st_size > 0
 
