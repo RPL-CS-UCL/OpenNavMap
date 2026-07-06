@@ -371,14 +371,16 @@ def generate_events(
         else:
             new_submap_name = merge_dir.name.split("_")[-1]
             submap_id = int(new_submap_name)
+
+            # Stage 2: Load Submap (match online subtitle)
             demo_step = _emit_stage(
                 events, demo_step, merge_step, submap_id,
                 f"Load Submap {new_submap_name}",
-                subtitle=f"Add submap {new_submap_name} to merged map.",
+                subtitle="Replay keyframes and odom/covis/trav graph edges for the query submap.",
                 stage_index=2, stage_total=8,
             )
 
-            # Plot RAW submap keyframes (local frame, populates _node_positions for metric edges)
+            # Plot RAW submap keyframes + ALL raw edges (local frame, RAW poses)
             raw_data = None
             if raw_data_dir is not None:
                 raw_dir = raw_data_dir / new_submap_name
@@ -389,8 +391,15 @@ def generate_events(
                             events, demo_step, merge_step, submap_id,
                             i, raw_pose, raw_data["intrinsics"], raw_data["seq_dir"]
                         )
+                    # ALL raw submap edges (odom/covis/trav), RAW poses
+                    for edge_type in ("odom", "covis", "trav"):
+                        for edge in raw_data["edges"][edge_type]:
+                            demo_step = _emit_edge(
+                                events, demo_step, merge_step, submap_id,
+                                edge_type, edge, raw_data["poses"]
+                            )
 
-            # Green cross-submap edges (BEFORE map_committed, connecting final map to raw submap)
+            # Green cross-submap edges (BEFORE PGO, connecting final map to raw submap)
             if prev_data and raw_data is not None:
                 cross_edges = find_cross_submap_edges(prev_data["edges"], data["edges"])
                 prev_pose_count = len(prev_data["poses"])
@@ -402,50 +411,28 @@ def generate_events(
                             ref_node, query_local
                         )
 
-            # Plot new merged keyframes (incremental)
-            prev_img_names = [p.img_name for p in prev_data["poses"]] if prev_data else []
-            new_indices = identify_new_nodes(prev_img_names, img_names)
-            for idx in new_indices:
-                demo_step = _emit_vio_node(
-                    events, demo_step, merge_step, submap_id,
-                    idx, poses[idx], intrinsics, seq_dir
-                )
-
-            # Plot new edges (type-specific diff)
-            prev_edge_sets: dict[str, set[tuple[int, int]]] = {}
-            if prev_data:
-                for et in ("odom", "covis", "trav"):
-                    prev_edge_sets[et] = {(e.src, e.dst) for e in prev_data["edges"][et]}
-            for edge_type in ("odom", "covis", "trav"):
-                for edge in data["edges"][edge_type]:
-                    if (edge.src, edge.dst) not in prev_edge_sets.get(edge_type, set()):
-                        demo_step = _emit_edge(
-                            events, demo_step, merge_step, submap_id,
-                            edge_type, edge, poses
-                        )
-
-            # Stage: Merged Map
+            # Stage 7: Pose Graph Optimization (match online title)
             demo_step = _emit_stage(
                 events, demo_step, merge_step, submap_id,
-                f"Merged Map - Submap {new_submap_name}",
-                subtitle="PGO refines all poses; cross-submap edges shown in green.",
+                f"Pose Graph Optimization: Reference Map-Submap {new_submap_name}",
+                subtitle="Optimize the merged pose graph.",
                 stage_index=7, stage_total=8,
             )
 
-            # map_committed (Clears cameras/edges including green edges, shows merged cameras)
+            # Stage 8: Finish Map Merging (per merge step, match online)
+            demo_step = _emit_stage(
+                events, demo_step, merge_step, submap_id,
+                "Finish Map Merging",
+                subtitle="Merge the optimized query submap into the reference map and update graph edges.",
+                stage_index=8, stage_total=8,
+            )
+
+            # map_committed (Clears cameras/edges, shows merged cameras with PGO poses)
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
             demo_step = _emit_map_committed(events, demo_step, merge_step, submap_id, nodes, edges)
 
         prev_data = data
-
-    final_submap_id = int(merge_dirs[-1].name.split("_")[-1]) if merge_dirs else 0
-    demo_step = _emit_stage(
-        events, demo_step, len(merge_dirs) - 1, final_submap_id,
-        "Finish Map Merging",
-        subtitle="All submaps merged into final map.",
-        stage_index=8, stage_total=8,
-    )
 
     return events
 

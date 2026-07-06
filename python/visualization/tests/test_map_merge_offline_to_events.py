@@ -178,6 +178,7 @@ def _make_fake_raw_dir(base: Path, name: str, num_poses: int) -> Path:
 
 
 def test_generate_events_produces_valid_sequence(tmp_path: Path) -> None:
+    """Without raw_data_dir, merge_step>=1 has no vio_node (matches online without raw data)."""
     results_dir = tmp_path / "results"
     results_dir.mkdir()
     _make_fake_merge_dir(results_dir, "merge_0", num_poses=3, start_idx=0)
@@ -197,22 +198,28 @@ def test_generate_events_produces_valid_sequence(tmp_path: Path) -> None:
     assert events[0]["event_type"] == "stage_annotation"
     assert events[0]["payload"]["title"] == "Load Reference Map"
 
+    # merge_step=0 has 3 vio_node (reference cameras)
     vio_step0 = [e for e in events
                  if e["event_type"] == "vio_node_observed" and e["merge_step"] == 0]
     assert len(vio_step0) == 3
 
+    # merge_step=1 has 0 vio_node (no raw_data_dir, no incremental cameras — matches online)
     vio_step1 = [e for e in events
                  if e["event_type"] == "vio_node_observed" and e["merge_step"] == 1]
-    assert len(vio_step1) == 2
+    assert len(vio_step1) == 0
 
     committed = [e for e in events if e["event_type"] == "map_committed"]
     assert len(committed) == 2
 
-    assert events[-1]["event_type"] == "stage_annotation"
-    assert events[-1]["payload"]["title"] == "Finish Map Merging"
+    # Stage 8 "Finish Map Merging" is per merge step (inside loop, not after)
+    finish_stages = [e for e in events
+                     if e["event_type"] == "stage_annotation"
+                     and e["payload"]["title"] == "Finish Map Merging"]
+    assert len(finish_stages) == 1  # one per merge_step>=1
 
 
 def test_generate_events_with_raw_data_plots_raw_submap(tmp_path: Path) -> None:
+    """With raw_data_dir, merge_step>=1 has raw cameras + raw edges (ALL, RAW poses)."""
     results_dir = tmp_path / "results"
     results_dir.mkdir()
     _make_fake_merge_dir(results_dir, "merge_0", num_poses=3, start_idx=0)
@@ -224,14 +231,23 @@ def test_generate_events_with_raw_data_plots_raw_submap(tmp_path: Path) -> None:
 
     events = generate_events(results_dir, tmp_path / "output", raw_data_dir=raw_dir)
 
-    # Raw submap cameras should appear as vio_node_observed with local IDs
+    # Raw submap cameras: 2 vio_node with local IDs 0, 1
     vio_step1 = [e for e in events
                  if e["event_type"] == "vio_node_observed" and e["merge_step"] == 1]
-    # 2 raw + 2 new merged = 4 total
-    assert len(vio_step1) == 4
-    # Raw cameras have local IDs (0, 1)
+    assert len(vio_step1) == 2  # only raw cameras, no incremental merged cameras
     raw_nodes = [e for e in vio_step1 if e["keyframe_id"] in (0, 1)]
     assert len(raw_nodes) == 2
+
+    # Raw submap edges: odom/covis/trav, 1 edge each (0->1)
+    raw_edges = [e for e in events
+                 if e["event_type"] == "odom_edge_observed" and e["merge_step"] == 1]
+    assert len(raw_edges) == 1  # 1 odom edge from raw submap (0->1)
+    raw_covis = [e for e in events
+                 if e["event_type"] == "covis_edge_observed" and e["merge_step"] == 1]
+    assert len(raw_covis) == 1  # 1 covis edge from raw submap
+    raw_trav = [e for e in events
+                if e["event_type"] == "trav_edge_observed" and e["merge_step"] == 1]
+    assert len(raw_trav) == 1  # 1 trav edge from raw submap
 
 
 def test_generate_events_with_cross_submap_edges(tmp_path: Path) -> None:
