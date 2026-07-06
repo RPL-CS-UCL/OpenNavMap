@@ -71,17 +71,44 @@ def detect_merge_dirs(results_dir: Path) -> list[Path]:
     return sorted(candidates, key=lambda d: d.name.count("_"))
 
 
+def _w2c_to_c2w(quat_wxyz: list[float], translation: list[float]) -> tuple[list[float], list[float]]:
+    """Convert W2C [qw,qx,qy,qz,tx,ty,tz] to C2W [qx,qy,qz,qw,cx,cy,cz].
+
+    Matches online convert_pose_inv in utils_geom.py:
+    - C2W quaternion = conjugate of W2C quaternion (inverse for unit quaternion)
+    - C2W translation = -R_w2c^T @ t_w2c
+    """
+    qw, qx, qy, qz = quat_wxyz
+    # C2W quaternion in xyzw = conjugate: [-qx, -qy, -qz, qw]
+    quat_c2w_xyzw = [-qx, -qy, -qz, qw]
+    # Build W2C rotation matrix
+    R = np.array([
+        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+        [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+        [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+    ], dtype=np.float64)
+    t = np.array(translation, dtype=np.float64)
+    # C2W translation = -R^T @ t
+    t_c2w = (-R.T @ t).tolist()
+    return quat_c2w_xyzw, t_c2w
+
+
 def load_poses(poses_file: Path) -> list[PoseEntry]:
-    """Parse poses.txt: 'img_name qx qy qz qw tx ty tz' per line."""
+    """Parse poses.txt: 'img_name qw qx qy qz tx ty tz' per line (W2C, wxyz).
+
+    Converts W2C poses to C2W (camera-to-world) for the renderer, matching
+    online convert_pose_inv in utils_geom.py.
+    """
     result: list[PoseEntry] = []
     for line in poses_file.read_text().strip().splitlines():
         parts = line.strip().split()
         if len(parts) < 8:
             continue
         img_name = parts[0]
-        qx, qy, qz, qw = (float(x) for x in parts[1:5])
+        qw, qx, qy, qz = (float(x) for x in parts[1:5])
         tx, ty, tz = (float(x) for x in parts[5:8])
-        result.append(PoseEntry(img_name, [qx, qy, qz, qw], [tx, ty, tz]))
+        quat_xyzw, position = _w2c_to_c2w([qw, qx, qy, qz], [tx, ty, tz])
+        result.append(PoseEntry(img_name, quat_xyzw, position))
     return result
 
 
@@ -187,7 +214,7 @@ def plot_dmatrix(
     im.set_clim(0.0, 1.0)
 
     if dmatrix.size > 0:
-        query_idx, ref_idx = np.where(dmatrix >= threshold)
+        ref_idx, query_idx = np.where(dmatrix >= threshold)
         if len(query_idx) > 0:
             ax.scatter(
                 query_idx,
@@ -271,13 +298,13 @@ def _build_map_committed_edges(edges: dict[str, list[EdgeEntry]]) -> dict[str, l
 
 
 def _emit_stage(
-    events: list[dict], demo_step: int, merge_step: int, title: str,
+    events: list[dict], demo_step: int, merge_step: int, submap_id: int, title: str,
     subtitle: str = "", stage_index: int = 0, stage_total: int = 1,
 ) -> int:
     events.append({
         "demo_step": demo_step,
         "merge_step": merge_step,
-        "submap_id": merge_step,
+        "submap_id": submap_id,
         "keyframe_id": None,
         "event_type": "stage_annotation",
         "payload": {
@@ -347,13 +374,13 @@ def _emit_edge(
 
 
 def _emit_dmatrix(
-    events: list[dict], demo_step: int, merge_step: int,
+    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
     dmatrix: np.ndarray, png_path: Path,
 ) -> int:
     events.append({
         "demo_step": demo_step,
         "merge_step": merge_step,
-        "submap_id": merge_step,
+        "submap_id": submap_id,
         "keyframe_id": None,
         "event_type": "dmatrix_computed",
         "payload": {"shape": list(dmatrix.shape)},
@@ -363,13 +390,13 @@ def _emit_dmatrix(
 
 
 def _emit_map_committed(
-    events: list[dict], demo_step: int, merge_step: int,
+    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
     nodes: list[dict], edges: dict[str, list[list[int]]],
 ) -> int:
     events.append({
         "demo_step": demo_step,
         "merge_step": merge_step,
-        "submap_id": merge_step,
+        "submap_id": submap_id,
         "keyframe_id": None,
         "event_type": "map_committed",
         "payload": {
@@ -409,9 +436,9 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
 
         if merge_step == 0:
             demo_step = _emit_stage(
-                events, demo_step, 0, "Load Reference Map",
+                events, demo_step, 0, 0, "Load Reference Map",
                 subtitle="Replay keyframes from reference submap.",
-                stage_index=1, stage_total=3,
+                stage_index=1, stage_total=8,
             )
             for i, pose in enumerate(poses):
                 demo_step = _emit_vio_node(
@@ -424,15 +451,15 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                     )
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
-            demo_step = _emit_map_committed(events, demo_step, 0, nodes, edges)
+            demo_step = _emit_map_committed(events, demo_step, 0, 0, nodes, edges)
         else:
-            submap_id = merge_step
             new_submap_name = merge_dir.name.split("_")[-1]
+            submap_id = int(new_submap_name)
             demo_step = _emit_stage(
-                events, demo_step, merge_step,
+                events, demo_step, merge_step, submap_id,
                 f"Load Submap {new_submap_name}",
                 subtitle=f"Add submap {new_submap_name} to merged map.",
-                stage_index=1, stage_total=4,
+                stage_index=2, stage_total=8,
             )
 
             prev_img_names = [p.img_name for p in prev_data["poses"]] if prev_data else []
@@ -443,14 +470,13 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                     idx, poses[idx], intrinsics, seq_dir
                 )
 
-            prev_edge_set: set[tuple[int, int]] = set()
+            prev_edge_sets: dict[str, set[tuple[int, int]]] = {}
             if prev_data:
                 for et in ("odom", "covis", "trav"):
-                    for e in prev_data["edges"][et]:
-                        prev_edge_set.add((e.src, e.dst))
+                    prev_edge_sets[et] = {(e.src, e.dst) for e in prev_data["edges"][et]}
             for edge_type in ("odom", "covis", "trav"):
                 for edge in data["edges"][edge_type]:
-                    if (edge.src, edge.dst) not in prev_edge_set:
+                    if (edge.src, edge.dst) not in prev_edge_sets.get(edge_type, set()):
                         demo_step = _emit_edge(
                             events, demo_step, merge_step, submap_id,
                             edge_type, edge, poses
@@ -465,33 +491,34 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                     png_path = artifacts_dir / f"dmatrix_merge_{merge_step}.png"
                     plot_dmatrix(dmatrix, png_path, threshold=0.5)
                     demo_step = _emit_stage(
-                        events, demo_step, merge_step,
+                        events, demo_step, merge_step, submap_id,
                         f"Compute Difference Matrix - Reference Map-Submap {new_submap_name}",
                         subtitle=f"Cosine similarity {dmatrix.shape[0]}x{dmatrix.shape[1]}.",
-                        stage_index=2, stage_total=4,
+                        stage_index=3, stage_total=8,
                     )
                     demo_step = _emit_dmatrix(
-                        events, demo_step, merge_step, dmatrix, png_path
+                        events, demo_step, merge_step, submap_id, dmatrix, png_path
                     )
 
             demo_step = _emit_stage(
-                events, demo_step, merge_step,
+                events, demo_step, merge_step, submap_id,
                 f"Pose Graph Optimization: Reference Map-Submap {new_submap_name}",
                 subtitle="PGO refines all poses in the merged map.",
-                stage_index=3, stage_total=4,
+                stage_index=7, stage_total=8,
             )
 
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
-            demo_step = _emit_map_committed(events, demo_step, merge_step, nodes, edges)
+            demo_step = _emit_map_committed(events, demo_step, merge_step, submap_id, nodes, edges)
 
         prev_data = data
 
+    final_submap_id = int(merge_dirs[-1].name.split("_")[-1]) if merge_dirs else 0
     demo_step = _emit_stage(
-        events, demo_step, len(merge_dirs) - 1,
+        events, demo_step, len(merge_dirs) - 1, final_submap_id,
         "Finish Map Merging",
         subtitle="All submaps merged into final map.",
-        stage_index=4, stage_total=4,
+        stage_index=8, stage_total=8,
     )
 
     return events

@@ -31,20 +31,25 @@ from visualization.map_merge_offline_to_events import (
 )
 
 
-def test_load_poses_parses_quat_xyzw_and_translation(tmp_path: Path) -> None:
+def test_load_poses_parses_w2c_wxyz_and_converts_to_c2w(tmp_path: Path) -> None:
+    """poses.txt stores W2C [qw,qx,qy,qz,tx,ty,tz]; load_poses converts to C2W."""
     poses_file = tmp_path / "poses.txt"
+    # Case 1: identity rotation (wxyz), W2C translation (1,2,3)
+    # C2W: quat_xyzw=[0,0,0,1], position=-I^T@[1,2,3]=[-1,-2,-3]
+    # Case 2: 180° around z (wxyz qw=0,qz=1), W2C translation (4,5,6)
+    # C2W: quat_xyzw=[0,0,-1,0], position=-R^T@[4,5,6]=[4,5,-6]
     poses_file.write_text(
-        "seq/000000.color.jpg 0.0 0.0 0.0 1.0 1.0 2.0 3.0\n"
-        "seq/000001.color.jpg 0.1 0.2 0.3 0.4 4.0 5.0 6.0\n"
+        "seq/000000.color.jpg 1.0 0.0 0.0 0.0 1.0 2.0 3.0\n"
+        "seq/000001.color.jpg 0.0 0.0 0.0 1.0 4.0 5.0 6.0\n"
     )
     result = load_poses(poses_file)
     assert len(result) == 2
     assert result[0].img_name == "seq/000000.color.jpg"
     assert result[0].quat_xyzw == [0.0, 0.0, 0.0, 1.0]
-    assert result[0].position == [1.0, 2.0, 3.0]
+    assert result[0].position == [-1.0, -2.0, -3.0]
     assert result[1].img_name == "seq/000001.color.jpg"
-    assert result[1].quat_xyzw == [0.1, 0.2, 0.3, 0.4]
-    assert result[1].position == [4.0, 5.0, 6.0]
+    assert result[1].quat_xyzw == [0.0, 0.0, -1.0, 0.0]
+    assert result[1].position == [4.0, 5.0, -6.0]
 
 
 def test_load_edges_parses_src_dst_weight(tmp_path: Path) -> None:
@@ -163,7 +168,7 @@ def _make_fake_merge_dir(base: Path, name: str, num_poses: int, start_idx: int =
     desc_lines = []
     for i in range(start_idx, start_idx + num_poses):
         img_name = f"seq/{i:06d}.color.jpg"
-        pose_lines.append(f"{img_name} 0.0 0.0 0.0 1.0 {float(i)} 0.0 0.0")
+        pose_lines.append(f"{img_name} 1.0 0.0 0.0 0.0 {float(i)} 0.0 0.0")
         intr_lines.append(f"{img_name} 444.0 444.0 511.5 287.5 1024 576")
         (seq_dir / f"{i:06d}.color.jpg").write_bytes(b"fake-jpg")
         desc_vals = " ".join(str(float(j) / 256.0) for j in range(256))
