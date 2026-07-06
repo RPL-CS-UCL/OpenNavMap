@@ -37,9 +37,16 @@ class MapMergeRuntimeRerunRenderer:
     IMAGE_PLANE_DISTANCE = 1.0
     WORLD_AXIS_LEN = 10.0
 
-    def __init__(self, event_dir: Path, render_trace_path: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        event_dir: Path,
+        render_trace_path: Optional[Path] = None,
+        image_scale: float = 1.0,
+    ) -> None:
         self.event_dir = Path(event_dir)
         self.render_trace_path = Path(render_trace_path) if render_trace_path else None
+        self.image_scale = image_scale
+        self._image_cache: Dict[str, bytes] = {}
         self.render_trace: List[Dict[str, Any]] = []
         self._node_demo_step: Dict[Tuple[int, int], int] = {}
         self._node_positions: Dict[Tuple[int, int], np.ndarray] = {}
@@ -211,17 +218,18 @@ class MapMergeRuntimeRerunRenderer:
             transform_kwargs["rotation"] = rr.Quaternion(xyzw=np.asarray(quat_xyzw, dtype=np.float32))
         self._log(rr, event, base_path, "Transform3D", rr.Transform3D(**transform_kwargs))
 
+        scale = self.image_scale
         if intrinsics is not None and image_size is not None:
             K = np.asarray(intrinsics, dtype=np.float32)
-            width, height = int(image_size[0]), int(image_size[1])
+            width, height = int(image_size[0] * scale), int(image_size[1] * scale)
             self._log(
                 rr,
                 event,
                 f"{base_path}/image",
                 "Pinhole",
                 rr.Pinhole(
-                    focal_length=[float(K[0, 0]), float(K[1, 1])],
-                    principal_point=[float(K[0, 2]), float(K[1, 2])],
+                    focal_length=[float(K[0, 0]) * scale, float(K[1, 1]) * scale],
+                    principal_point=[float(K[0, 2]) * scale, float(K[1, 2]) * scale],
                     width=width,
                     height=height,
                     image_plane_distance=self.IMAGE_PLANE_DISTANCE,
@@ -232,13 +240,33 @@ class MapMergeRuntimeRerunRenderer:
         if image_path is not None:
             resolved = self._resolve_image_path(image_path)
             if resolved is not None and resolved.exists():
-                self._log(
-                    rr,
-                    event,
-                    f"{base_path}/image",
-                    "ImageEncoded",
-                    rr.ImageEncoded(path=resolved),
-                )
+                if scale != 1.0:
+                    cache_key = str(resolved)
+                    cached = self._image_cache.get(cache_key)
+                    if cached is not None:
+                        self._log(
+                            rr, event, f"{base_path}/image", "ImageEncoded",
+                            rr.ImageEncoded(contents=cached),
+                        )
+                    else:
+                        from PIL import Image
+                        import io
+                        img = Image.open(resolved)
+                        new_w, new_h = int(img.width * scale), int(img.height * scale)
+                        img = img.resize((new_w, new_h), Image.LANCZOS)
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG")
+                        data = buf.getvalue()
+                        self._image_cache[cache_key] = data
+                        self._log(
+                            rr, event, f"{base_path}/image", "ImageEncoded",
+                            rr.ImageEncoded(contents=data),
+                        )
+                else:
+                    self._log(
+                        rr, event, f"{base_path}/image", "ImageEncoded",
+                        rr.ImageEncoded(path=resolved),
+                    )
 
     def _log_keyframe_camera(self, rr, event: Dict[str, Any]) -> None:
         payload = event["payload"]
@@ -262,13 +290,35 @@ class MapMergeRuntimeRerunRenderer:
         if image_path is not None:
             resolved = self._resolve_image_path(image_path)
             if resolved is not None and resolved.exists():
-                self._log(
-                    rr,
-                    event,
-                    "evidence/current_keyframe_image",
-                    "ImageEncoded",
-                    rr.ImageEncoded(path=resolved),
-                )
+                if self.image_scale != 1.0:
+                    cache_key = str(resolved)
+                    cached = self._image_cache.get(cache_key)
+                    if cached is not None:
+                        self._log(
+                            rr, event, "evidence/current_keyframe_image", "ImageEncoded",
+                            rr.ImageEncoded(contents=cached),
+                        )
+                    else:
+                        from PIL import Image
+                        import io
+                        img = Image.open(resolved)
+                        img = img.resize(
+                            (int(img.width * self.image_scale), int(img.height * self.image_scale)),
+                            Image.LANCZOS,
+                        )
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG")
+                        data = buf.getvalue()
+                        self._image_cache[cache_key] = data
+                        self._log(
+                            rr, event, "evidence/current_keyframe_image", "ImageEncoded",
+                            rr.ImageEncoded(contents=data),
+                        )
+                else:
+                    self._log(
+                        rr, event, "evidence/current_keyframe_image", "ImageEncoded",
+                        rr.ImageEncoded(path=resolved),
+                    )
 
     def _log_graph_edge(self, rr, event: Dict[str, Any]) -> None:
         payload = event["payload"]

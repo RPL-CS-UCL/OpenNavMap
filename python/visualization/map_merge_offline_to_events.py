@@ -34,12 +34,15 @@ def detect_merge_dirs(results_dir: Path) -> list[Path]:
     """Detect merge_* subdirectories in results_dir, sorted by merge order.
 
     Sorting key: number of underscore-separated parts (merge_0=1, merge_0_1=2, ...).
-    Files (like merge_finalmap) are excluded.
+    Files and symlinks like merge_finalmap are excluded (non-numeric suffix).
     """
-    candidates = [
-        d for d in results_dir.iterdir()
-        if d.is_dir() and d.name.startswith("merge_")
-    ]
+    candidates = []
+    for d in results_dir.iterdir():
+        if not (d.is_dir() and d.name.startswith("merge_")):
+            continue
+        parts = d.name.split("_")[1:]  # skip "merge" prefix
+        if all(p.isdigit() for p in parts):
+            candidates.append(d)
     return sorted(candidates, key=lambda d: d.name.count("_"))
 
 
@@ -456,6 +459,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                         help="Output directory for rerun_viz/")
     parser.add_argument("--raw-data-dir", type=Path, default=None,
                         help="Path to s00000_aria_data_390/ directory with raw submap data")
+    parser.add_argument("--image-scale", type=float, default=1.0,
+                        help="Image resize factor (e.g., 0.5 for half resolution)")
     parser.add_argument("--render", action="store_true",
                         help="Render .rrd after generating events")
     parser.add_argument("--rerun-output", type=Path, default=None,
@@ -476,7 +481,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         from visualization.map_merge_runtime_rerun_renderer import (
             MapMergeRuntimeRerunRenderer,
         )
-        MapMergeRuntimeRerunRenderer(event_dir).write(args.rerun_output)
+        MapMergeRuntimeRerunRenderer(
+            event_dir, image_scale=args.image_scale,
+        ).write(args.rerun_output)
         print(f"Rendered .rrd to {args.rerun_output}")
 
 
