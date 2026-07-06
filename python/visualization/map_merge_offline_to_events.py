@@ -271,18 +271,19 @@ def _emit_map_committed(
 
 
 def _emit_metric_edge(
-    events: list[dict], demo_step: int, merge_step: int,
+    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
     db_node_id: int, query_node_id: int,
 ) -> int:
     """Emit a green cross-submap edge (metric_edge_added).
 
-    submap_id=0 so renderer looks up positions from _node_positions[(0, nid)]
-    which are populated by map_committed.
+    submap_id = raw submap's ID so renderer looks up pos_b from
+    _node_positions[(submap_id, query_node_id)] populated by vio_node_observed.
+    pos_a uses _node_positions[(0, db_node_id)] from previous map_committed.
     """
     events.append({
         "demo_step": demo_step,
         "merge_step": merge_step,
-        "submap_id": 0,
+        "submap_id": submap_id,
         "keyframe_id": None,
         "event_type": "metric_edge_added",
         "payload": {
@@ -377,7 +378,8 @@ def generate_events(
                 stage_index=2, stage_total=8,
             )
 
-            # Plot RAW submap keyframes (local frame, will be auto-cleared by map_committed)
+            # Plot RAW submap keyframes (local frame, populates _node_positions for metric edges)
+            raw_data = None
             if raw_data_dir is not None:
                 raw_dir = raw_data_dir / new_submap_name
                 if raw_dir.exists():
@@ -386,6 +388,18 @@ def generate_events(
                         demo_step = _emit_vio_node(
                             events, demo_step, merge_step, submap_id,
                             i, raw_pose, raw_data["intrinsics"], raw_data["seq_dir"]
+                        )
+
+            # Green cross-submap edges (BEFORE map_committed, connecting final map to raw submap)
+            if prev_data and raw_data is not None:
+                cross_edges = find_cross_submap_edges(prev_data["edges"], data["edges"])
+                prev_pose_count = len(prev_data["poses"])
+                for ref_node, query_node, _et in cross_edges:
+                    query_local = query_node - prev_pose_count
+                    if 0 <= query_local < len(raw_data["poses"]):
+                        demo_step = _emit_metric_edge(
+                            events, demo_step, merge_step, submap_id,
+                            ref_node, query_local
                         )
 
             # Plot new merged keyframes (incremental)
@@ -410,11 +424,6 @@ def generate_events(
                             edge_type, edge, poses
                         )
 
-            # Find cross-submap edges (non-consecutive new edges)
-            cross_edges: list[tuple[int, int, str]] = []
-            if prev_data:
-                cross_edges = find_cross_submap_edges(prev_data["edges"], data["edges"])
-
             # Stage: Merged Map
             demo_step = _emit_stage(
                 events, demo_step, merge_step, submap_id,
@@ -423,16 +432,10 @@ def generate_events(
                 stage_index=7, stage_total=8,
             )
 
-            # map_committed (Clears cameras/edges, shows merged cameras)
+            # map_committed (Clears cameras/edges including green edges, shows merged cameras)
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
             demo_step = _emit_map_committed(events, demo_step, merge_step, submap_id, nodes, edges)
-
-            # Green cross-submap edges (after map_committed so _node_positions is populated)
-            for ref_node, query_node, _et in cross_edges:
-                demo_step = _emit_metric_edge(
-                    events, demo_step, merge_step, ref_node, query_node
-                )
 
         prev_data = data
 

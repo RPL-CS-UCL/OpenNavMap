@@ -235,21 +235,37 @@ def test_generate_events_with_raw_data_plots_raw_submap(tmp_path: Path) -> None:
 
 
 def test_generate_events_with_cross_submap_edges(tmp_path: Path) -> None:
+    """Green edges connect final map nodes to raw submap nodes (local IDs, before map_committed)."""
     results_dir = tmp_path / "results"
     results_dir.mkdir()
     _make_fake_merge_dir(results_dir, "merge_0", num_poses=3, start_idx=0)
-    # merge_0_1 with a cross-submap edge (57, 81)
+    # merge_0_1: 5 poses (0-4), cross-submap edge (1, 4) — non-consecutive
     merge_01 = _make_fake_merge_dir(results_dir, "merge_0_1", num_poses=5, start_idx=0)
     with (merge_01 / "edges_covis.txt").open("a") as f:
-        f.write("57 81 0.9\n")
+        f.write("1 4 0.9\n")
 
-    events = generate_events(results_dir, tmp_path / "output")
+    # Raw submap 1 with 2 poses (local IDs 0-1)
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _make_fake_raw_dir(raw_dir, "1", num_poses=2)
+
+    events = generate_events(results_dir, tmp_path / "output", raw_data_dir=raw_dir)
 
     metric_edges = [e for e in events if e["event_type"] == "metric_edge_added"]
     assert len(metric_edges) == 1
-    assert metric_edges[0]["payload"]["db_node_id"] == 57
-    assert metric_edges[0]["payload"]["query_node_id"] == 81
-    assert metric_edges[0]["submap_id"] == 0
+    # db_node_id = 1 (final map node, global ID)
+    assert metric_edges[0]["payload"]["db_node_id"] == 1
+    # query_node_id = 1 (raw submap LOCAL ID = 4 - prev_pose_count(3) = 1)
+    assert metric_edges[0]["payload"]["query_node_id"] == 1
+    # submap_id = 1 (raw submap's ID, not 0)
+    assert metric_edges[0]["submap_id"] == 1
+
+    # Metric edges should be emitted BEFORE map_committed
+    metric_step = metric_edges[0]["demo_step"]
+    committed_steps = [e["demo_step"] for e in events
+                       if e["event_type"] == "map_committed" and e["merge_step"] == 1]
+    assert len(committed_steps) == 1
+    assert metric_step < committed_steps[0]
 
 
 def test_generate_events_demo_steps_are_monotonic(tmp_path: Path) -> None:

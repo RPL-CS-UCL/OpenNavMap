@@ -247,6 +247,8 @@ class MapMergeRuntimeRerunRenderer:
         group = self._camera_group(submap_id)
         camera_path = f"cameras/{group}/{node_id}"
 
+        self._node_positions[(submap_id, node_id)] = np.asarray(payload["position"], dtype=np.float32)
+
         self._log_camera(
             rr, event, camera_path,
             position=payload["position"],
