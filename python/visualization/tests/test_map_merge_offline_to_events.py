@@ -6,7 +6,7 @@ def test_detect_merge_dirs_finds_and_sorts(tmp_path: Path) -> None:
     (tmp_path / "merge_0").mkdir()
     (tmp_path / "merge_0_1_2").mkdir()
     (tmp_path / "merge_0_1").mkdir()
-    (tmp_path / "merge_finalmap").write_text("link")  # file, not dir
+    (tmp_path / "merge_finalmap").write_text("link")
     (tmp_path / "not_merge").mkdir()
 
     result = detect_merge_dirs(tmp_path)
@@ -19,7 +19,6 @@ def test_detect_merge_dirs_empty_when_no_merge_dirs(tmp_path: Path) -> None:
     assert detect_merge_dirs(tmp_path) == []
 
 
-import numpy as np
 from visualization.map_merge_offline_to_events import (
     PoseEntry,
     EdgeEntry,
@@ -27,17 +26,11 @@ from visualization.map_merge_offline_to_events import (
     load_poses,
     load_edges,
     load_intrinsics,
-    load_descriptors,
 )
 
 
 def test_load_poses_parses_w2c_wxyz_and_converts_to_c2w(tmp_path: Path) -> None:
-    """poses.txt stores W2C [qw,qx,qy,qz,tx,ty,tz]; load_poses converts to C2W."""
     poses_file = tmp_path / "poses.txt"
-    # Case 1: identity rotation (wxyz), W2C translation (1,2,3)
-    # C2W: quat_xyzw=[0,0,0,1], position=-I^T@[1,2,3]=[-1,-2,-3]
-    # Case 2: 180° around z (wxyz qw=0,qz=1), W2C translation (4,5,6)
-    # C2W: quat_xyzw=[0,0,-1,0], position=-R^T@[4,5,6]=[4,5,-6]
     poses_file.write_text(
         "seq/000000.color.jpg 1.0 0.0 0.0 0.0 1.0 2.0 3.0\n"
         "seq/000001.color.jpg 0.0 0.0 0.0 1.0 4.0 5.0 6.0\n"
@@ -75,17 +68,6 @@ def test_load_intrinsics_parses_fx_fy_cx_cy_w_h(tmp_path: Path) -> None:
     assert entry.img_size == [1024, 576]
 
 
-def test_load_descriptors_parses_256_dim(tmp_path: Path) -> None:
-    desc_file = tmp_path / "database_descriptors.txt"
-    vals = " ".join(str(float(i)) for i in range(256))
-    desc_file.write_text(f"seq/000000.color.jpg {vals}\n")
-    result = load_descriptors(desc_file)
-    assert "seq/000000.color.jpg" in result
-    assert result["seq/000000.color.jpg"].shape == (256,)
-    assert result["seq/000000.color.jpg"][0] == 0.0
-    assert result["seq/000000.color.jpg"][255] == 255.0
-
-
 from visualization.map_merge_offline_to_events import identify_new_nodes
 
 
@@ -107,57 +89,47 @@ def test_identify_new_nodes_all_new_when_prev_empty(tmp_path: Path) -> None:
     assert identify_new_nodes([], curr) == [0, 1]
 
 
-from visualization.map_merge_offline_to_events import compute_dmatrix
+from visualization.map_merge_offline_to_events import find_cross_submap_edges
 
 
-def test_compute_dmatrix_shape_and_values() -> None:
-    ref = {
-        "a.jpg": np.array([1.0, 0.0, 0.0], dtype=np.float32),
-        "b.jpg": np.array([0.0, 1.0, 0.0], dtype=np.float32),
+def test_find_cross_submap_edges_finds_non_consecutive():
+    prev = {"odom": [EdgeEntry(0, 1, 0.5)], "covis": [], "trav": []}
+    curr = {
+        "odom": [EdgeEntry(0, 1, 0.5), EdgeEntry(57, 81, 1.4)],
+        "covis": [],
+        "trav": [],
     }
-    query = {
-        "c.jpg": np.array([1.0, 0.0, 0.0], dtype=np.float32),
-        "d.jpg": np.array([0.0, 0.0, 1.0], dtype=np.float32),
+    result = find_cross_submap_edges(prev, curr)
+    assert len(result) == 1
+    assert result[0] == (57, 81, "odom")
+
+
+def test_find_cross_submap_edges_skips_consecutive():
+    prev = {"odom": [EdgeEntry(0, 1, 0.5)], "covis": [], "trav": []}
+    curr = {
+        "odom": [EdgeEntry(0, 1, 0.5), EdgeEntry(1, 2, 0.3)],
+        "covis": [],
+        "trav": [],
     }
-    result = compute_dmatrix(ref, query)
-    assert result.shape == (2, 2)
-    assert abs(result[0, 0] - 1.0) < 1e-5  # a-c identical
-    assert abs(result[0, 1] - 0.0) < 1e-5  # a-d orthogonal
-    assert abs(result[1, 0] - 0.0) < 1e-5  # b-c orthogonal
-    assert abs(result[1, 1] - 0.0) < 1e-5  # b-d orthogonal
+    result = find_cross_submap_edges(prev, curr)
+    assert len(result) == 0
 
 
-def test_compute_dmatrix_empty_query_returns_empty() -> None:
-    ref = {"a.jpg": np.array([1.0, 0.0], dtype=np.float32)}
-    result = compute_dmatrix(ref, {})
-    assert result.shape == (1, 0)
-
-
-from visualization.map_merge_offline_to_events import plot_dmatrix
-
-
-def test_plot_dmatrix_creates_png(tmp_path: Path) -> None:
-    dmatrix = np.random.rand(10, 5).astype(np.float32)
-    output_path = tmp_path / "dmatrix.png"
-    plot_dmatrix(dmatrix, output_path, threshold=0.5)
-    assert output_path.exists()
-    assert output_path.stat().st_size > 0
-
-
-def test_plot_dmatrix_overlays_high_similarity_pairs(tmp_path: Path) -> None:
-    dmatrix = np.zeros((5, 5), dtype=np.float32)
-    dmatrix[2, 3] = 0.9
-    output_path = tmp_path / "dmatrix.png"
-    plot_dmatrix(dmatrix, output_path, threshold=0.5)
-    assert output_path.exists()
-    assert output_path.stat().st_size > 0
+def test_find_cross_submap_edges_deduplicates():
+    prev = {"odom": [], "covis": [], "trav": []}
+    curr = {
+        "odom": [EdgeEntry(57, 81, 1.4)],
+        "covis": [EdgeEntry(57, 81, 0.3)],
+        "trav": [],
+    }
+    result = find_cross_submap_edges(prev, curr)
+    assert len(result) == 1
 
 
 from visualization.map_merge_offline_to_events import generate_events
 
 
 def _make_fake_merge_dir(base: Path, name: str, num_poses: int, start_idx: int = 0) -> Path:
-    """Create a fake merge directory with minimal data files."""
     merge_dir = base / name
     merge_dir.mkdir()
     seq_dir = merge_dir / "seq"
@@ -165,17 +137,13 @@ def _make_fake_merge_dir(base: Path, name: str, num_poses: int, start_idx: int =
 
     pose_lines = []
     intr_lines = []
-    desc_lines = []
     for i in range(start_idx, start_idx + num_poses):
         img_name = f"seq/{i:06d}.color.jpg"
         pose_lines.append(f"{img_name} 1.0 0.0 0.0 0.0 {float(i)} 0.0 0.0")
         intr_lines.append(f"{img_name} 444.0 444.0 511.5 287.5 1024 576")
         (seq_dir / f"{i:06d}.color.jpg").write_bytes(b"fake-jpg")
-        desc_vals = " ".join(str(float(j) / 256.0) for j in range(256))
-        desc_lines.append(f"{img_name} {desc_vals}")
     (merge_dir / "poses.txt").write_text("\n".join(pose_lines) + "\n")
     (merge_dir / "intrinsics.txt").write_text("\n".join(intr_lines) + "\n")
-    (merge_dir / "database_descriptors.txt").write_text("\n".join(desc_lines) + "\n")
 
     edge_lines = []
     for i in range(num_poses - 1):
@@ -184,6 +152,29 @@ def _make_fake_merge_dir(base: Path, name: str, num_poses: int, start_idx: int =
         (merge_dir / f"edges_{et}.txt").write_text("\n".join(edge_lines) + "\n")
 
     return merge_dir
+
+
+def _make_fake_raw_dir(base: Path, name: str, num_poses: int) -> Path:
+    raw_dir = base / name
+    raw_dir.mkdir()
+    seq_dir = raw_dir / "seq"
+    seq_dir.mkdir()
+
+    pose_lines = []
+    intr_lines = []
+    for i in range(num_poses):
+        img_name = f"seq/{i:06d}.color.jpg"
+        pose_lines.append(f"{img_name} 1.0 0.0 0.0 0.0 {float(i) + 100.0} 0.0 0.0")
+        intr_lines.append(f"{img_name} 444.0 444.0 511.5 287.5 1024 576")
+        (seq_dir / f"{i:06d}.color.jpg").write_bytes(b"fake-jpg")
+    (raw_dir / "poses.txt").write_text("\n".join(pose_lines) + "\n")
+    (raw_dir / "intrinsics.txt").write_text("\n".join(intr_lines) + "\n")
+
+    edge_lines = [f"{i} {i + 1} 0.5" for i in range(num_poses - 1)]
+    for et in ("odom", "covis", "trav"):
+        (raw_dir / f"edges_{et}.txt").write_text("\n".join(edge_lines) + "\n")
+
+    return raw_dir
 
 
 def test_generate_events_produces_valid_sequence(tmp_path: Path) -> None:
@@ -200,8 +191,8 @@ def test_generate_events_produces_valid_sequence(tmp_path: Path) -> None:
     assert "odom_edge_observed" in types
     assert "covis_edge_observed" in types
     assert "trav_edge_observed" in types
-    assert "dmatrix_computed" in types
     assert "map_committed" in types
+    assert "dmatrix_computed" not in types
 
     assert events[0]["event_type"] == "stage_annotation"
     assert events[0]["payload"]["title"] == "Load Reference Map"
@@ -214,15 +205,51 @@ def test_generate_events_produces_valid_sequence(tmp_path: Path) -> None:
                  if e["event_type"] == "vio_node_observed" and e["merge_step"] == 1]
     assert len(vio_step1) == 2
 
-    dmatrix_events = [e for e in events if e["event_type"] == "dmatrix_computed"]
-    assert len(dmatrix_events) == 1
-    assert dmatrix_events[0]["merge_step"] == 1
-
     committed = [e for e in events if e["event_type"] == "map_committed"]
     assert len(committed) == 2
 
     assert events[-1]["event_type"] == "stage_annotation"
     assert events[-1]["payload"]["title"] == "Finish Map Merging"
+
+
+def test_generate_events_with_raw_data_plots_raw_submap(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    _make_fake_merge_dir(results_dir, "merge_0", num_poses=3, start_idx=0)
+    _make_fake_merge_dir(results_dir, "merge_0_1", num_poses=5, start_idx=0)
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    _make_fake_raw_dir(raw_dir, "1", num_poses=2)
+
+    events = generate_events(results_dir, tmp_path / "output", raw_data_dir=raw_dir)
+
+    # Raw submap cameras should appear as vio_node_observed with local IDs
+    vio_step1 = [e for e in events
+                 if e["event_type"] == "vio_node_observed" and e["merge_step"] == 1]
+    # 2 raw + 2 new merged = 4 total
+    assert len(vio_step1) == 4
+    # Raw cameras have local IDs (0, 1)
+    raw_nodes = [e for e in vio_step1 if e["keyframe_id"] in (0, 1)]
+    assert len(raw_nodes) == 2
+
+
+def test_generate_events_with_cross_submap_edges(tmp_path: Path) -> None:
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    _make_fake_merge_dir(results_dir, "merge_0", num_poses=3, start_idx=0)
+    # merge_0_1 with a cross-submap edge (57, 81)
+    merge_01 = _make_fake_merge_dir(results_dir, "merge_0_1", num_poses=5, start_idx=0)
+    with (merge_01 / "edges_covis.txt").open("a") as f:
+        f.write("57 81 0.9\n")
+
+    events = generate_events(results_dir, tmp_path / "output")
+
+    metric_edges = [e for e in events if e["event_type"] == "metric_edge_added"]
+    assert len(metric_edges) == 1
+    assert metric_edges[0]["payload"]["db_node_id"] == 57
+    assert metric_edges[0]["payload"]["query_node_id"] == 81
+    assert metric_edges[0]["submap_id"] == 0
 
 
 def test_generate_events_demo_steps_are_monotonic(tmp_path: Path) -> None:
@@ -271,3 +298,12 @@ def test_parse_args_accepts_render_flag() -> None:
     ])
     assert args.render is True
     assert args.rerun_output == Path("/tmp/out.rrd")
+
+
+def test_parse_args_accepts_raw_data_dir() -> None:
+    args = parse_args([
+        "--results-dir", "/tmp/results",
+        "--output-dir", "/tmp/output",
+        "--raw-data-dir", "/tmp/raw",
+    ])
+    assert args.raw_data_dir == Path("/tmp/raw")

@@ -5,34 +5,6 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-try:
-    from utils.utils_setting_color_font import (
-        setting_font,
-        acquire_color_palette,
-        acquire_marker,
-    )
-except ImportError:
-    def setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino"):
-        plt.rcParams["font.family"] = "serif"
-        plt.rcParams["font.serif"] = ["DejaVu Serif"]
-        plt.rcParams["font.size"] = fontsize
-        plt.rcParams["axes.titlesize"] = titlesize
-        plt.rcParams["legend.fontsize"] = legend_fontsize
-        plt.rcParams["text.usetex"] = False
-
-    def acquire_color_palette():
-        palette = np.zeros((60, 3), dtype=np.float32)
-        palette[0] = [0, 152 / 255, 83 / 255]
-        palette[1] = [228 / 255, 53 / 255, 39 / 255]
-        return palette
-
-    def acquire_marker():
-        return ['o', 's', '^', 'D', 'X', '*', '+']
-
 import argparse
 import json
 from typing import Optional, Sequence
@@ -138,102 +110,12 @@ def load_intrinsics(intrinsics_file: Path) -> dict[str, IntrinsicsEntry]:
     return result
 
 
-def load_descriptors(desc_file: Path) -> dict[str, np.ndarray]:
-    """Parse database_descriptors.txt: 'img_name d1 d2 ... d256' per line."""
-    result: dict[str, np.ndarray] = {}
-    for line in desc_file.read_text().strip().splitlines():
-        parts = line.strip().split()
-        if len(parts) < 2:
-            continue
-        img_name = parts[0]
-        desc = np.array([float(x) for x in parts[1:]], dtype=np.float32)
-        result[img_name] = desc
-    return result
-
-
 def identify_new_nodes(
     prev_img_names: list[str], curr_img_names: list[str]
 ) -> list[int]:
     """Return indices of curr_img_names whose image name is not in prev_img_names."""
     prev_set = set(prev_img_names)
     return [i for i, name in enumerate(curr_img_names) if name not in prev_set]
-
-
-def compute_dmatrix(
-    ref_descs: dict[str, np.ndarray], query_descs: dict[str, np.ndarray]
-) -> np.ndarray:
-    """Compute cosine similarity matrix between reference and query descriptors.
-
-    Returns matrix of shape (len(ref), len(query)).
-    """
-    ref_keys = list(ref_descs.keys())
-    query_keys = list(query_descs.keys())
-    if not ref_keys or not query_keys:
-        return np.zeros((len(ref_keys), len(query_keys)), dtype=np.float32)
-
-    ref_mat = np.stack([ref_descs[k] for k in ref_keys])
-    query_mat = np.stack([query_descs[k] for k in query_keys])
-
-    ref_norm = ref_mat / (np.linalg.norm(ref_mat, axis=1, keepdims=True) + 1e-8)
-    query_norm = query_mat / (np.linalg.norm(query_mat, axis=1, keepdims=True) + 1e-8)
-
-    return ref_norm @ query_norm.T
-
-
-def get_new_descriptors(
-    prev_descs: dict[str, np.ndarray], curr_descs: dict[str, np.ndarray]
-) -> dict[str, np.ndarray]:
-    """Return descriptors in curr_descs whose key is not in prev_descs."""
-    prev_keys = set(prev_descs.keys())
-    return {k: v for k, v in curr_descs.items() if k not in prev_keys}
-
-
-def plot_dmatrix(
-    dmatrix: np.ndarray,
-    output_path: Path,
-    threshold: float = 0.5,
-) -> Path:
-    """Plot D-matrix in online paper style: Greys imshow + green scatter overlay.
-
-    Matches _plot_runtime_dmatrix_panels styling in map_merge_pipeline.py:
-    - setting_font(fontsize=13, titlesize=13, font_family="Palatino")
-    - cmap="Greys" background, clim=[0,1]
-    - green scatter (s=40, marker='o') for pairs above threshold
-    - dpi=300, bbox_inches="tight", figsize=(6,5)
-    """
-    setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino")
-    plt.rcParams["text.usetex"] = False
-    plt.rcParams["font.serif"] = ["DejaVu Serif"]
-
-    palette = acquire_color_palette()
-    markers = acquire_marker()
-    green = palette[0]
-
-    fig, ax = plt.subplots(figsize=(6, 5))
-    im = ax.imshow(dmatrix, cmap="Greys", aspect="auto")
-    im.set_clim(0.0, 1.0)
-
-    if dmatrix.size > 0:
-        ref_idx, query_idx = np.where(dmatrix >= threshold)
-        if len(query_idx) > 0:
-            ax.scatter(
-                query_idx,
-                ref_idx,
-                c=[green],
-                s=40,
-                alpha=1.0,
-                marker=markers[0],
-            )
-
-    ax.set_xlabel("Query Index", fontsize=13)
-    ax.set_ylabel("Reference Index", fontsize=13)
-    ax.set_title("Difference Matrix", fontsize=13)
-    ax.tick_params(axis="both", labelsize=10)
-
-    plt.tight_layout()
-    plt.savefig(str(output_path), dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    return output_path
 
 
 def _load_merge_data(merge_dir: Path) -> dict:
@@ -246,11 +128,6 @@ def _load_merge_data(merge_dir: Path) -> dict:
             "trav": load_edges(merge_dir / "edges_trav.txt"),
         },
         "intrinsics": load_intrinsics(merge_dir / "intrinsics.txt"),
-        "descriptors": (
-            load_descriptors(merge_dir / "database_descriptors.txt")
-            if (merge_dir / "database_descriptors.txt").exists()
-            else {}
-        ),
         "seq_dir": merge_dir / "seq",
     }
 
@@ -373,22 +250,6 @@ def _emit_edge(
     return demo_step + 1
 
 
-def _emit_dmatrix(
-    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
-    dmatrix: np.ndarray, png_path: Path,
-) -> int:
-    events.append({
-        "demo_step": demo_step,
-        "merge_step": merge_step,
-        "submap_id": submap_id,
-        "keyframe_id": None,
-        "event_type": "dmatrix_computed",
-        "payload": {"shape": list(dmatrix.shape)},
-        "artifacts": {"dmatrix_png": str(png_path)},
-    })
-    return demo_step + 1
-
-
 def _emit_map_committed(
     events: list[dict], demo_step: int, merge_step: int, submap_id: int,
     nodes: list[dict], edges: dict[str, list[list[int]]],
@@ -409,19 +270,73 @@ def _emit_map_committed(
     return demo_step + 1
 
 
-def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
+def _emit_metric_edge(
+    events: list[dict], demo_step: int, merge_step: int,
+    db_node_id: int, query_node_id: int,
+) -> int:
+    """Emit a green cross-submap edge (metric_edge_added).
+
+    submap_id=0 so renderer looks up positions from _node_positions[(0, nid)]
+    which are populated by map_committed.
+    """
+    events.append({
+        "demo_step": demo_step,
+        "merge_step": merge_step,
+        "submap_id": 0,
+        "keyframe_id": None,
+        "event_type": "metric_edge_added",
+        "payload": {
+            "db_node_id": db_node_id,
+            "query_node_id": query_node_id,
+            "conf": 1.0,
+        },
+        "artifacts": {},
+    })
+    return demo_step + 1
+
+
+def find_cross_submap_edges(
+    prev_edges: dict[str, list[EdgeEntry]],
+    curr_edges: dict[str, list[EdgeEntry]],
+) -> list[tuple[int, int, str]]:
+    """Find new non-consecutive edges (cross-submap) between merge steps.
+
+    Returns list of (ref_node_id, query_node_id, edge_type).
+    Non-consecutive = |src - dst| > 1 (cross-submap loop closures).
+    """
+    prev_set: set[tuple[int, int]] = set()
+    for et in ("odom", "covis", "trav"):
+        for e in prev_edges[et]:
+            prev_set.add((e.src, e.dst))
+
+    result: list[tuple[int, int, str]] = []
+    seen: set[tuple[int, int]] = set()
+    for et in ("odom", "covis", "trav"):
+        for e in curr_edges[et]:
+            if (e.src, e.dst) not in prev_set and (e.src, e.dst) not in seen:
+                if abs(e.src - e.dst) > 1:
+                    ref_node = min(e.src, e.dst)
+                    query_node = max(e.src, e.dst)
+                    result.append((ref_node, query_node, et))
+                    seen.add((e.src, e.dst))
+    return result
+
+
+def generate_events(
+    results_dir: Path, output_dir: Path,
+    raw_data_dir: Path | None = None,
+) -> list[dict]:
     """Generate demo_events.jsonl-compatible events from offline merge data.
 
     Reads merge_* directories in order, produces events for the existing
-    MapMergeRuntimeRerunRenderer.
+    MapMergeRuntimeRerunRenderer. If raw_data_dir is provided, also plots
+    raw submap keyframes (in local coordinate frame) before the merged result.
     """
     merge_dirs = detect_merge_dirs(results_dir)
     if not merge_dirs:
         return []
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    artifacts_dir = output_dir / "artifacts"
-    artifacts_dir.mkdir(exist_ok=True)
 
     events: list[dict] = []
     demo_step = 0
@@ -462,6 +377,18 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                 stage_index=2, stage_total=8,
             )
 
+            # Plot RAW submap keyframes (local frame, will be auto-cleared by map_committed)
+            if raw_data_dir is not None:
+                raw_dir = raw_data_dir / new_submap_name
+                if raw_dir.exists():
+                    raw_data = _load_merge_data(raw_dir)
+                    for i, raw_pose in enumerate(raw_data["poses"]):
+                        demo_step = _emit_vio_node(
+                            events, demo_step, merge_step, submap_id,
+                            i, raw_pose, raw_data["intrinsics"], raw_data["seq_dir"]
+                        )
+
+            # Plot new merged keyframes (incremental)
             prev_img_names = [p.img_name for p in prev_data["poses"]] if prev_data else []
             new_indices = identify_new_nodes(prev_img_names, img_names)
             for idx in new_indices:
@@ -470,6 +397,7 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                     idx, poses[idx], intrinsics, seq_dir
                 )
 
+            # Plot new edges (type-specific diff)
             prev_edge_sets: dict[str, set[tuple[int, int]]] = {}
             if prev_data:
                 for et in ("odom", "covis", "trav"):
@@ -482,34 +410,29 @@ def generate_events(results_dir: Path, output_dir: Path) -> list[dict]:
                             edge_type, edge, poses
                         )
 
-            if prev_data and prev_data["descriptors"] and data["descriptors"]:
-                query_descs = get_new_descriptors(
-                    prev_data["descriptors"], data["descriptors"]
-                )
-                if query_descs:
-                    dmatrix = compute_dmatrix(prev_data["descriptors"], query_descs)
-                    png_path = artifacts_dir / f"dmatrix_merge_{merge_step}.png"
-                    plot_dmatrix(dmatrix, png_path, threshold=0.5)
-                    demo_step = _emit_stage(
-                        events, demo_step, merge_step, submap_id,
-                        f"Compute Difference Matrix - Reference Map-Submap {new_submap_name}",
-                        subtitle=f"Cosine similarity {dmatrix.shape[0]}x{dmatrix.shape[1]}.",
-                        stage_index=3, stage_total=8,
-                    )
-                    demo_step = _emit_dmatrix(
-                        events, demo_step, merge_step, submap_id, dmatrix, png_path
-                    )
+            # Find cross-submap edges (non-consecutive new edges)
+            cross_edges: list[tuple[int, int, str]] = []
+            if prev_data:
+                cross_edges = find_cross_submap_edges(prev_data["edges"], data["edges"])
 
+            # Stage: Merged Map
             demo_step = _emit_stage(
                 events, demo_step, merge_step, submap_id,
-                f"Pose Graph Optimization: Reference Map-Submap {new_submap_name}",
-                subtitle="PGO refines all poses in the merged map.",
+                f"Merged Map - Submap {new_submap_name}",
+                subtitle="PGO refines all poses; cross-submap edges shown in green.",
                 stage_index=7, stage_total=8,
             )
 
+            # map_committed (Clears cameras/edges, shows merged cameras)
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
             demo_step = _emit_map_committed(events, demo_step, merge_step, submap_id, nodes, edges)
+
+            # Green cross-submap edges (after map_committed so _node_positions is populated)
+            for ref_node, query_node, _et in cross_edges:
+                demo_step = _emit_metric_edge(
+                    events, demo_step, merge_step, ref_node, query_node
+                )
 
         prev_data = data
 
@@ -541,6 +464,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
                         help="Path to s00000_results_in_* directory")
     parser.add_argument("--output-dir", type=Path, required=True,
                         help="Output directory for rerun_viz/")
+    parser.add_argument("--raw-data-dir", type=Path, default=None,
+                        help="Path to s00000_aria_data_390/ directory with raw submap data")
     parser.add_argument("--render", action="store_true",
                         help="Render .rrd after generating events")
     parser.add_argument("--rerun-output", type=Path, default=None,
@@ -551,7 +476,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     event_dir = args.output_dir / "rerun_viz"
-    events = generate_events(args.results_dir, event_dir)
+    events = generate_events(args.results_dir, event_dir, args.raw_data_dir)
     write_events(events, event_dir)
     print(f"Wrote {len(events)} events to {event_dir / 'demo_events.jsonl'}")
 
