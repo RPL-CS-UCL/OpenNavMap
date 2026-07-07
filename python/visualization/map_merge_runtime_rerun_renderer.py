@@ -51,13 +51,16 @@ class MapMergeRuntimeRerunRenderer:
         self._node_demo_step: Dict[Tuple[int, int], int] = {}
         self._node_time: Dict[Tuple[int, int], float] = {}
         self._node_positions: Dict[Tuple[int, int], np.ndarray] = {}
+        self._node_images: Dict[Tuple[int, int], str] = {}
 
     def build_time_map(self, events: List[Dict[str, Any]]) -> None:
         self._node_demo_step = {}
         self._node_time = {}
         self._node_positions = {}
+        self._node_images = {}
         for event in events:
-            if event.get("event_type") == "vio_node_observed":
+            et = event.get("event_type")
+            if et == "vio_node_observed":
                 sid = event.get("submap_id")
                 kf_id = event.get("keyframe_id")
                 step = event.get("demo_step")
@@ -71,6 +74,15 @@ class MapMergeRuntimeRerunRenderer:
                 position = payload.get("position")
                 if sid is not None and node_id is not None and position is not None:
                     self._node_positions[(int(sid), int(node_id))] = np.asarray(position, dtype=np.float32)
+                img_path = payload.get("rgb_img_path")
+                if sid is not None and node_id is not None and img_path is not None:
+                    self._node_images[(int(sid), int(node_id))] = img_path
+            elif et == "map_committed":
+                for n in event.get("payload", {}).get("nodes", []):
+                    nid = int(n["node_id"])
+                    img_path = n.get("rgb_img_path")
+                    if img_path is not None:
+                        self._node_images[(0, nid)] = img_path
 
     def write(self, output_path: Path) -> None:
         import rerun as rr
@@ -134,8 +146,8 @@ class MapMergeRuntimeRerunRenderer:
                         background=rrb.BackgroundKind.GradientDark,
                     ),
                     rrb.Spatial2DView(
-                        name="Difference Matrix",
-                        origin="evidence/dmatrix",
+                        name="Matched Keyframes",
+                        origin="evidence/matched_keyframes",
                         background=rrb.BackgroundKind.GradientDark,
                     ),
                 ),
@@ -353,6 +365,25 @@ class MapMergeRuntimeRerunRenderer:
                 rr.ImageEncoded(path=artifact_path),
             )
 
+    def _load_resized_image(self, path: str):
+        """Load and resize an image, using cache for repeated accesses."""
+        from PIL import Image
+        import io
+        cache_key = path
+        cached_bytes = self._image_cache.get(cache_key)
+        if cached_bytes is not None:
+            return Image.open(io.BytesIO(cached_bytes))
+        img = Image.open(path)
+        if self.image_scale != 1.0:
+            img = img.resize(
+                (int(img.width * self.image_scale), int(img.height * self.image_scale)),
+                Image.LANCZOS,
+            )
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        self._image_cache[cache_key] = buf.getvalue()
+        return img
+
     def _log_metric_edge(self, rr, event: Dict[str, Any]) -> None:
         payload = event["payload"]
         db_node_id = int(payload["db_node_id"])
@@ -372,6 +403,34 @@ class MapMergeRuntimeRerunRenderer:
                     radii=0.15,
                 ),
             )
+
+        # Matched keyframe image pair (left=query, right=reference)
+        ref_img_path = self._node_images.get((0, db_node_id))
+        query_img_path = self._node_images.get((query_submap_id, query_node_id))
+        if ref_img_path and query_img_path:
+            from pathlib import Path as P
+            if P(ref_img_path).exists() and P(query_img_path).exists():
+                from PIL import Image, ImageDraw
+                import io
+                try:
+                    query_img = self._load_resized_image(query_img_path)
+                    ref_img = self._load_resized_image(ref_img_path)
+                    pair_w = query_img.width + ref_img.width
+                    pair_h = max(query_img.height, ref_img.height)
+                    pair = Image.new("RGB", (pair_w, pair_h), (0, 0, 0))
+                    pair.paste(query_img, (0, 0))
+                    pair.paste(ref_img, (query_img.width, 0))
+                    draw = ImageDraw.Draw(pair)
+                    draw.text((10, 10), f"Query (submap {query_submap_id}, node {query_node_id})", fill=(255, 255, 255))
+                    draw.text((query_img.width + 10, 10), f"Reference (node {db_node_id})", fill=(255, 255, 255))
+                    buf = io.BytesIO()
+                    pair.save(buf, format="JPEG")
+                    self._log(
+                        rr, event, "evidence/matched_keyframes", "ImageEncoded",
+                        rr.ImageEncoded(contents=buf.getvalue()),
+                    )
+                except Exception:
+                    pass
 
     def _log_final_map(self, rr, event: Dict[str, Any]) -> None:
         payload = event["payload"]

@@ -202,7 +202,7 @@ def _build_map_committed_edges(edges: dict[str, list[EdgeEntry]]) -> dict[str, l
 
 # --- Event emitters with time support ---
 
-T_FAST = 0.5
+T_FAST = 0.33
 T_PROCESS = 3.0
 T_ZERO = 0.0
 T_EDGE = 0.0  # edges don't advance time (appear at keyframe time via build_time_map)
@@ -423,7 +423,16 @@ def generate_events(
                                 edge_type, edge, raw_data["poses"]
                             )
 
-            # Green cross-submap edges
+            # Stage 3: Conduct Visual Localization and Create Loop Factors
+            demo_step, time = _emit_stage(
+                events, demo_step, time, merge_step, submap_id,
+                "Conduct Visual Localization and Create Loop Factors",
+                subtitle=f"Match query submap {new_submap_name} keyframes to reference map.",
+                stage_index=3, stage_total=8,
+                step_inc=T_PROCESS,
+            )
+
+            # Green cross-submap edges (loop factors)
             if prev_data and raw_data is not None:
                 cross_edges = find_cross_submap_edges(prev_data["edges"], data["edges"])
                 prev_pose_count = len(prev_data["poses"])
