@@ -49,10 +49,12 @@ class MapMergeRuntimeRerunRenderer:
         self._image_cache: Dict[str, bytes] = {}
         self.render_trace: List[Dict[str, Any]] = []
         self._node_demo_step: Dict[Tuple[int, int], int] = {}
+        self._node_time: Dict[Tuple[int, int], float] = {}
         self._node_positions: Dict[Tuple[int, int], np.ndarray] = {}
 
     def build_time_map(self, events: List[Dict[str, Any]]) -> None:
         self._node_demo_step = {}
+        self._node_time = {}
         self._node_positions = {}
         for event in events:
             if event.get("event_type") == "vio_node_observed":
@@ -61,6 +63,9 @@ class MapMergeRuntimeRerunRenderer:
                 step = event.get("demo_step")
                 if sid is not None and kf_id is not None and step is not None:
                     self._node_demo_step[(int(sid), int(kf_id))] = int(step)
+                time_val = event.get("time")
+                if sid is not None and kf_id is not None and time_val is not None:
+                    self._node_time[(int(sid), int(kf_id))] = float(time_val)
                 payload = event.get("payload", {})
                 node_id = payload.get("node_id")
                 position = payload.get("position")
@@ -76,6 +81,7 @@ class MapMergeRuntimeRerunRenderer:
         rr.init("opennavmap_runtime_map_merge", spawn=False)
         self._send_blueprint(rr, rrb)
         self._log_world_axes(rr)
+        self._log_grid(rr)
         events = load_runtime_events(self.event_dir)
         self.build_time_map(events)
         for event in events:
@@ -99,6 +105,7 @@ class MapMergeRuntimeRerunRenderer:
                 "archetype": archetype_name,
                 "event_type": event.get("event_type"),
                 "demo_step": event.get("demo_step"),
+                "time": event.get("time"),
                 "merge_step": event.get("merge_step"),
                 "submap_id": event.get("submap_id"),
                 "keyframe_id": event.get("keyframe_id"),
@@ -150,6 +157,20 @@ class MapMergeRuntimeRerunRenderer:
             ),
         )
 
+    def _log_grid(self, rr) -> None:
+        size = 100.0
+        step = 10.0
+        color = np.asarray([[60, 60, 60]], dtype=np.uint8)
+        lines = []
+        for x in np.arange(-size, size + step, step):
+            lines.append([[x, 0.0, -size], [x, 0.0, size]])
+        for z in np.arange(-size, size + step, step):
+            lines.append([[-size, 0.0, z], [size, 0.0, z]])
+        rr.log(
+            "world/grid",
+            rr.LineStrips3D(strips=lines, colors=color, radii=0.01),
+        )
+
     def log_event(self, rr, event: Dict[str, Any]) -> None:
         event_type = event.get("event_type")
         if event_type not in self.SUPPORTED_EVENTS:
@@ -171,12 +192,15 @@ class MapMergeRuntimeRerunRenderer:
     def _set_time(self, rr, event: Dict[str, Any]) -> None:
         event_type = event.get("event_type")
         demo_step = int(event.get("demo_step", 0))
+        time_val = float(event.get("time", float(demo_step)))
         if event_type in {"odom_edge_observed", "covis_edge_observed", "trav_edge_observed"}:
             sid = event.get("submap_id")
             kf_id = event.get("keyframe_id")
             if sid is not None and kf_id is not None:
                 demo_step = self._node_demo_step.get((int(sid), int(kf_id)), demo_step)
+                time_val = self._node_time.get((int(sid), int(kf_id)), time_val)
         rr.set_time_sequence("demo_step", demo_step)
+        rr.set_time_seconds("time", time_val)
         merge_step = event.get("merge_step")
         if merge_step is not None:
             rr.set_time_sequence("merge_step", int(merge_step))
@@ -369,7 +393,7 @@ class MapMergeRuntimeRerunRenderer:
                 rr.LineStrips3D(
                     strips=[np.asarray([pos_a, pos_b], dtype=np.float32)],
                     colors=np.asarray([[0, 255, 0]], dtype=np.uint8),
-                    radii=0.05,
+                    radii=0.15,
                 ),
             )
 

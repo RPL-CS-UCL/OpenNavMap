@@ -55,6 +55,9 @@ class FakeRerun:
     def set_time_sequence(self, timeline, value) -> None:
         self.times.append((timeline, value))
 
+    def set_time_seconds(self, timeline, value) -> None:
+        self.times.append((timeline, value))
+
     def log(self, entity_path, archetype) -> None:
         self.logged.append((entity_path, archetype))
 

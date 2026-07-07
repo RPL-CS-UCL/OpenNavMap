@@ -5,6 +5,34 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+try:
+    from utils.utils_setting_color_font import (
+        setting_font,
+        acquire_color_palette,
+        acquire_marker,
+    )
+except ImportError:
+    def setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino"):
+        plt.rcParams["font.family"] = "serif"
+        plt.rcParams["font.serif"] = ["DejaVu Serif"]
+        plt.rcParams["font.size"] = fontsize
+        plt.rcParams["axes.titlesize"] = titlesize
+        plt.rcParams["legend.fontsize"] = legend_fontsize
+        plt.rcParams["text.usetex"] = False
+
+    def acquire_color_palette():
+        palette = np.zeros((60, 3), dtype=np.float32)
+        palette[0] = [0, 152 / 255, 83 / 255]
+        palette[1] = [228 / 255, 53 / 255, 39 / 255]
+        return palette
+
+    def acquire_marker():
+        return ['o', 's', '^', 'D', 'X', '*', '+']
+
 import argparse
 import json
 from typing import Optional, Sequence
@@ -13,8 +41,8 @@ from typing import Optional, Sequence
 @dataclass
 class PoseEntry:
     img_name: str
-    quat_xyzw: list[float]  # [qx, qy, qz, qw]
-    position: list[float]   # [tx, ty, tz]
+    quat_xyzw: list[float]
+    position: list[float]
 
 
 @dataclass
@@ -26,54 +54,35 @@ class EdgeEntry:
 
 @dataclass
 class IntrinsicsEntry:
-    K: list[list[float]]  # 3x3
-    img_size: list[int]   # [w, h]
+    K: list[list[float]]
+    img_size: list[int]
 
 
 def detect_merge_dirs(results_dir: Path) -> list[Path]:
-    """Detect merge_* subdirectories in results_dir, sorted by merge order.
-
-    Sorting key: number of underscore-separated parts (merge_0=1, merge_0_1=2, ...).
-    Files and symlinks like merge_finalmap are excluded (non-numeric suffix).
-    """
     candidates = []
     for d in results_dir.iterdir():
         if not (d.is_dir() and d.name.startswith("merge_")):
             continue
-        parts = d.name.split("_")[1:]  # skip "merge" prefix
+        parts = d.name.split("_")[1:]
         if all(p.isdigit() for p in parts):
             candidates.append(d)
     return sorted(candidates, key=lambda d: d.name.count("_"))
 
 
 def _w2c_to_c2w(quat_wxyz: list[float], translation: list[float]) -> tuple[list[float], list[float]]:
-    """Convert W2C [qw,qx,qy,qz,tx,ty,tz] to C2W [qx,qy,qz,qw,cx,cy,cz].
-
-    Matches online convert_pose_inv in utils_geom.py:
-    - C2W quaternion = conjugate of W2C quaternion (inverse for unit quaternion)
-    - C2W translation = -R_w2c^T @ t_w2c
-    """
     qw, qx, qy, qz = quat_wxyz
-    # C2W quaternion in xyzw = conjugate: [-qx, -qy, -qz, qw]
     quat_c2w_xyzw = [-qx, -qy, -qz, qw]
-    # Build W2C rotation matrix
     R = np.array([
         [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
         [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
         [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
     ], dtype=np.float64)
     t = np.array(translation, dtype=np.float64)
-    # C2W translation = -R^T @ t
     t_c2w = (-R.T @ t).tolist()
     return quat_c2w_xyzw, t_c2w
 
 
 def load_poses(poses_file: Path) -> list[PoseEntry]:
-    """Parse poses.txt: 'img_name qw qx qy qz tx ty tz' per line (W2C, wxyz).
-
-    Converts W2C poses to C2W (camera-to-world) for the renderer, matching
-    online convert_pose_inv in utils_geom.py.
-    """
     result: list[PoseEntry] = []
     for line in poses_file.read_text().strip().splitlines():
         parts = line.strip().split()
@@ -88,7 +97,6 @@ def load_poses(poses_file: Path) -> list[PoseEntry]:
 
 
 def load_edges(edges_file: Path) -> list[EdgeEntry]:
-    """Parse edges_*.txt: 'src dst weight' per line."""
     result: list[EdgeEntry] = []
     for line in edges_file.read_text().strip().splitlines():
         parts = line.strip().split()
@@ -99,7 +107,6 @@ def load_edges(edges_file: Path) -> list[EdgeEntry]:
 
 
 def load_intrinsics(intrinsics_file: Path) -> dict[str, IntrinsicsEntry]:
-    """Parse intrinsics.txt: 'img_name fx fy cx cy w h' per line."""
     result: dict[str, IntrinsicsEntry] = {}
     for line in intrinsics_file.read_text().strip().splitlines():
         parts = line.strip().split()
@@ -113,16 +120,75 @@ def load_intrinsics(intrinsics_file: Path) -> dict[str, IntrinsicsEntry]:
     return result
 
 
+def load_descriptors(desc_file: Path) -> dict[str, np.ndarray]:
+    result: dict[str, np.ndarray] = {}
+    for line in desc_file.read_text().strip().splitlines():
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+        img_name = parts[0]
+        desc = np.array([float(x) for x in parts[1:]], dtype=np.float32)
+        result[img_name] = desc
+    return result
+
+
 def identify_new_nodes(
     prev_img_names: list[str], curr_img_names: list[str]
 ) -> list[int]:
-    """Return indices of curr_img_names whose image name is not in prev_img_names."""
     prev_set = set(prev_img_names)
     return [i for i, name in enumerate(curr_img_names) if name not in prev_set]
 
 
+def compute_dmatrix(
+    ref_descs: dict[str, np.ndarray], query_descs: dict[str, np.ndarray]
+) -> np.ndarray:
+    ref_keys = list(ref_descs.keys())
+    query_keys = list(query_descs.keys())
+    if not ref_keys or not query_keys:
+        return np.zeros((len(ref_keys), len(query_keys)), dtype=np.float32)
+    ref_mat = np.stack([ref_descs[k] for k in ref_keys])
+    query_mat = np.stack([query_descs[k] for k in query_keys])
+    ref_norm = ref_mat / (np.linalg.norm(ref_mat, axis=1, keepdims=True) + 1e-8)
+    query_norm = query_mat / (np.linalg.norm(query_mat, axis=1, keepdims=True) + 1e-8)
+    return ref_norm @ query_norm.T
+
+
+def get_new_descriptors(
+    prev_descs: dict[str, np.ndarray], curr_descs: dict[str, np.ndarray]
+) -> dict[str, np.ndarray]:
+    prev_keys = set(prev_descs.keys())
+    return {k: v for k, v in curr_descs.items() if k not in prev_keys}
+
+
+def plot_dmatrix(
+    dmatrix: np.ndarray,
+    output_path: Path,
+    threshold: float = 0.5,
+) -> Path:
+    setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino")
+    plt.rcParams["text.usetex"] = False
+    plt.rcParams["font.serif"] = ["DejaVu Serif"]
+    palette = acquire_color_palette()
+    markers = acquire_marker()
+    green = palette[0]
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(dmatrix, cmap="Greys", aspect="auto")
+    im.set_clim(0.0, 1.0)
+    if dmatrix.size > 0:
+        ref_idx, query_idx = np.where(dmatrix >= threshold)
+        if len(query_idx) > 0:
+            ax.scatter(query_idx, ref_idx, c=[green], s=25, alpha=1.0, marker=markers[0])
+    ax.set_xlabel("Query Index", fontsize=13)
+    ax.set_ylabel("Reference Index", fontsize=13)
+    ax.set_title("Difference Matrix", fontsize=13)
+    ax.tick_params(axis="both", labelsize=10)
+    plt.tight_layout()
+    plt.savefig(str(output_path), dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
 def _load_merge_data(merge_dir: Path) -> dict:
-    """Load all data files from a merge directory."""
     return {
         "poses": load_poses(merge_dir / "poses.txt"),
         "edges": {
@@ -131,6 +197,11 @@ def _load_merge_data(merge_dir: Path) -> dict:
             "trav": load_edges(merge_dir / "edges_trav.txt"),
         },
         "intrinsics": load_intrinsics(merge_dir / "intrinsics.txt"),
+        "descriptors": (
+            load_descriptors(merge_dir / "database_descriptors.txt")
+            if (merge_dir / "database_descriptors.txt").exists()
+            else {}
+        ),
         "seq_dir": merge_dir / "seq",
     }
 
@@ -138,7 +209,6 @@ def _load_merge_data(merge_dir: Path) -> dict:
 def _make_k_and_size(
     img_name: str, intrinsics: dict[str, IntrinsicsEntry]
 ) -> tuple[list[list[float]] | None, list[int] | None]:
-    """Look up intrinsics for an image; return (K, img_size) or (None, None)."""
     entry = intrinsics.get(img_name)
     if entry is None:
         return None, None
@@ -150,7 +220,6 @@ def _build_map_committed_nodes(
     intrinsics: dict[str, IntrinsicsEntry],
     seq_dir: Path,
 ) -> list[dict]:
-    """Build nodes list for map_committed event from all poses."""
     nodes = []
     for i, pose in enumerate(poses):
         K, img_size = _make_k_and_size(pose.img_name, intrinsics)
@@ -170,19 +239,27 @@ def _build_map_committed_nodes(
 
 
 def _build_map_committed_edges(edges: dict[str, list[EdgeEntry]]) -> dict[str, list[list[int]]]:
-    """Build edges dict for map_committed event."""
     result: dict[str, list[list[int]]] = {}
     for edge_type, edge_list in edges.items():
         result[edge_type] = [[e.src, e.dst] for e in edge_list]
     return result
 
 
+# --- Event emitters with time support ---
+
+T_FAST = 0.33
+T_PROCESS = 3.0
+T_ZERO = 0.0
+
+
 def _emit_stage(
-    events: list[dict], demo_step: int, merge_step: int, submap_id: int, title: str,
-    subtitle: str = "", stage_index: int = 0, stage_total: int = 1,
-) -> int:
+    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
+    title: str, subtitle: str = "", stage_index: int = 0, stage_total: int = 1,
+    step_inc: float = T_FAST,
+) -> tuple[int, float]:
     events.append({
         "demo_step": demo_step,
+        "time": time,
         "merge_step": merge_step,
         "submap_id": submap_id,
         "keyframe_id": None,
@@ -196,14 +273,15 @@ def _emit_stage(
         },
         "artifacts": {},
     })
-    return demo_step + 1
+    return demo_step + 1, time + step_inc
 
 
 def _emit_vio_node(
-    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
+    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
     keyframe_id: int, pose: PoseEntry,
     intrinsics: dict[str, IntrinsicsEntry], seq_dir: Path,
-) -> int:
+    step_inc: float = T_FAST,
+) -> tuple[int, float]:
     K, img_size = _make_k_and_size(pose.img_name, intrinsics)
     img_path = seq_dir / Path(pose.img_name).name
     payload = {
@@ -218,6 +296,7 @@ def _emit_vio_node(
             payload["rgb_img_path"] = str(img_path)
     events.append({
         "demo_step": demo_step,
+        "time": time,
         "merge_step": merge_step,
         "submap_id": submap_id,
         "keyframe_id": keyframe_id,
@@ -225,17 +304,19 @@ def _emit_vio_node(
         "payload": payload,
         "artifacts": {},
     })
-    return demo_step + 1
+    return demo_step + 1, time + step_inc
 
 
 def _emit_edge(
-    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
+    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
     edge_type: str, edge: EdgeEntry, poses: list[PoseEntry],
-) -> int:
+    step_inc: float = T_FAST,
+) -> tuple[int, float]:
     pos_a = poses[edge.src].position if edge.src < len(poses) else [0, 0, 0]
     pos_b = poses[edge.dst].position if edge.dst < len(poses) else [0, 0, 0]
     events.append({
         "demo_step": demo_step,
+        "time": time,
         "merge_step": merge_step,
         "submap_id": submap_id,
         "keyframe_id": max(edge.src, edge.dst),
@@ -250,15 +331,35 @@ def _emit_edge(
         },
         "artifacts": {},
     })
-    return demo_step + 1
+    return demo_step + 1, time + step_inc
+
+
+def _emit_dmatrix(
+    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
+    dmatrix: np.ndarray, png_path: Path,
+    step_inc: float = T_PROCESS,
+) -> tuple[int, float]:
+    events.append({
+        "demo_step": demo_step,
+        "time": time,
+        "merge_step": merge_step,
+        "submap_id": submap_id,
+        "keyframe_id": None,
+        "event_type": "dmatrix_computed",
+        "payload": {"shape": list(dmatrix.shape)},
+        "artifacts": {"dmatrix_png": str(png_path)},
+    })
+    return demo_step + 1, time + step_inc
 
 
 def _emit_map_committed(
-    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
+    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
     nodes: list[dict], edges: dict[str, list[list[int]]],
-) -> int:
+    step_inc: float = T_ZERO,
+) -> tuple[int, float]:
     events.append({
         "demo_step": demo_step,
+        "time": time,
         "merge_step": merge_step,
         "submap_id": submap_id,
         "keyframe_id": None,
@@ -270,21 +371,17 @@ def _emit_map_committed(
         },
         "artifacts": {},
     })
-    return demo_step + 1
+    return demo_step + 1, time + step_inc
 
 
 def _emit_metric_edge(
-    events: list[dict], demo_step: int, merge_step: int, submap_id: int,
+    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
     db_node_id: int, query_node_id: int,
-) -> int:
-    """Emit a green cross-submap edge (metric_edge_added).
-
-    submap_id = raw submap's ID so renderer looks up pos_b from
-    _node_positions[(submap_id, query_node_id)] populated by vio_node_observed.
-    pos_a uses _node_positions[(0, db_node_id)] from previous map_committed.
-    """
+    step_inc: float = T_FAST,
+) -> tuple[int, float]:
     events.append({
         "demo_step": demo_step,
+        "time": time,
         "merge_step": merge_step,
         "submap_id": submap_id,
         "keyframe_id": None,
@@ -296,23 +393,17 @@ def _emit_metric_edge(
         },
         "artifacts": {},
     })
-    return demo_step + 1
+    return demo_step + 1, time + step_inc
 
 
 def find_cross_submap_edges(
     prev_edges: dict[str, list[EdgeEntry]],
     curr_edges: dict[str, list[EdgeEntry]],
 ) -> list[tuple[int, int, str]]:
-    """Find new non-consecutive edges (cross-submap) between merge steps.
-
-    Returns list of (ref_node_id, query_node_id, edge_type).
-    Non-consecutive = |src - dst| > 1 (cross-submap loop closures).
-    """
     prev_set: set[tuple[int, int]] = set()
     for et in ("odom", "covis", "trav"):
         for e in prev_edges[et]:
             prev_set.add((e.src, e.dst))
-
     result: list[tuple[int, int, str]] = []
     seen: set[tuple[int, int]] = set()
     for et in ("odom", "covis", "trav"):
@@ -330,20 +421,17 @@ def generate_events(
     results_dir: Path, output_dir: Path,
     raw_data_dir: Path | None = None,
 ) -> list[dict]:
-    """Generate demo_events.jsonl-compatible events from offline merge data.
-
-    Reads merge_* directories in order, produces events for the existing
-    MapMergeRuntimeRerunRenderer. If raw_data_dir is provided, also plots
-    raw submap keyframes (in local coordinate frame) before the merged result.
-    """
     merge_dirs = detect_merge_dirs(results_dir)
     if not merge_dirs:
         return []
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    artifacts_dir = output_dir / "artifacts"
+    artifacts_dir.mkdir(exist_ok=True)
 
     events: list[dict] = []
     demo_step = 0
+    time = 0.0
     prev_data: dict | None = None
 
     for merge_step, merge_dir in enumerate(merge_dirs):
@@ -354,86 +442,102 @@ def generate_events(
         seq_dir = data["seq_dir"]
 
         if merge_step == 0:
-            demo_step = _emit_stage(
-                events, demo_step, 0, 0, "Load Reference Map",
+            demo_step, time = _emit_stage(
+                events, demo_step, time, 0, 0, "Load Reference Map",
                 subtitle="Replay keyframes from reference submap.",
                 stage_index=1, stage_total=8,
             )
             for i, pose in enumerate(poses):
-                demo_step = _emit_vio_node(
-                    events, demo_step, 0, 0, i, pose, intrinsics, seq_dir
+                demo_step, time = _emit_vio_node(
+                    events, demo_step, time, 0, 0, i, pose, intrinsics, seq_dir
                 )
             for edge_type in ("odom", "covis", "trav"):
                 for edge in data["edges"][edge_type]:
-                    demo_step = _emit_edge(
-                        events, demo_step, 0, 0, edge_type, edge, poses
+                    demo_step, time = _emit_edge(
+                        events, demo_step, time, 0, 0, edge_type, edge, poses
                     )
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
-            demo_step = _emit_map_committed(events, demo_step, 0, 0, nodes, edges)
+            demo_step, time = _emit_map_committed(events, demo_step, time, 0, 0, nodes, edges)
         else:
             new_submap_name = merge_dir.name.split("_")[-1]
             submap_id = int(new_submap_name)
 
-            # Stage 2: Load Submap (match online subtitle)
-            demo_step = _emit_stage(
-                events, demo_step, merge_step, submap_id,
+            demo_step, time = _emit_stage(
+                events, demo_step, time, merge_step, submap_id,
                 f"Load Submap {new_submap_name}",
                 subtitle="Replay keyframes and odom/covis/trav graph edges for the query submap.",
                 stage_index=2, stage_total=8,
             )
 
-            # Plot RAW submap keyframes + ALL raw edges (local frame, RAW poses)
             raw_data = None
             if raw_data_dir is not None:
                 raw_dir = raw_data_dir / new_submap_name
                 if raw_dir.exists():
                     raw_data = _load_merge_data(raw_dir)
                     for i, raw_pose in enumerate(raw_data["poses"]):
-                        demo_step = _emit_vio_node(
-                            events, demo_step, merge_step, submap_id,
+                        demo_step, time = _emit_vio_node(
+                            events, demo_step, time, merge_step, submap_id,
                             i, raw_pose, raw_data["intrinsics"], raw_data["seq_dir"]
                         )
-                    # ALL raw submap edges (odom/covis/trav), RAW poses
                     for edge_type in ("odom", "covis", "trav"):
                         for edge in raw_data["edges"][edge_type]:
-                            demo_step = _emit_edge(
-                                events, demo_step, merge_step, submap_id,
+                            demo_step, time = _emit_edge(
+                                events, demo_step, time, merge_step, submap_id,
                                 edge_type, edge, raw_data["poses"]
                             )
 
-            # Green cross-submap edges (BEFORE PGO, connecting final map to raw submap)
+            # D-matrix
+            if prev_data and prev_data.get("descriptors") and data.get("descriptors"):
+                query_descs = get_new_descriptors(
+                    prev_data["descriptors"], data["descriptors"]
+                )
+                if query_descs:
+                    dmatrix = compute_dmatrix(prev_data["descriptors"], query_descs)
+                    png_path = artifacts_dir / f"dmatrix_merge_{merge_step}.png"
+                    plot_dmatrix(dmatrix, png_path, threshold=0.5)
+                    demo_step, time = _emit_stage(
+                        events, demo_step, time, merge_step, submap_id,
+                        f"Compute Difference Matrix - Reference Map-Submap {new_submap_name}",
+                        subtitle=f"Cosine similarity {dmatrix.shape[0]}x{dmatrix.shape[1]}.",
+                        stage_index=3, stage_total=8,
+                        step_inc=T_PROCESS,
+                    )
+                    demo_step, time = _emit_dmatrix(
+                        events, demo_step, time, merge_step, submap_id, dmatrix, png_path
+                    )
+
+            # Green cross-submap edges
             if prev_data and raw_data is not None:
                 cross_edges = find_cross_submap_edges(prev_data["edges"], data["edges"])
                 prev_pose_count = len(prev_data["poses"])
                 for ref_node, query_node, _et in cross_edges:
                     query_local = query_node - prev_pose_count
                     if 0 <= query_local < len(raw_data["poses"]):
-                        demo_step = _emit_metric_edge(
-                            events, demo_step, merge_step, submap_id,
+                        demo_step, time = _emit_metric_edge(
+                            events, demo_step, time, merge_step, submap_id,
                             ref_node, query_local
                         )
 
-            # Stage 7: Pose Graph Optimization (match online title)
-            demo_step = _emit_stage(
-                events, demo_step, merge_step, submap_id,
+            demo_step, time = _emit_stage(
+                events, demo_step, time, merge_step, submap_id,
                 f"Pose Graph Optimization: Reference Map-Submap {new_submap_name}",
                 subtitle="Optimize the merged pose graph.",
                 stage_index=7, stage_total=8,
+                step_inc=T_PROCESS,
             )
 
-            # Stage 8: Finish Map Merging (per merge step, match online)
-            demo_step = _emit_stage(
-                events, demo_step, merge_step, submap_id,
+            demo_step, time = _emit_stage(
+                events, demo_step, time, merge_step, submap_id,
                 "Finish Map Merging",
                 subtitle="Merge the optimized query submap into the reference map and update graph edges.",
                 stage_index=8, stage_total=8,
+                step_inc=T_PROCESS,
             )
 
-            # map_committed (Clears cameras/edges, shows merged cameras with PGO poses)
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
             edges = _build_map_committed_edges(data["edges"])
-            demo_step = _emit_map_committed(events, demo_step, merge_step, submap_id, nodes, edges)
+            demo_step, time = _emit_map_committed(events, demo_step, time, merge_step, submap_id, nodes, edges)
 
         prev_data = data
 
@@ -441,7 +545,6 @@ def generate_events(
 
 
 def write_events(events: list[dict], event_dir: Path) -> None:
-    """Write events as demo_events.jsonl in event_dir."""
     event_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = event_dir / "demo_events.jsonl"
     with jsonl_path.open("w", encoding="utf-8") as f:
@@ -460,7 +563,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--raw-data-dir", type=Path, default=None,
                         help="Path to s00000_aria_data_390/ directory with raw submap data")
     parser.add_argument("--image-scale", type=float, default=1.0,
-                        help="Image resize factor (e.g., 0.5 for half resolution)")
+                        help="Image resize factor (e.g., 0.33 for 1/3 resolution)")
     parser.add_argument("--render", action="store_true",
                         help="Render .rrd after generating events")
     parser.add_argument("--rerun-output", type=Path, default=None,
