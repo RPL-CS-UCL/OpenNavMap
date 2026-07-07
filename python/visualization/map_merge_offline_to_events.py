@@ -444,7 +444,7 @@ def generate_events(
                         demo_step, time = _emit_metric_edge(
                             events, demo_step, time, merge_step, submap_id,
                             ref_node, query_local,
-                            step_inc=T_ZERO,
+                            step_inc=0.3,
                         )
 
             demo_step, time = _emit_stage(
