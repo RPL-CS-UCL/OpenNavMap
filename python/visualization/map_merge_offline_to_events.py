@@ -202,7 +202,7 @@ def _build_map_committed_edges(edges: dict[str, list[EdgeEntry]]) -> dict[str, l
 
 # --- Event emitters with time support ---
 
-T_FAST = 0.33
+T_FAST = 0.1
 T_PROCESS = 3.0
 T_ZERO = 0.0
 T_EDGE = 0.0  # edges don't advance time (appear at keyframe time via build_time_map)
@@ -382,6 +382,7 @@ def generate_events(
                 events, demo_step, time, 0, 0, "Load Reference Map",
                 subtitle="Replay keyframes from reference submap.",
                 stage_index=1, stage_total=8,
+                step_inc=T_ZERO,
             )
             for i, pose in enumerate(poses):
                 demo_step, time = _emit_vio_node(
@@ -404,6 +405,7 @@ def generate_events(
                 f"Load Submap {new_submap_name}",
                 subtitle="Replay keyframes and odom/covis/trav graph edges for the query submap.",
                 stage_index=2, stage_total=8,
+                step_inc=T_ZERO,
             )
 
             raw_data = None
@@ -429,7 +431,7 @@ def generate_events(
                 "Conduct Visual Localization and Create Loop Factors",
                 subtitle=f"Match query submap {new_submap_name} keyframes to reference map.",
                 stage_index=3, stage_total=8,
-                step_inc=T_PROCESS,
+                step_inc=T_ZERO,
             )
 
             # Green cross-submap edges (loop factors)
@@ -441,7 +443,8 @@ def generate_events(
                     if 0 <= query_local < len(raw_data["poses"]):
                         demo_step, time = _emit_metric_edge(
                             events, demo_step, time, merge_step, submap_id,
-                            ref_node, query_local
+                            ref_node, query_local,
+                            step_inc=T_ZERO,
                         )
 
             demo_step, time = _emit_stage(
@@ -449,7 +452,7 @@ def generate_events(
                 f"Pose Graph Optimization: Reference Map-Submap {new_submap_name}",
                 subtitle="Optimize the merged pose graph.",
                 stage_index=7, stage_total=8,
-                step_inc=T_PROCESS,
+                step_inc=T_ZERO,
             )
 
             demo_step, time = _emit_stage(
@@ -457,7 +460,7 @@ def generate_events(
                 "Finish Map Merging",
                 subtitle="Merge the optimized query submap into the reference map and update graph edges.",
                 stage_index=8, stage_total=8,
-                step_inc=T_PROCESS,
+                step_inc=T_ZERO,
             )
 
             nodes = _build_map_committed_nodes(poses, intrinsics, seq_dir)
