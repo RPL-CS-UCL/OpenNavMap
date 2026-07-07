@@ -5,34 +5,6 @@ from pathlib import Path
 from dataclasses import dataclass
 import numpy as np
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-try:
-    from utils.utils_setting_color_font import (
-        setting_font,
-        acquire_color_palette,
-        acquire_marker,
-    )
-except ImportError:
-    def setting_font(fontsize=13, titlesize=13, legend_fontsize=13, font_family="Palatino"):
-        plt.rcParams["font.family"] = "serif"
-        plt.rcParams["font.serif"] = ["DejaVu Serif"]
-        plt.rcParams["font.size"] = fontsize
-        plt.rcParams["axes.titlesize"] = titlesize
-        plt.rcParams["legend.fontsize"] = legend_fontsize
-        plt.rcParams["text.usetex"] = False
-
-    def acquire_color_palette():
-        palette = np.zeros((60, 3), dtype=np.float32)
-        palette[0] = [0, 152 / 255, 83 / 255]
-        palette[1] = [228 / 255, 53 / 255, 39 / 255]
-        return palette
-
-    def acquire_marker():
-        return ['o', 's', '^', 'D', 'X', '*', '+']
-
 import argparse
 import json
 from typing import Optional, Sequence
@@ -120,18 +92,6 @@ def load_intrinsics(intrinsics_file: Path) -> dict[str, IntrinsicsEntry]:
     return result
 
 
-def load_descriptors(desc_file: Path) -> dict[str, np.ndarray]:
-    result: dict[str, np.ndarray] = {}
-    for line in desc_file.read_text().strip().splitlines():
-        parts = line.strip().split()
-        if len(parts) < 2:
-            continue
-        img_name = parts[0]
-        desc = np.array([float(x) for x in parts[1:]], dtype=np.float32)
-        result[img_name] = desc
-    return result
-
-
 def identify_new_nodes(
     prev_img_names: list[str], curr_img_names: list[str]
 ) -> list[int]:
@@ -197,11 +157,6 @@ def _load_merge_data(merge_dir: Path) -> dict:
             "trav": load_edges(merge_dir / "edges_trav.txt"),
         },
         "intrinsics": load_intrinsics(merge_dir / "intrinsics.txt"),
-        "descriptors": (
-            load_descriptors(merge_dir / "database_descriptors.txt")
-            if (merge_dir / "database_descriptors.txt").exists()
-            else {}
-        ),
         "seq_dir": merge_dir / "seq",
     }
 
@@ -247,9 +202,10 @@ def _build_map_committed_edges(edges: dict[str, list[EdgeEntry]]) -> dict[str, l
 
 # --- Event emitters with time support ---
 
-T_FAST = 0.33
+T_FAST = 0.5
 T_PROCESS = 3.0
 T_ZERO = 0.0
+T_EDGE = 0.0  # edges don't advance time (appear at keyframe time via build_time_map)
 
 
 def _emit_stage(
@@ -310,7 +266,7 @@ def _emit_vio_node(
 def _emit_edge(
     events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
     edge_type: str, edge: EdgeEntry, poses: list[PoseEntry],
-    step_inc: float = T_FAST,
+    step_inc: float = T_EDGE,
 ) -> tuple[int, float]:
     pos_a = poses[edge.src].position if edge.src < len(poses) else [0, 0, 0]
     pos_b = poses[edge.dst].position if edge.dst < len(poses) else [0, 0, 0]
@@ -330,24 +286,6 @@ def _emit_edge(
             "weight": edge.weight,
         },
         "artifacts": {},
-    })
-    return demo_step + 1, time + step_inc
-
-
-def _emit_dmatrix(
-    events: list[dict], demo_step: int, time: float, merge_step: int, submap_id: int,
-    dmatrix: np.ndarray, png_path: Path,
-    step_inc: float = T_PROCESS,
-) -> tuple[int, float]:
-    events.append({
-        "demo_step": demo_step,
-        "time": time,
-        "merge_step": merge_step,
-        "submap_id": submap_id,
-        "keyframe_id": None,
-        "event_type": "dmatrix_computed",
-        "payload": {"shape": list(dmatrix.shape)},
-        "artifacts": {"dmatrix_png": str(png_path)},
     })
     return demo_step + 1, time + step_inc
 
@@ -426,8 +364,6 @@ def generate_events(
         return []
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    artifacts_dir = output_dir / "artifacts"
-    artifacts_dir.mkdir(exist_ok=True)
 
     events: list[dict] = []
     demo_step = 0
@@ -486,26 +422,6 @@ def generate_events(
                                 events, demo_step, time, merge_step, submap_id,
                                 edge_type, edge, raw_data["poses"]
                             )
-
-            # D-matrix
-            if prev_data and prev_data.get("descriptors") and data.get("descriptors"):
-                query_descs = get_new_descriptors(
-                    prev_data["descriptors"], data["descriptors"]
-                )
-                if query_descs:
-                    dmatrix = compute_dmatrix(prev_data["descriptors"], query_descs)
-                    png_path = artifacts_dir / f"dmatrix_merge_{merge_step}.png"
-                    plot_dmatrix(dmatrix, png_path, threshold=0.5)
-                    demo_step, time = _emit_stage(
-                        events, demo_step, time, merge_step, submap_id,
-                        f"Compute Difference Matrix - Reference Map-Submap {new_submap_name}",
-                        subtitle=f"Cosine similarity {dmatrix.shape[0]}x{dmatrix.shape[1]}.",
-                        stage_index=3, stage_total=8,
-                        step_inc=T_PROCESS,
-                    )
-                    demo_step, time = _emit_dmatrix(
-                        events, demo_step, time, merge_step, submap_id, dmatrix, png_path
-                    )
 
             # Green cross-submap edges
             if prev_data and raw_data is not None:

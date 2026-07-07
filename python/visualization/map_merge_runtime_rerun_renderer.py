@@ -81,7 +81,6 @@ class MapMergeRuntimeRerunRenderer:
         rr.init("opennavmap_runtime_map_merge", spawn=False)
         self._send_blueprint(rr, rrb)
         self._log_world_axes(rr)
-        self._log_grid(rr)
         events = load_runtime_events(self.event_dir)
         self.build_time_map(events)
         for event in events:
@@ -157,20 +156,6 @@ class MapMergeRuntimeRerunRenderer:
             ),
         )
 
-    def _log_grid(self, rr) -> None:
-        size = 100.0
-        step = 10.0
-        color = np.asarray([[60, 60, 60]], dtype=np.uint8)
-        lines = []
-        for x in np.arange(-size, size + step, step):
-            lines.append([[x, 0.0, -size], [x, 0.0, size]])
-        for z in np.arange(-size, size + step, step):
-            lines.append([[-size, 0.0, z], [size, 0.0, z]])
-        rr.log(
-            "world/grid",
-            rr.LineStrips3D(strips=lines, colors=color, radii=0.01),
-        )
-
     def log_event(self, rr, event: Dict[str, Any]) -> None:
         event_type = event.get("event_type")
         if event_type not in self.SUPPORTED_EVENTS:
@@ -191,22 +176,13 @@ class MapMergeRuntimeRerunRenderer:
 
     def _set_time(self, rr, event: Dict[str, Any]) -> None:
         event_type = event.get("event_type")
-        demo_step = int(event.get("demo_step", 0))
-        time_val = float(event.get("time", float(demo_step)))
+        time_val = float(event.get("time", 0.0))
         if event_type in {"odom_edge_observed", "covis_edge_observed", "trav_edge_observed"}:
             sid = event.get("submap_id")
             kf_id = event.get("keyframe_id")
             if sid is not None and kf_id is not None:
-                demo_step = self._node_demo_step.get((int(sid), int(kf_id)), demo_step)
                 time_val = self._node_time.get((int(sid), int(kf_id)), time_val)
-        rr.set_time_sequence("demo_step", demo_step)
         rr.set_time_seconds("time", time_val)
-        merge_step = event.get("merge_step")
-        if merge_step is not None:
-            rr.set_time_sequence("merge_step", int(merge_step))
-        keyframe_id = event.get("keyframe_id")
-        if keyframe_id is not None:
-            rr.set_time_sequence("keyframe_id", int(keyframe_id))
 
     def _log_stage(self, rr, event: Dict[str, Any]) -> None:
         title = event.get("payload", {}).get("title", "")
