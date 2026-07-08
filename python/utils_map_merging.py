@@ -233,6 +233,14 @@ def parse_arguments():
 	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")
+	parser.add_argument("--rerun-viz", action="store_true", help="Record map merge Rerun visualization")
+	parser.add_argument("--rerun-output", type=str, default=None, help="Output .rrd path for Rerun visualization")
+	parser.add_argument("--rerun-viz-dir", type=str, default=None, help="Output directory for runtime Rerun visualization events")
+	parser.add_argument("--rerun-image-format", type=str, default="jpg", choices=["jpg", "png"])
+	parser.add_argument("--rerun-jpeg-quality", type=int, default=85)
+	parser.add_argument("--rerun-dmatrix-format", type=str, default="png", choices=["png"])
+	parser.add_argument("--rerun-max-match-images-per-step", type=int, default=200)
+	parser.add_argument("--rerun-axis-scale", type=str, default="auto", choices=["auto"])
 	args = parser.parse_args()
 
 	return args

@@ -7,6 +7,9 @@
 #
 # Environment overrides:
 #   DATASET_ROOT, OUTPUT_ROOT, DATA_DIR, TRAJ_EVAL_ROOT, EVAL_CONFIG
+#   RERUN_VIZ=1 to enable Rerun visualization recording
+#   RERUN_OUTPUT, RERUN_IMAGE_FORMAT, RERUN_JPEG_QUALITY,
+#   RERUN_DMATRIX_FORMAT, RERUN_AXIS_SCALE, RERUN_VIZ_DIR
 
 set -euo pipefail
 
@@ -82,6 +85,22 @@ if [[ -n "$MAX_SUBMAPS" ]]; then
     PIPELINE_ARGS+=(--max_submaps "$MAX_SUBMAPS")
 fi
 PIPELINE_ARGS+=("${ABLATION_FLAGS[@]}")
+
+# Rerun visualization flags (optional, set RERUN_VIZ=1 to enable)
+if [[ "${RERUN_VIZ:-0}" == "1" ]]; then
+    RERUN_OUTPUT_PATH="${RERUN_OUTPUT:-${RESULT_DIR}/map_merge_process.rrd}"
+    PIPELINE_ARGS+=(
+        --rerun-viz
+        --rerun-output "$RERUN_OUTPUT_PATH"
+        --rerun-image-format "${RERUN_IMAGE_FORMAT:-jpg}"
+        --rerun-jpeg-quality "${RERUN_JPEG_QUALITY:-85}"
+        --rerun-dmatrix-format "${RERUN_DMATRIX_FORMAT:-png}"
+        --rerun-axis-scale "${RERUN_AXIS_SCALE:-auto}"
+    )
+    if [[ -n "${RERUN_VIZ_DIR:-}" ]]; then
+        PIPELINE_ARGS+=(--rerun-viz-dir "$RERUN_VIZ_DIR")
+    fi
+fi
 
 echo "=== Step 1: Map merging ==="
 "$PYTHON_OPENNAVMAP" "${PROJECT_PATH}/python/map_merge_pipeline.py" "${PIPELINE_ARGS[@]}"
