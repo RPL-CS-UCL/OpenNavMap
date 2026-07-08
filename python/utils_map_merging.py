@@ -203,8 +203,20 @@ def save_vis_kf_replacement(log_dir, db_id, query_id, db_img, query_img, prob):
 def parse_arguments():
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-	parser.add_argument("--input_submap_path", type=str, default=None, nargs="+", help="Path to input submaps")
-	parser.add_argument("--output_map_path", type=str, default=None, help="Path to output final map")
+	parser.add_argument("--dataset_root", type=str, required=True,
+						help="Dataset root directory containing submap data and orders file")
+	parser.add_argument("--output_root", type=str, default=None,
+						help="Output root directory for merged results (default: same as dataset_root)")
+	parser.add_argument("--scene", type=str, required=True,
+						help="Scene name, e.g. s00000")
+	parser.add_argument("--data_dir", type=str, default=None,
+						help="Submap data directory name under dataset-root (default: <scene>_aria_data_390)")
+	parser.add_argument("--order_index", type=int, required=True,
+						help="Order index in orders file (0=in, 1=r0, ...)")
+	parser.add_argument("--method", type=str, required=True,
+						help="Method name for result directory naming, e.g. spgo_cc_seqmatch_master")
+	parser.add_argument("--max_submaps", type=int, default=None,
+						help="Maximum number of submaps to merge (default: all)")
 	parser.add_argument("--image_size", type=int, default=None, nargs="+",
 										help="Resizing shape for images (WxH). If a single int is passed, set the"
 											 "longest edge of all images to this value, while keeping aspect ratio")
@@ -224,4 +236,3 @@ def parse_arguments():
 	args = parser.parse_args()
 
 	return args
-

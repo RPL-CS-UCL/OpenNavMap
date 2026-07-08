@@ -34,6 +34,8 @@ init(autoreset=True)
 # This is to be able to use matplotlib also without a GUI
 if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
+ORDER_TAGS = ["in", "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]
+
 def update_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
 	if key not in edge_history:
 		assert db_row is not None or query_row is not None, "db_row and query_row must be provided"
@@ -87,15 +89,6 @@ class MergePipeline:
 		)
 		self.pose_estimator.verbose = False
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
-
-	def read_map_from_file(self):
-		for submap_path in self.args.input_submap_path:
-			submap_id = len(self.submaps)
-			submap = MapManager(pathlib.Path(submap_path), submap_id)
-			submap.load_graphs(merger.graph_configs)
-			self.submaps.append(submap)
-
-			logging.info(f"Loaded {submap.map_id} from {submap_path} with info: {submap}")
 
 	def create_pose_graph_from_map(
 		self, 
@@ -160,6 +153,203 @@ class MergePipeline:
 		submap_a.merge_graphs_from(submap_b)
 
 		logging.warning(f"Merged map info - {submap_a}")
+
+	def merge_single_submap(
+		self,
+		final_map: MapManager,
+		cur_submap: MapManager,
+		args,
+	) -> None:
+		"""Merge a single submap into final_map in-place.
+
+		Extracted from perform_submap_merging() loop body.
+		self.log_dir must be set by caller to the desired output directory.
+		"""
+		self.id_offset = final_map.get_max_node_id() + 1
+
+		if not final_map.is_empty:
+			edge_history = dict()
+			edges_nodeAB_coarse_covis, D_matrix = perform_global_loc(
+				self,
+				final_map.covis,
+				cur_submap.covis,
+				cur_submap.map_id,
+				edge_history
+			)
+			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query, lloc_history = perform_local_loc(
+				edges_nodeAB_coarse_covis,
+				self,
+				final_map.covis,
+				cur_submap.covis,
+				cur_submap.map_id,
+				edge_history
+			)
+
+			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
+			pose_graph, subgraph_keys = self.create_pose_graph_from_map(
+				final_map.odom,
+				cur_submap.odom,
+				edges_nodeAB_refine_covis
+			)
+			g2o_path = str(self.log_dir/"preds/initial_pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+
+			logging.info(f"PGO: initial error: {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
+			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
+				pose_graph.get_factor_graph(),
+				pose_graph.get_initial_estimate(),
+				verbose=False,
+				robust_kernel=True
+			)
+			logging.info(f"PGO: final error: {pose_graph.get_factor_graph().error(result_pgo):.3f}")
+
+			if args.viz:
+				save_dir = str(self.log_dir / "preds")
+				db_query_rows = [
+					(value['db_row'], value['query_row']) for value in edge_history.values()
+				]
+				self.vpr_match_model.viz_diff_matrix(
+					os.path.join(save_dir, 'D_matrix_vpr.jpg'), D_matrix, db_query_rows
+				)
+				db_query_rows = [
+					(value['db_row'], value['query_row']) for value in edge_history.values()
+					if 'removed_by_gv' not in value['action']
+				]
+				self.vpr_match_model.viz_diff_matrix(
+					os.path.join(save_dir, 'D_matrix_gv.jpg'), D_matrix, db_query_rows
+				)
+				precision_list, recall_list = save_vis_edge_history(
+					save_dir, final_map.covis, cur_submap.covis, edge_history
+				)
+				pose_graph.plot_pose_graph(
+					save_dir, pose_graph.get_factor_graph(),
+					[pose_graph.get_initial_estimate(), result_pgo],
+					['Before PGO', 'After PGO'], mode='2d',
+					subgraph_keys=subgraph_keys
+				)
+
+				total_num_edges = len(edge_history)
+				num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
+				for key, value in edge_history.items():
+					db_idx, query_idx = int(key[0]), int(key[1])
+					action = value['action'] if isinstance(value, dict) else value
+					if 'added_by_vpr' in action:
+						num_edge_added_by_vpr += 1
+					elif 'removed_by_gv' in action:
+						num_edge_removed_by_gv += 1
+					elif 'removed_by_ccm' in action:
+						num_edge_removed_by_ccm += 1
+
+				edge_history_path = str(self.log_dir / "preds" / "edge_history.txt")
+				with open(edge_history_path, 'w') as f:
+					f.write(f"Number of edges added by VPR: {total_num_edges}\n")
+					f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
+					f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
+					f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
+					f.write(f"Precision: " + ",".join([f"{precision:.2f}" for precision in precision_list]) + "\n")
+					f.write(f"Recall: " + ",".join([f"{recall:.2f}" for recall in recall_list]) + "\n")
+					for key, value in edge_history.items():
+						db_idx, query_idx = key[0], key[1]
+						action = value['action']
+						f.write(f"{db_idx},{query_idx},{action}\n")
+
+				lloc_history_path = str(self.log_dir / "preds" / "lloc_history.txt")
+				with open(lloc_history_path, 'w') as f:
+					sorted_lloc_history = sorted(
+						lloc_history.items(),
+						key=lambda item: item[1]['conf'],
+						reverse=True
+					)
+					for key, value in sorted_lloc_history:
+						db_idx, query_idx = key[0], key[1]
+						f.write(f"{db_idx},{query_idx},Conf: {value['conf']:.3f} - Error: {value['trans_err']:.3f} [m] and {value['rot_err']:.3f} [deg]\n")
+
+			for key in result_pgo.keys():
+				update_estimate = result_pgo.atPose3(key)
+				pose_graph.add_init_estimate(key, update_estimate)
+			g2o_path = str(self.log_dir / "preds" / "refine_pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+
+			cull_keyframe = args.use_iqa or args.use_ig or args.use_td
+			if cull_keyframe:
+				print(Fore.GREEN + "Performing keyframe culling..." + Fore.RESET)
+				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = perform_keyframe_culling(
+					self, args, cur_submap, lm_gain_query, lm_gain_db
+				)
+
+				info_path = self.log_dir / "preds" / "cull_node_info.txt"
+				info_path.parent.mkdir(parents=True, exist_ok=True)
+				with open(info_path, 'w') as f:
+					f.write(f"# Ablation Study Configuration:\n")
+					f.write(f"# IQA: {args.use_iqa}\n")
+					f.write(f"# IG: {args.use_ig}\n")
+					f.write(f"# TD: {args.use_td}\n")
+					f.write("node_id,type,replaced_by,prob,method,prob_str\n")
+					for record in nodes_to_cull_info:
+						node_id = record['node_id']
+						type_ = record['type']
+						replaced_by = record.get('replaced_by', "")
+						prob = record['prob']
+						method = record['method']
+						prob_str = record.get('prob_str', "")
+						f.write(f"{node_id},{type_},{replaced_by},{prob:.3f},{method},{prob_str}\n")
+
+				info_path = self.log_dir / "preds" / "not_cull_node_info.txt"
+				info_path.parent.mkdir(parents=True, exist_ok=True)
+				with open(info_path, 'w') as f:
+					f.write(f"# Ablation Study Configuration:\n")
+					f.write(f"# IQA: {args.use_iqa}\n")
+					f.write(f"# IG: {args.use_ig}\n")
+					f.write(f"# TD: {args.use_td}\n")
+					f.write("node_id,type,compared_to,prob,method,prob_str\n")
+					for record in nodes_to_not_cull_info:
+						node_id = record['node_id']
+						type_ = record['type']
+						compared_to = record.get('compared_to', "")
+						prob = record['prob']
+						method = record['method']
+						prob_str = record.get('prob_str', "")
+						f.write(f"{node_id},{type_},{compared_to},{prob:.3f},{method},{prob_str}\n")
+			else:
+				nodes_to_cull = []
+
+			self.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
+			final_map.covis.remove_node_list(nodes_to_cull)
+			final_map.covis.remove_invalid_edges(nodes_to_cull)
+			final_map.covis.rm_sensor_data(nodes_to_cull)
+
+			weight_func1 = (lambda edge: edge[4])
+			weight_func2 = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans))
+			for dst_graph_type, src_edges, weight_func in [
+				("covis", edges_nodeAB_refine_covis, weight_func1),
+				("odom", edges_nodeAB_refine_covis, weight_func2),
+				("trav", edges_nodeAB_refine_covis, weight_func2)
+			]:
+				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
+				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
+
+			logging.info(f"Final map info:\n{final_map}")
+		else:
+			pose_graph, _ = self.create_pose_graph_from_map(
+				final_map.odom,
+				cur_submap.odom,
+				[]
+			)
+			g2o_path = str(self.log_dir / "preds" / "initial_pose_graph.g2o")
+			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
+
+			if args.viz:
+				save_dir = str(self.log_dir / "preds")
+				save_vis_edge_history(
+					save_dir, final_map.covis, cur_submap.covis, dict()
+				)
+				pose_graph.plot_pose_graph(
+					save_dir, pose_graph.get_factor_graph(),
+					[pose_graph.get_initial_estimate(), pose_graph.get_initial_estimate()],
+					['Before PGO', 'Before PGO'], mode='2d'
+				)
+
+			self.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
 		
 def compute_lm_pairwise(
 	db_nodes, 
@@ -610,229 +800,73 @@ def perform_keyframe_culling(
 
 	return nodes_query_to_cull + nodes_db_to_cull, nodes_to_cull_info, nodes_to_not_cull_info
 
-def perform_submap_merging(merger: MergePipeline, args):
-	"""Main loop for processing submap merging"""
-	assert len(merger.submaps) > 0, "No submaps loaded."
-	logging.info(f"Processing {len(merger.submaps)} submaps.")
-	
-	# Initialize the final submap
-	final_map = MapManager(merger.log_dir)
+def run_incremental_merge(merger: MergePipeline, args):
+	"""Read scene order and merge submaps incrementally.
+
+	Models must be initialized before calling.
+	"""
+	dataset_root = pathlib.Path(args.dataset_root)
+	output_root = pathlib.Path(args.output_root) if args.output_root else dataset_root
+
+	orders_file = dataset_root / f"{args.scene}_orders.txt"
+	with open(orders_file) as f:
+		lines = f.readlines()
+	if args.order_index >= len(lines):
+		raise ValueError(f"order_index {args.order_index} out of range (0-{len(lines)-1})")
+	submap_ids = lines[args.order_index].strip().split()
+	order_tag = ORDER_TAGS[args.order_index] if args.order_index < len(ORDER_TAGS) else str(args.order_index)
+	if args.max_submaps:
+		submap_ids = submap_ids[:args.max_submaps]
+
+	suffix = ""
+	if args.use_iqa: suffix += "iqa"
+	if args.use_ig:  suffix += "ig"
+	if args.use_td:  suffix += "td"
+	if suffix: suffix = f"_{suffix}"
+
+	result_name = f"{args.scene}_results_{order_tag}_{args.method}{suffix}"
+	result_dir = output_root / result_name
+	result_dir.mkdir(parents=True, exist_ok=True)
+	logging.info(f"Result directory: {result_dir}")
+	logging.info(f"Submaps to merge ({len(submap_ids)}): {submap_ids}")
+
+	final_map = MapManager(result_dir)
 	final_map.init_graphs(merger.graph_configs)
 
-	# Incrementally merge each submap to the final map, only care about the first two submaps
-	for cur_submap in merger.submaps:
-		# The offset of node.id in cur_submap 
-		merger.id_offset = final_map.get_max_node_id() + 1
+	data_dir_name = args.data_dir or f"{args.scene}_aria_data_390"
+	submap_base = dataset_root / data_dir_name
+	base_name = "merge"
+	for i, sid in enumerate(submap_ids):
+		submap_path = submap_base / sid
+		if not submap_path.exists():
+			logging.warning(f"Submap directory not found: {submap_path}, skipping.")
+			break
 
-		if not final_map.is_empty:
-			edge_history = dict()
-			# Identify coarse covisibility relationship 
-			edges_nodeAB_coarse_covis, D_matrix = perform_global_loc(
-				merger,
-				final_map.covis, 
-				cur_submap.covis, 
-				cur_submap.map_id,
-				edge_history
-			)
-			# Identify strong covisibility relationship 
-			edges_nodeAB_refine_covis, lm_gain_db, lm_gain_query, lloc_history = perform_local_loc(
-				edges_nodeAB_coarse_covis,
-				merger, 
-				final_map.covis,
-				cur_submap.covis, 
-				cur_submap.map_id,
-				edge_history
-			)
+		new_name = f"{base_name}_{sid}"
+		output_dir = result_dir / new_name
+		setup_log_environment(output_dir, args)
+		merger.log_dir = output_dir
+		final_map.map_root = output_dir
+		for graph in final_map.graphs.values():
+			graph.map_root = output_dir
 
-			##### Perform Pose Graph Optimization #####
-			# Initialize the pose graph
-			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
-			pose_graph, subgraph_keys = merger.create_pose_graph_from_map(
-				final_map.odom,
-				cur_submap.odom, 
-				edges_nodeAB_refine_covis
-			)	
-			g2o_path = str(merger.log_dir/"preds/initial_pose_graph.g2o")
-			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
-			
-			# Optimize the pose graph
-			logging.info(f"PGO: initial error: {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
-			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
-				pose_graph.get_factor_graph(), 
-				pose_graph.get_initial_estimate(), 
-				verbose=False,
-				robust_kernel=True
-			)
-			logging.info(f"PGO: final error: {pose_graph.get_factor_graph().error(result_pgo):.3f}")
+		logging.info(f"--- Merging submap {i}: {sid} ---")
+		cur_submap = MapManager(submap_path, i)
+		cur_submap.load_graphs(merger.graph_configs)
 
-			##### Visualization #####
-			if args.viz:
-				save_dir = str(merger.log_dir / "preds")
-                ### Visualize the difference matrix (with/without GV)
-				db_query_rows = [
-					(value['db_row'], value['query_row']) for value in edge_history.values()
-				]
-				merger.vpr_match_model.viz_diff_matrix(
-					os.path.join(save_dir, 'D_matrix_vpr.jpg'), D_matrix, db_query_rows
-				)
-				db_query_rows = [
-					(value['db_row'], value['query_row']) for value in edge_history.values()
-					if 'removed_by_gv' not in value['action']
-				]
-				merger.vpr_match_model.viz_diff_matrix(
-					os.path.join(save_dir, 'D_matrix_gv.jpg'), D_matrix, db_query_rows
-				)
-				### Visualize the edge connections (with/without GV/CCM)
-				precision_list, recall_list = save_vis_edge_history(
-					save_dir, final_map.covis, cur_submap.covis, edge_history
-				)
-				### Visualize the optimized pose graph
-				pose_graph.plot_pose_graph(
-					save_dir, pose_graph.get_factor_graph(), 
-					[pose_graph.get_initial_estimate(), result_pgo],
-					['Before PGO', 'After PGO'], mode='2d', 
-					subgraph_keys=subgraph_keys
-				)
+		merger.merge_single_submap(final_map, cur_submap, args)
 
-				total_num_edges = len(edge_history)
-				num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
-				for key, value in edge_history.items():
-					db_idx, query_idx = int(key[0]), int(key[1])
-					action = value['action'] if isinstance(value, dict) else value
-					if 'added_by_vpr' in action:
-						num_edge_added_by_vpr += 1
-					elif 'removed_by_gv' in action:
-						num_edge_removed_by_gv += 1
-					elif 'removed_by_ccm' in action:
-						num_edge_removed_by_ccm += 1
-				
-				edge_history_path = str(merger.log_dir / "preds" / "edge_history.txt")
-				with open(edge_history_path, 'w') as f:
-					f.write(f"Number of edges added by VPR: {total_num_edges}\n")
-					f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
-					f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
-					f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
-					f.write(f"Precision: " + ",".join([f"{precision:.2f}" for precision in precision_list]) + "\n")
-					f.write(f"Recall: " + ",".join([f"{recall:.2f}" for recall in recall_list]) + "\n")
-					for key, value in edge_history.items():
-						db_idx, query_idx = key[0], key[1]
-						action = value['action']
-						f.write(f"{db_idx},{query_idx},{action}\n")
-
-				lloc_history_path = str(merger.log_dir / "preds" / "lloc_history.txt")
-				with open(lloc_history_path, 'w') as f:
-					sorted_lloc_history = sorted(
-						lloc_history.items(), 
-						key=lambda item: item[1]['conf'],
-						reverse=True
-					)
-					for key, value in sorted_lloc_history:
-						db_idx, query_idx = key[0], key[1]
-						f.write(f"{db_idx},{query_idx},Conf: {value['conf']:.3f} - Error: {value['trans_err']:.3f} [m] and {value['rot_err']:.3f} [deg]\n")
-			########################
-
-			for key in result_pgo.keys():
-				update_estimate = result_pgo.atPose3(key)
-				pose_graph.add_init_estimate(key, update_estimate)
-			g2o_path = str(merger.log_dir / "preds" / "refine_pose_graph.g2o")
-			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
-			
-			##### Perform keyframe culling #####
-			# Culling nodes in covis graph only, nodes in odom and trav graph are kept
-			# The id of culled nodes will not be replaced by new nodes to avoid conflict with odom and trav graph
-			cull_keyframe = args.use_iqa or args.use_ig or args.use_td
-			if cull_keyframe:
-				print(Fore.GREEN + "Performing keyframe culling..." + Fore.RESET)
-				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = perform_keyframe_culling(
-					merger, args, cur_submap, lm_gain_query, lm_gain_db
-				)
-
-				# Write cull node information to log file
-				info_path = merger.log_dir / "preds" / "cull_node_info.txt"
-				info_path.parent.mkdir(parents=True, exist_ok=True)
-				with open(info_path, 'w') as f:
-					f.write(f"# Ablation Study Configuration:\n")
-					f.write(f"# IQA: {args.use_iqa}\n")
-					f.write(f"# IG: {args.use_ig}\n")
-					f.write(f"# TD: {args.use_td}\n")
-					f.write("node_id,type,replaced_by,prob,method,prob_str\n")
-					for record in nodes_to_cull_info:
-						node_id = record['node_id']
-						type_ = record['type']
-						replaced_by = record.get('replaced_by', "")
-						prob = record['prob']
-						method = record['method']
-						prob_str = record.get('prob_str', "")
-						f.write(f"{node_id},{type_},{replaced_by},{prob:.3f},{method},{prob_str}\n")
-
-				info_path = merger.log_dir / "preds" / "not_cull_node_info.txt"
-				info_path.parent.mkdir(parents=True, exist_ok=True)
-				with open(info_path, 'w') as f:
-					f.write(f"# Ablation Study Configuration:\n")
-					f.write(f"# IQA: {args.use_iqa}\n")
-					f.write(f"# IG: {args.use_ig}\n")
-					f.write(f"# TD: {args.use_td}\n")
-					f.write("node_id,type,compared_to,prob,method,prob_str\n")
-					for record in nodes_to_not_cull_info:
-						node_id = record['node_id']
-						type_ = record['type']
-						compared_to = record.get('compared_to', "")
-						prob = record['prob']
-						method = record['method']
-						prob_str = record.get('prob_str', "")
-						f.write(f"{node_id},{type_},{compared_to},{prob:.3f},{method},{prob_str}\n")						
-			else:
-				nodes_to_cull, nodes_to_cull_info, nodes_to_not_cull_info = [], [], []
-
-			##### Perform map update and merging
-			# Merge two submap into one with optimized poses
-			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
-			# Enforce all node id in edges_nodeAB_refine_covis to be adjusted
-			final_map.covis.remove_node_list(nodes_to_cull)
-			final_map.covis.remove_invalid_edges(nodes_to_cull)
-			final_map.covis.rm_sensor_data(nodes_to_cull)
-
-			# Update edges from the src_edges for different types of graphs
-			# Nodes are merged and reflected on the updated graph
-			# node_a = final_map.graphs[graph_type].get_node(edges_nodeAB[0])
-			# node_b = final_map.graphs[graph_type].get_node(edges_nodeAB[1])
-			weight_func1 = (lambda edge: edge[4]) # overlapping score
-			weight_func2 = (lambda edge: np.linalg.norm(edge[0].trans - edge[1].trans)) 
-			for dst_graph_type, src_edges, weight_func in [
-				("covis", edges_nodeAB_refine_covis, weight_func1),
-				("odom", edges_nodeAB_refine_covis, weight_func2),
-				("trav", edges_nodeAB_refine_covis, weight_func2)
-			]:
-				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
-				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
-			
-			logging.info(f"Final map info:\n{final_map}")
-		else:
-			pose_graph, _ = merger.create_pose_graph_from_map(
-				final_map.odom, 
-				cur_submap.odom, 
-				[]
-			)
-			g2o_path = str(merger.log_dir / "preds" / "initial_pose_graph.g2o")
-			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
-			
-			if args.viz:
-				save_dir = str(merger.log_dir / "preds")
-				# Visualize the edge connections (without GV/CCM)
-				save_vis_edge_history(
-					save_dir, final_map.covis, cur_submap.covis, dict()
-				)
-				# Visualize the pose graph
-				pose_graph.plot_pose_graph(
-					save_dir, pose_graph.get_factor_graph(), 
-					[pose_graph.get_initial_estimate(), pose_graph.get_initial_estimate()],
-					['Before PGO', 'Before PGO'], mode='2d'
-				)
-
-			merger.merge_and_update_submaps(final_map, cur_submap, pose_graph.get_initial_estimate())
-
-	if not final_map.is_empty:
 		final_map.save_to_file()
+		logging.info(f"Saved intermediate result: {output_dir}")
+
+		del cur_submap
+		base_name = new_name
+
+	finalmap_link = result_dir / "merge_finalmap"
+	if finalmap_link.is_symlink() or finalmap_link.exists():
+		finalmap_link.unlink()
+	finalmap_link.symlink_to(result_dir / base_name)
+	logging.info(f"Created symlink: {finalmap_link} -> {result_dir / base_name}")
 
 if __name__ == '__main__':
 	args = parse_arguments()
@@ -846,12 +880,21 @@ if __name__ == '__main__':
 		format='%(asctime)s - %(levelname)s - %(message)s',
 		handlers=[logging.StreamHandler()]
 	)
-	log_dir = setup_log_environment(pathlib.Path(args.output_map_path), args)
 
-	# Initialize the map merging pipeline
-	merger = MergePipeline(args, log_dir)
+	dataset_root = pathlib.Path(args.dataset_root)
+	output_root = pathlib.Path(args.output_root) if args.output_root else dataset_root
+	suffix = ""
+	if args.use_iqa: suffix += "iqa"
+	if args.use_ig:  suffix += "ig"
+	if args.use_td:  suffix += "td"
+	if suffix: suffix = f"_{suffix}"
+	order_tag = ORDER_TAGS[args.order_index] if args.order_index < len(ORDER_TAGS) else str(args.order_index)
+	result_name = f"{args.scene}_results_{order_tag}_{args.method}{suffix}"
+	result_dir = output_root / result_name
+	result_dir.mkdir(parents=True, exist_ok=True)
+
+	merger = MergePipeline(args, result_dir)
 	merger.init_vpr_match_model()
 	merger.init_pose_estimator()
-	merger.read_map_from_file()
 
-	perform_submap_merging(merger, args)
+	run_incremental_merge(merger, args)

@@ -24,11 +24,11 @@ export N_QUERY=10
 
 # Model configuration
 MODELS=(
-	# "hloc_superpoint_splg"
-	# "hloc_disk_dilg"
-	# "vpr_cosplace_resnet18_256"
-	# "vpr_netvlad_resnet18_4096"
-	# "reloc3r"
+	"hloc_superpoint_splg"
+	"hloc_disk_dilg"
+	"vpr_cosplace_resnet18_256"
+	"vpr_netvlad_resnet18_4096"
+	"reloc3r"
 	"duster_nocalib_pretrain"
 	"duster_calib_pretrain"
 	"master_nocalib_pretrain"

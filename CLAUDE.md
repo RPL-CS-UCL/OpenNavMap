@@ -97,7 +97,7 @@ map_root/
   - Merge 结果：`s00000_results_{order_tag}_{method}_{dist}`（无 `_sba{n}` 后缀）
   - `dist=0` 时不追加后缀
 
-- 评估使用 `/Titan/code/robohike_ws/src/slam_trajectory_evaluation`（不用 `evo`）。合并结束后自动调用 `export_to_eval_structure()` 写 TUM 轨迹到 `/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data`。
+- 评估使用 `third_party/slam_trajectory_evaluation`（不用 `evo`）。合并结束后自动调用 `export_to_eval_structure()` 写 TUM 轨迹到 `/Titan/dataset/data_opennavmap/traj_eval_data/map_merge_eval_data`。
 
 - 脚本入口（`python/benchmark_map_merge/scripts/`）：
   ```bash

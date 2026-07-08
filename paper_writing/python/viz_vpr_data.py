@@ -303,7 +303,7 @@ def visualize_vpr_data_queries(
         fig = plt.figure(figsize=(7, 5))
         ax = fig.add_subplot(111, projection='3d')
         ax.set_proj_type('ortho')
-        ax.view_init(elev=25, azim=-60)
+        ax.view_init(elev=25, azim=30) # s00000-s00001: 30, s00002-s00005: -60
         query_color = PALLETE[1]
         match_color = PALLETE[0]
 
