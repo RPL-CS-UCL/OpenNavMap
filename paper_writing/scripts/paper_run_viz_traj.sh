@@ -1,0 +1,47 @@
+# rosrun litevloc viz_trajectory_ops_msg.py --tum_files \
+# /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250510_201348_ops_succeed.txt \
+# /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_105346_ops_succeed.txt \
+# /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_111432_ops_succeed.txt \
+# /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_201223_ops_succeed.txt \
+# /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_210439_ops_succeed.txt \
+# --output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_opt.pdf \
+# --map_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_202505.txt
+
+rosrun litevloc viz_trajectory_ops.py --tum_files \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250510_201348_ops_succeed.txt \
+--output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_opt_0.pdf \
+--map_pose_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_202505.txt \
+--map_edge_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_edge_trav_sops_msg_202505.txt
+
+rosrun litevloc viz_trajectory_ops.py --tum_files \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_105346_ops_succeed.txt \
+--output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_opt_1.pdf \
+--map_pose_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_202505.txt \
+--map_edge_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_edge_trav_sops_msg_202505.txt
+
+rosrun litevloc viz_trajectory_ops.py --tum_files \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_111432_ops_succeed.txt \
+--output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_opt_2.pdf \
+--map_pose_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_202505.txt \
+--map_edge_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_edge_trav_sops_msg_202505.txt
+
+rosrun litevloc viz_trajectory_ops.py --tum_files \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_201223_ops_succeed.txt \
+--output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_opt_3.pdf \
+--map_pose_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_202505.txt \
+--map_edge_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_edge_trav_sops_msg_202505.txt
+
+rosrun litevloc viz_trajectory_ops.py --tum_files \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_210439_ops_succeed.txt \
+--output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_opt_4.pdf \
+--map_pose_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_202505.txt \
+--map_edge_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_edge_trav_sops_msg_202505.txt
+
+rosrun litevloc viz_trajectory_ops_msg.py --tum_files \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_174018_ops_msg_succeed.txt \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_180035_ops_msg_succeed.txt \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_153345_ops_around_succeed.txt \
+/Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/pose_fusion_opt_anymal_real_message_20250511_154753_ops_around_succeed.txt \
+--output /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/traj_ops_msg_opt.pdf \
+--map_pose_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_pose_sops_msg_olympic_202505.txt \
+--map_edge_file /Rocket_ssd/dataset/data_litevloc/raw_data_out_general/ucl_campus_robot/bag_succeed/vloc_path/map_edge_trav_sops_msg_olympic_202505.txt
