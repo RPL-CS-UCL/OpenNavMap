@@ -12,7 +12,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/media/opennavmap-concept.png" alt="OpenNavMap Concept" style="display:block; width:80%; max-width:800px;">
+  <img src="docs/media/opennavmap-concept.png" alt="OpenNavMap Concept" style="display:block; width:80%">
 </div>
 
 ---
@@ -118,16 +118,15 @@ python test_torch_install.py
 1. [Instruction in Running Map Merging](docs/instruction_map_merging.md)
 2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
 3. [Instruction in Data Collection (Project Aria)](docs/instruction_data_collection.md)
-4. [Instruction in Performing Map-free Benchmarking](docs/instruction_map_free_benchmark.md)
 
 **LiteVLoc submodule (`third_party/litevloc_code`):**
+
 5. [Instruction in Running LiteVLoc with Offline Data](docs/instruction_vloc_data.md)
 6. [Instruction in Running Visual Navigation with Simulated Matterport3d](docs/instruction_vnav_simu_matterport3d.md)
 7. [Instruction in Running Visual Navigation with Real Robots](docs/instruction_vnav_real_robot.md)
 
 **Additional:**
-8. [Long-Term Scene Change Detection](docs/instruction_segment_change.md)
-9. [Repo Structure Guide](docs/repo_structure_brief.md)
+8. [Repo Structure Guide](docs/repo_structure_brief.md)
 
 ---
 
@@ -178,6 +177,13 @@ apt install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recomm
 ### Multi-Session Map Merging
 
 <p align="center">
+  <img src="docs/media/opennavmap-mapmerging-vineyard.gif" alt="Vineyard Map Merging" width="80%">
+</p>
+<p align="center"><em>
+Vineyard — outdoor multi-session map merging.
+</em></p>
+
+<p align="center">
   <img src="docs/media/opennavmap-mapmerging-hkustcampus.gif" alt="HKUST Campus Map Merging" width="80%">
 </p>
 <p align="center"><em>
@@ -191,17 +197,10 @@ HKUST Campus — multi-session submaps aligned and merged into a unified topomet
 UCL Campus — multi-session map merging across heterogeneous devices.
 </em></p>
 
-<p align="center">
-  <img src="docs/media/opennavmap-mapmerging-vineyard.gif" alt="Vineyard Map Merging" width="80%">
-</p>
-<p align="center"><em>
-Vineyard — outdoor multi-session map merging.
-</em></p>
-
 ### Dataset
 
 <p align="center">
-  <img src="docs/media/fig9_dataset.png" alt="Dataset" width="60%" style="max-width:500px;">
+  <img src="docs/media/fig9_dataset.png" alt="Dataset" width="80%" style="max-width:500px;">
 </p>
 
 <p align="center"><em>
@@ -221,8 +220,8 @@ Multi-session mapping with heterogeneous devices across two regions.
 ### Real-World Image-Goal Navigation
 
 <p align="center">
-  <img src="docs/media/fig15_vnav_lab.png" alt="VNav Lab" width="47%" style="max-width:500px;">
-  <img src="docs/media/fig19_vnav_around.png" alt="VNav Outdoor" width="48%" style="max-width:500px;">
+  <img src="docs/media/fig15_vnav_lab.png" alt="VNav Lab" width="60%" style="max-width:500px;">
+  <img src="docs/media/fig19_vnav_around.png" alt="VNav Outdoor" width="39%" style="max-width:500px;">
 </p>
 <p align="center"><em>
 Quadruped robot performing image-goal navigation in lab (left) and outdoor environments (right).
@@ -303,11 +302,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 👏 Acknowledgements
 
-Supported by UKRI Future Leaders Fellowship [MR/V025333/1] (RoboHike).
-
-<div align="center">
-  <sub>Built by the Robot Perception and Learning Lab at UCL</sub>
-</div>
+Supported by UKRI Future Leaders Fellowship [MR/V025333/1] (RoboHike), built by the Robot Perception and Learning Lab at UCL.
 
 ---
 
