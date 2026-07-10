@@ -9,7 +9,7 @@
 [submodule "third_party/litevloc_code"]
 	path = third_party/litevloc_code
 	url = git@github.com:RPL-CS-UCL/litevloc_code.git
-	branch = opennavmap-integration
+	branch = main
 [submodule "third_party/pose_estimation_models"]
 	path = third_party/pose_estimation_models
 	url = https://github.com/gogojjh/pose_estimation_models.git

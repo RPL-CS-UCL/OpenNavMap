@@ -2,7 +2,7 @@
 
 # OpenNavMap
 
-**Structure-Free Topometric Mapping via Large-Scale Collaborative Localization**
+**OPENNAVMAP: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Webpage](https://img.shields.io/badge/Webpage-Link-green)](https://rpl-cs-ucl.github.io/OpenNavMap_page/)
@@ -12,7 +12,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/media/opennavmap-concept.png" alt="OpenNavMap Concept" style="display:block; width:80%">
+  <img src="docs/media/opennavmap-concept.png" alt="OpenNavMap Concept" style="display:block; width:80%; max-width:800px;">
 </div>
 
 ---
@@ -177,21 +177,21 @@ apt install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recomm
 ### Multi-Session Map Merging
 
 <p align="center">
-  <img src="docs/media/opennavmap-mapmerging-vineyard.gif" alt="Vineyard Map Merging" width="80%">
+  <img src="docs/media/opennavmap-mapmerging-vineyard.gif" alt="Vineyard Map Merging" width="80%" style="max-width:800px;">
 </p>
 <p align="center"><em>
 Vineyard — outdoor multi-session map merging.
 </em></p>
 
 <p align="center">
-  <img src="docs/media/opennavmap-mapmerging-hkustcampus.gif" alt="HKUST Campus Map Merging" width="80%">
+  <img src="docs/media/opennavmap-mapmerging-hkustcampus.gif" alt="HKUST Campus Map Merging" width="80%" style="max-width:800px;">
 </p>
 <p align="center"><em>
 HKUST Campus — multi-session submaps aligned and merged into a unified topometric map.
 </em></p>
 
 <p align="center">
-  <img src="docs/media/opennavmap-mapmerging-uclcampus.gif" alt="UCL Campus Map Merging" width="80%">
+  <img src="docs/media/opennavmap-mapmerging-uclcampus.gif" alt="UCL Campus Map Merging" width="80%" style="max-width:800px;">
 </p>
 <p align="center"><em>
 UCL Campus — multi-session map merging across heterogeneous devices.
@@ -200,7 +200,7 @@ UCL Campus — multi-session map merging across heterogeneous devices.
 ### Dataset
 
 <p align="center">
-  <img src="docs/media/fig9_dataset.png" alt="Dataset" width="80%" style="max-width:500px;">
+  <img src="docs/media/fig9_dataset.png" alt="Dataset" width="80%" style="max-width:800px;">
 </p>
 
 <p align="center"><em>
@@ -210,8 +210,8 @@ Overview of our self-collected dataset using multiple devices, spanning diverse 
 ### Multi-Session Mapping
 
 <p align="center">
-  <img src="docs/media/fig15_hkustcampus_crowd.png" alt="HKUST Campus" width="47%" style="max-width:500px;">
-  <img src="docs/media/fig15_uclcampus_crowd.png" alt="UCL Campus" width="48%" style="max-width:500px;">
+  <img src="docs/media/fig15_hkustcampus_crowd.png" alt="HKUST Campus" width="47%" style="max-width:800px;">
+  <img src="docs/media/fig15_uclcampus_crowd.png" alt="UCL Campus" width="48%" style="max-width:800px;">
 </p>
 <p align="center"><em>
 Multi-session mapping with heterogeneous devices across two regions.
@@ -220,8 +220,8 @@ Multi-session mapping with heterogeneous devices across two regions.
 ### Real-World Image-Goal Navigation
 
 <p align="center">
-  <img src="docs/media/fig15_vnav_lab.png" alt="VNav Lab" width="60%" style="max-width:500px;">
-  <img src="docs/media/fig19_vnav_around.png" alt="VNav Outdoor" width="39%" style="max-width:500px;">
+  <img src="docs/media/fig15_vnav_lab.png" alt="VNav Lab" width="60%" style="max-width:800px;">
+  <img src="docs/media/fig19_vnav_around.png" alt="VNav Outdoor" width="39%" style="max-width:800px;">
 </p>
 <p align="center"><em>
 Quadruped robot performing image-goal navigation in lab (left) and outdoor environments (right).
@@ -261,7 +261,7 @@ If this work is helpful to your research, please consider citing OpenNavMap or o
 
 ```bibtex
 @article{jiao2025opennavmap,
-  title={OpenNavMap: Structure-Free Topometric Mapping via Large-Scale Collaborative Localization},
+  title={OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation},
   author={Jiao, Jianhao and Liu, Changkun and Yu, Jingwen and Liu, Boyi and Zhang, Qianyi and Wang, Yue and Kanoulas, Dimitrios},
   journal={Under Review},
   year={2025}
