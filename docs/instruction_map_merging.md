@@ -36,7 +36,7 @@ Each submap is a self-contained directory with the following structure:
 
 Example `seq/*.color.jpg` frame from `ucl_campus_aria/s00000_aria_data_000/0/seq/000099.color.jpg`:
 
-<img src="media/map_merge_submap_color_example.jpg" width="50%" alt="Example submap color frame">
+<img src="media/map_merge_submap_color_example.jpg" width="50%" alt="Example submap color frame" style="max-width:800px;">
 
 ## 3. Dataset Root Layout and the Orders File
 
@@ -164,7 +164,7 @@ Running with `--viz` writes plots into each `merge_*/preds/` directory. Two of t
 
 `preds/results_sequence_match_adaptive_refine_1_posegraph.png` overlays the detected loop-closure edges (thin diagonal lines) on top of the odometry trajectories (thick black lines) of all submaps merged so far. Each thin line connects a query keyframe to the database keyframe found via VPR sequence matching — this is the raw evidence the pipeline uses to know which submaps overlap in physical space before optimizing anything.
 
-<img src="media/map_merge_loop_detection.png" width="50%" alt="Cross-submap loop detection">
+<img src="media/map_merge_loop_detection.png" width="50%" alt="Cross-submap loop detection" style="max-width:800px;">
 
 In this example, the title `Pose Graph: Find 19 Correct Loops/19 (3.0m)` means all 19 candidate loop closures passed the distance-based sanity check (within 3.0 m of the estimated relative pose) and were accepted into the pose graph — the two submaps overlap heavily, so nearly every candidate keyframe pair is confirmed as a valid loop closure.
 
@@ -172,7 +172,7 @@ In this example, the title `Pose Graph: Find 19 Correct Loops/19 (3.0m)` means a
 
 `preds/pose_graph_refined.png` shows the same trajectory before and after GTSAM pose graph optimization. Before optimization (left), the disjoint submap trajectories are only loosely aligned by the raw loop-closure constraints (shown as the fan of thin lines). After optimization (right), all submap trajectories have been jointly refined into a single, globally consistent trajectory.
 
-<img src="media/map_merge_pgo_before_after.png" width="50%" alt="Pose graph before/after optimization">
+<img src="media/map_merge_pgo_before_after.png" width="50%" alt="Pose graph before/after optimization" style="max-width:800px;">
 
 This is the key visual check when debugging a merge: if the "after" plot still shows visible seams or discontinuities where two submaps should overlap, the loop closures in section 7.1 were likely too few, too noisy, or geometrically incorrect.
 
