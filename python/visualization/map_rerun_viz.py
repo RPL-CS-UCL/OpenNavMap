@@ -68,13 +68,16 @@ def _log_keyframes(manager, axis_length: float) -> None:
                     image_from_camera=np.asarray(node.K, float).reshape(3, 3), resolution=[w, h]))
             except Exception:
                 continue
+            # color + depth as 2D images on FIXED entities (time-aligned, shown one
+            # at a time on the timeline; NOT under Pinhole -> no 3D depth point cloud).
             rgb = _load_rgb(root / node.rgb_img_name)
             if rgb is not None:
-                rr.log(f"{ent}/cam/image", rr.Image(rgb))
+                rr.log("camera/color", rr.Image(rgb))
             depth = _load_depth(root / node.depth_img_name)
             if depth is not None:
-                rr.log(f"{ent}/cam/depth", rr.DepthImage(depth, meter=_DEPTH_METER))
+                rr.log("camera/depth", rr.DepthImage(depth, meter=_DEPTH_METER))
         return
+
     # fallback: pose axes only (no covis / no images)
     graph = manager.odom
     if graph is not None:
@@ -125,8 +128,20 @@ def _log_objects(manager) -> None:
 
 
 def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap", axis_length: float = 0.5) -> str:
-    """Log the map (keyframe pose+frustum+images, edges, object OBBs) to a Rerun .rrd."""
-    rr.init(app_id)
+    """Log the map to a Rerun .rrd with a horizontal layout: 3D map on the left,
+    the current keyframe's color/depth (2D, time-aligned) stacked on the right."""
+    import rerun.blueprint as rrb
+    blueprint = rrb.Blueprint(
+        rrb.Horizontal(
+            rrb.Spatial3DView(origin="/world", name="3D map"),
+            rrb.Vertical(
+                rrb.Spatial2DView(origin="/camera/color", name="color"),
+                rrb.Spatial2DView(origin="/camera/depth", name="depth"),
+            ),
+            column_shares=[2, 1],
+        )
+    )
+    rr.init(app_id, default_blueprint=blueprint)
     # world frame axes (z-up), longer than keyframe axes (2x)
     rr.log("world", rr.Transform3D(axis_length=2.0 * axis_length), static=True)
     _log_keyframes(manager, axis_length)
@@ -144,8 +159,10 @@ def _load_map(map_dir: Path):
     manager = MapManager(map_dir)
     configs = {"odom": {}, "trav": {}}
     if (map_dir / "intrinsics.txt").exists():
-        configs["covis"] = {"resize": None, "depth_scale": 1.0,
-                            "load_rgb": False, "load_depth": False, "normalized": False}
+        configs["covis"] = {
+            "resize": None, "depth_scale": 1.0,
+            "load_rgb": False, "load_depth": False, "normalized": False
+        }
     if (map_dir / "objects.json").exists():
         configs["object"] = {}
     manager.load_graphs(configs)
