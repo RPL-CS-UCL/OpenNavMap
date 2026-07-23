@@ -35,6 +35,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 
 
 _EDGE_COLORS = {"odom": [31, 119, 180], "covis": [44, 160, 44], "trav": [255, 127, 14]}
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
+_FRUSTUM_DIST = 0.75   # camera-frustum image-plane distance (1.5x of a 0.5 base)
 
 
 def _node_time(node, fallback) -> float:
@@ -65,14 +66,15 @@ def _log_keyframes(manager, axis_length: float) -> None:
             try:
                 w, h = int(node.img_size[0]), int(node.img_size[1])
                 rr.log(f"{ent}/cam", rr.Pinhole(
-                    image_from_camera=np.asarray(node.K, float).reshape(3, 3), resolution=[w, h]))
+                    image_from_camera=np.asarray(node.K, float).reshape(3, 3),
+                    resolution=[w, h], image_plane_distance=_FRUSTUM_DIST))
             except Exception:
                 continue
-            # color + depth as 2D images on FIXED entities (time-aligned, shown one
-            # at a time on the timeline; NOT under Pinhole -> no 3D depth point cloud).
+            # color shown ON the camera frustum (3D, scales with the frustum);
+            # depth shown as a SEPARATE 2D panel (no Pinhole -> no depth point cloud).
             rgb = _load_rgb(root / node.rgb_img_name)
             if rgb is not None:
-                rr.log("camera/color", rr.Image(rgb))
+                rr.log(f"{ent}/cam", rr.Image(rgb))
             depth = _load_depth(root / node.depth_img_name)
             if depth is not None:
                 rr.log("camera/depth", rr.DepthImage(depth, meter=_DEPTH_METER))
@@ -127,16 +129,16 @@ def _log_objects(manager) -> None:
                                        rotations=rotations, labels=labels, colors=[214, 39, 40]))
 
 
-def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap", axis_length: float = 0.25) -> str:
+def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap", axis_length: float = 0.5) -> str:
     """Log the map to a Rerun .rrd with a horizontal layout: 3D map on the left,
     the current keyframe's color/depth (2D, time-aligned) stacked on the right."""
     import rerun.blueprint as rrb
-    # horizontal layout: 3D map on the left, a single color 2D image on the right
-    # (time-aligned to the current keyframe); depth stays logged but is not shown.
+    # horizontal layout: 3D map (color shown on keyframe camera frustums) on the
+    # left, the current keyframe's depth as a separate 2D panel on the right.
     blueprint = rrb.Blueprint(
         rrb.Horizontal(
             rrb.Spatial3DView(origin="/world", name="3D map"),
-            rrb.Spatial2DView(origin="/camera/color", name="color"),
+            rrb.Spatial2DView(origin="/camera/depth", name="depth"),
             column_shares=[3, 1],
         )
     )
