@@ -126,11 +126,12 @@ class ObjectGraph(BaseGraph):
     def ingest_provider_nodes(self, nodes: List[ObjectNode]) -> None:
         """Directly add already-merged object nodes from a provider that does its own
         cross-frame association (T1.3 msgnav direct-passthrough: layer IoU/embedding
-        merge is bypassed -- see STATUS deviation / risk 6b). Ids are renumbered obj_N
-        so they stay unique within this graph.
+        merge is bypassed -- see STATUS deviation / risk 6b). Provider ids are kept
+        (so each id still matches its pointcloud_ref); only collisions are renumbered.
         """
         for node in nodes:
-            node.id = self._new_id()
+            if node.id in self.nodes:
+                node.id = self._new_id()
             node.trans = np.asarray(node.obb.center, float).reshape(3)
             self.add_node(node)
 

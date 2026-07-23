@@ -14,8 +14,9 @@ Entities:
 - ``map/nodes/{id}/body``   : small green cube marking the keyframe
 - ``map/edges/{type}/{a}-{b}`` : color-coded edges appearing at the later endpoint
 - ``map/objects/boxes``     : L4 object graph OBBs (timeless)
+- ``map/objects/centers``   : object OBB geometric centers (timeless)
 - ``map/objects/points/{id}``: per-object detected point cloud (timeless)
-- ``map/objects/vis_edges/*``: object->keyframe visibility edges (timeless, purple)
+- ``map/objects/vis_edges/*``: object-center -> keyframe visibility edges (timeless, red)
 - ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window)
 
 Library:  visualize_map(map_manager, "out.rrd")
@@ -52,7 +53,7 @@ _BODY_HALF = np.array([0.03, 0.03, 0.03], dtype=np.float32)
 _NODE_COLOR = np.array([[0, 180, 100]], dtype=np.uint8)
 _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
 _OBJ_PCD_COLOR = np.array([[255, 152, 150]], dtype=np.uint8)
-_OBJ_VIS_COLOR = np.array([[148, 103, 189]], dtype=np.uint8)  # object->keyframe edges
+_OBJ_VIS_COLOR = np.array([[255, 0, 0]], dtype=np.uint8)  # object->keyframe edges (red)
 _EDGE_COLORS = {"covis": [44, 160, 44], "odom": [31, 119, 180], "trav": [255, 127, 14]}
 _FRUSTUM_DIST = 0.75   # enlarged camera-frustum image-plane distance
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
@@ -143,11 +144,14 @@ def log_map_objects(manager) -> None:
     rr.log("map/objects/boxes", rr.Boxes3D(centers=centers, half_sizes=half_sizes,
                                            rotations=rotations, labels=labels,
                                            colors=_OBJ_COLOR), static=True)
+    # OBB geometric centers -- the endpoint that object->keyframe edges connect to.
+    rr.log("map/objects/centers",
+           rr.Points3D(centers, colors=_OBJ_COLOR, radii=0.05), static=True)
 
 
 def log_object_visibility_edges(manager) -> None:
-    """object->keyframe visibility edges (each node's ``observed_keyframes``) as lines
-    from the object center to the observing keyframe body (timeless, purple)."""
+    """object->keyframe visibility edges (each node's ``observed_keyframes``) as red
+    lines from the object OBB center to the observing keyframe body (timeless)."""
     object_graph = manager.graphs.get("object")
     covis = manager.covis
     if object_graph is None or covis is None or object_graph.get_num_node() == 0:
@@ -195,26 +199,14 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
     return str(out_path)
 
 
-def _load_map(map_dir: Path):
-    """Best-effort load of a stored map (covis with rgb/depth for frustum viz)."""
-    from map_manager import MapManager
-    manager = MapManager(map_dir)
-    configs = {"odom": {}, "trav": {}}
-    if (map_dir / "intrinsics.txt").exists():
-        configs["covis"] = {"resize": None, "depth_scale": 1.0,
-                            "load_rgb": False, "load_depth": False, "normalized": False}
-    if (map_dir / "objects.json").exists():
-        configs["object"] = {}
-    manager.load_graphs(configs)
-    return manager
-
-
 def main() -> int:
+    from map_manager import load_map  # T1.4: shared reload helper
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--map", type=Path, required=True, help="stored map directory")
     parser.add_argument("--out", type=Path, required=True, help="output .rrd path")
     args = parser.parse_args()
-    out = visualize_map(_load_map(args.map), str(args.out))
+    out = visualize_map(load_map(args.map), str(args.out))
     print(f"wrote {out}")
     return 0
 
