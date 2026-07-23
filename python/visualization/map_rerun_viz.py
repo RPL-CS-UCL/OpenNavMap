@@ -1,17 +1,20 @@
 #! /usr/bin/env python
 """Rerun (.rrd) visualization for an OpenNavMap map session.
 
-Follows the litevloc ``utils_rerun`` conventions (reusing its functions where
-possible):
-- ``world/axes``              : XYZ world-frame axes (log_world_frame_axes, red/green/blue)
-- ``map/nodes/{id}``          : per-keyframe Transform3D (timeless)
-- ``map/nodes/{id}/camera``   : Pinhole camera frustum + RGB image (color from seq/)
-- ``map/nodes/{id}/body``     : small green cube marking the keyframe
-- ``map/edges/{covis,odom,trav}`` : graph edges as blue LineStrips3D (log_map_edges)
-- ``map/objects``             : L4 object graph oriented bounding boxes
+Follows the litevloc ``utils_rerun`` entity conventions (reusing its world-axes
+helper), with two project-specific tweaks:
+- keyframe nodes + edges appear on a ``node_time`` timeline (scrub to see the map
+  built keyframe-by-keyframe), instead of being fully timeless;
+- covis/odom/trav edges are color-coded (green/blue/orange).
 
-Map entities are timeless (whole map shown at once), matching utils_rerun.
-Saved as .rrd (open with `rerun x.rrd`).
+Entities:
+- ``world/axes``            : XYZ world-frame axes (log_world_frame_axes, timeless)
+- ``map/nodes/{id}``        : per-keyframe Transform3D (on node_time)
+- ``map/nodes/{id}/camera`` : Pinhole camera frustum (no rgb texture)
+- ``map/nodes/{id}/body``   : small green cube marking the keyframe
+- ``map/edges/{type}/{a}-{b}`` : color-coded edges appearing at the later endpoint
+- ``map/objects``           : L4 object graph OBBs (timeless)
+- ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window)
 
 Library:  visualize_map(map_manager, "out.rrd")
 CLI:      python -m visualization.map_rerun_viz --map <map_dir> --out <file>.rrd
@@ -41,13 +44,15 @@ for _p in (_ONM_PY, _LITEVLOC):
     if _p not in sys.path:
         sys.path.append(_p)
 
-from utils.utils_rerun import log_map_edges, log_world_frame_axes  # litevloc rerun utils
+from utils.utils_rerun import log_world_frame_axes  # litevloc rerun utils
 
 _BODY_HALF = np.array([0.03, 0.03, 0.03], dtype=np.float32)
 _NODE_COLOR = np.array([[0, 180, 100]], dtype=np.uint8)
 _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
-_FRUSTUM_DIST = 0.75  # enlarged camera-frustum image-plane distance
+_EDGE_COLORS = {"covis": [44, 160, 44], "odom": [31, 119, 180], "trav": [255, 127, 14]}
+_FRUSTUM_DIST = 0.75   # enlarged camera-frustum image-plane distance
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
+_TIMELINE = "node_time"
 
 
 def _load_rgb(path: Path):
@@ -59,16 +64,27 @@ def _load_depth(path: Path):
     return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
 
 
-def log_node_images(covis) -> None:
-    """Per-keyframe rgb + depth into fixed 2D panels on a node timeline.
+def _node_time(node, fallback) -> float:
+    return float(getattr(node, "time", fallback))
 
-    rgb -> ``camera/color``, depth -> ``camera/depth`` (shown side by side in the
-    horizontal window); they update as you scrub the ``node_time`` timeline. Not
-    placed on the 3D frustum, so no depth point cloud in the 3D view.
-    """
+
+def log_map_nodes(covis) -> None:
+    """Per-keyframe frustum + body cube + rgb/depth panels, on the node_time timeline."""
+    from scipy.spatial.transform import Rotation as R
+
     root = Path(covis.map_root)
-    for node in sorted(covis.nodes.values(), key=lambda n: float(getattr(n, "time", n.id))):
-        rr.set_time_seconds("node_time", float(getattr(node, "time", node.id)))
+    for nid in sorted(covis.nodes, key=lambda i: _node_time(covis.get_node(i), i)):
+        node = covis.get_node(nid)
+        rr.set_time_seconds(_TIMELINE, _node_time(node, nid))
+        entity = f"map/nodes/{nid}"
+        width, height = int(node.img_size[0]), int(node.img_size[1])
+        rot = R.from_quat(np.asarray(node.quat, float).reshape(4)).as_matrix()
+        rr.log(entity, rr.Transform3D(
+            translation=np.asarray(node.trans, float).reshape(3).tolist(), mat3x3=rot.tolist()))
+        rr.log(entity + "/camera", rr.Pinhole(
+            image_from_camera=np.asarray(node.K, float).reshape(3, 3),
+            width=width, height=height, image_plane_distance=_FRUSTUM_DIST))
+        rr.log(entity + "/body", rr.Boxes3D(half_sizes=[_BODY_HALF], colors=_NODE_COLOR))
         rgb = _load_rgb(root / node.rgb_img_name)
         if rgb is not None:
             rr.log("camera/color", rr.Image(rgb))
@@ -77,25 +93,25 @@ def log_node_images(covis) -> None:
             rr.log("camera/depth", rr.DepthImage(depth, meter=_DEPTH_METER))
 
 
-def log_map_nodes(covis) -> None:
-    """Per-keyframe camera frustum + RGB image + body cube (timeless).
-
-    Same entity layout as utils_rerun.log_map_nodes, but the RGB is loaded from
-    the stored ``seq/`` (our ImageNode keeps rgb_image=None to save memory).
-    """
-    from scipy.spatial.transform import Rotation as R
-
-    for node in covis.nodes.values():
-        entity = f"map/nodes/{node.id}"
-        width, height = int(node.img_size[0]), int(node.img_size[1])
-        rot = R.from_quat(np.asarray(node.quat, float).reshape(4)).as_matrix()
-        rr.log(entity, rr.Transform3D(
-            translation=np.asarray(node.trans, float).reshape(3).tolist(),
-            mat3x3=rot.tolist()), static=True)
-        rr.log(entity + "/camera", rr.Pinhole(
-            image_from_camera=np.asarray(node.K, float).reshape(3, 3),
-            width=width, height=height, image_plane_distance=_FRUSTUM_DIST), static=True)
-        rr.log(entity + "/body", rr.Boxes3D(half_sizes=[_BODY_HALF], colors=_NODE_COLOR), static=True)
+def log_map_edges(graph, edge_type: str) -> None:
+    """Color-coded edges (covis=green/odom=blue/trav=orange), each appearing at its
+    later endpoint's node_time."""
+    pos = {i: np.asarray(nd.trans, float).reshape(3) for i, nd in graph.nodes.items()}
+    tim = {i: _node_time(nd, i) for i, nd in graph.nodes.items()}
+    color = np.array([_EDGE_COLORS[edge_type]], dtype=np.uint8)
+    seen, edges = set(), []
+    for nid, node in graph.nodes.items():
+        for neighbor, _w in node.edges.values():
+            key = (min(nid, neighbor.id), max(nid, neighbor.id))
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append((max(tim[nid], tim[neighbor.id]), nid, neighbor.id))
+    for t, a, b in sorted(edges):
+        rr.set_time_seconds(_TIMELINE, t)
+        rr.log(f"map/edges/{edge_type}/{a}-{b}",
+               rr.LineStrips3D(strips=[np.array([pos[a], pos[b]], dtype=np.float32)],
+                               radii=0.0025, colors=color))
 
 
 def log_map_objects(manager) -> None:
@@ -117,7 +133,7 @@ def log_map_objects(manager) -> None:
 
 
 def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
-    """Log the map (world axes, keyframe frustums+rgb+body, edges, objects) to a Rerun .rrd."""
+    """Log the map to a Rerun .rrd: 3D map on top, rgb/depth horizontal window below."""
     rr.init(app_id, spawn=False)
     rr.send_blueprint(rrb.Blueprint(
         rrb.Vertical(
@@ -135,7 +151,6 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
     covis = manager.covis
     if covis is not None and covis.get_num_node() > 0:
         log_map_nodes(covis)
-        log_node_images(covis)
     for edge_type in ("covis", "odom", "trav"):
         graph = manager.graphs.get(edge_type)
         if graph is not None and graph.get_num_node() > 0:
