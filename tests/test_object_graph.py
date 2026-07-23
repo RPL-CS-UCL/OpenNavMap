@@ -57,7 +57,7 @@ def test_merge_same_object_str_id():
     assert g.get_num_node() == 1
     assert isinstance(n1.id, str) and n1.id.startswith("obj_")
     assert n1.num_observations == 2
-    assert n1.observed_keyframes == [(0, 1.0), (1, 1.0)]
+    assert n1.observed_keyframes == [(0, 0.5), (1, 0.5)]  # default visibility_score
 
 
 def test_different_objects_not_merged():

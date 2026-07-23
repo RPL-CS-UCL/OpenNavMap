@@ -69,7 +69,9 @@ class ObjectObservation:
     confidence: float
     provider: str
     keyframe_id: int
-    visibility_score: float = 1.0
+    # visibility_score: no principled per-observation definition yet -> default 0.5
+    # (future: OBB projected visible-pixel ratio / detection area fraction).
+    visibility_score: float = 0.5
     pointcloud_ref: Optional[str] = None
 
 

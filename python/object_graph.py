@@ -35,6 +35,9 @@ class ObjectGraph(BaseGraph):
     """Graph of merged scene objects with object->keyframe visibility edges."""
 
     def __init__(self, map_root: Path, edge_type: str = "object", up_axis: int = 2) -> None:
+        # up_axis = the "up" direction (opposite gravity); default 2 = z (BOXER
+        # convention). Providers must supply object OBBs in a frame whose up axis
+        # matches this (habitat world is y-up -> convert, or set up_axis=1).
         super().__init__(map_root, edge_type)
         self.up_axis = up_axis
 
