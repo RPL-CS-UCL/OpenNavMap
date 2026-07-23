@@ -47,11 +47,34 @@ _BODY_HALF = np.array([0.03, 0.03, 0.03], dtype=np.float32)
 _NODE_COLOR = np.array([[0, 180, 100]], dtype=np.uint8)
 _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
 _FRUSTUM_DIST = 0.75  # enlarged camera-frustum image-plane distance
+_DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
 
 
 def _load_rgb(path: Path):
     img = cv2.imread(str(path))
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if img is not None else None
+
+
+def _load_depth(path: Path):
+    return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+
+
+def log_node_images(covis) -> None:
+    """Per-keyframe rgb + depth into fixed 2D panels on a node timeline.
+
+    rgb -> ``camera/color``, depth -> ``camera/depth`` (shown side by side in the
+    horizontal window); they update as you scrub the ``node_time`` timeline. Not
+    placed on the 3D frustum, so no depth point cloud in the 3D view.
+    """
+    root = Path(covis.map_root)
+    for node in sorted(covis.nodes.values(), key=lambda n: float(getattr(n, "time", n.id))):
+        rr.set_time_seconds("node_time", float(getattr(node, "time", node.id)))
+        rgb = _load_rgb(root / node.rgb_img_name)
+        if rgb is not None:
+            rr.log("camera/color", rr.Image(rgb))
+        depth = _load_depth(root / node.depth_img_name)
+        if depth is not None:
+            rr.log("camera/depth", rr.DepthImage(depth, meter=_DEPTH_METER))
 
 
 def log_map_nodes(covis) -> None:
@@ -62,7 +85,6 @@ def log_map_nodes(covis) -> None:
     """
     from scipy.spatial.transform import Rotation as R
 
-    root = Path(covis.map_root)
     for node in covis.nodes.values():
         entity = f"map/nodes/{node.id}"
         width, height = int(node.img_size[0]), int(node.img_size[1])
@@ -74,9 +96,6 @@ def log_map_nodes(covis) -> None:
             image_from_camera=np.asarray(node.K, float).reshape(3, 3),
             width=width, height=height, image_plane_distance=_FRUSTUM_DIST), static=True)
         rr.log(entity + "/body", rr.Boxes3D(half_sizes=[_BODY_HALF], colors=_NODE_COLOR), static=True)
-        rgb = _load_rgb(root / node.rgb_img_name)
-        if rgb is not None:
-            rr.log(entity + "/camera", rr.Image(rgb), static=True)
 
 
 def log_map_objects(manager) -> None:
@@ -101,12 +120,22 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
     """Log the map (world axes, keyframe frustums+rgb+body, edges, objects) to a Rerun .rrd."""
     rr.init(app_id, spawn=False)
     rr.send_blueprint(rrb.Blueprint(
-        rrb.Spatial3DView(name="OpenNavMap", origin="/"), auto_space_views=False))
+        rrb.Vertical(
+            rrb.Spatial3DView(name="OpenNavMap", origin="/"),
+            rrb.Horizontal(
+                rrb.Spatial2DView(name="rgb", origin="/camera/color"),
+                rrb.Spatial2DView(name="depth", origin="/camera/depth"),
+            ),
+            row_shares=[3, 1],
+        ),
+        auto_space_views=False,
+    ))
 
-    log_world_frame_axes(length=0.5)
+    log_world_frame_axes(length=1.5)
     covis = manager.covis
     if covis is not None and covis.get_num_node() > 0:
         log_map_nodes(covis)
+        log_node_images(covis)
     for edge_type in ("covis", "odom", "trav"):
         graph = manager.graphs.get(edge_type)
         if graph is not None and graph.get_num_node() > 0:
