@@ -13,7 +13,9 @@ Entities:
 - ``map/nodes/{id}/camera`` : Pinhole camera frustum (no rgb texture)
 - ``map/nodes/{id}/body``   : small green cube marking the keyframe
 - ``map/edges/{type}/{a}-{b}`` : color-coded edges appearing at the later endpoint
-- ``map/objects``           : L4 object graph OBBs (timeless)
+- ``map/objects/boxes``     : L4 object graph OBBs (timeless)
+- ``map/objects/points/{id}``: per-object detected point cloud (timeless)
+- ``map/objects/vis_edges/*``: object->keyframe visibility edges (timeless, purple)
 - ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window)
 
 Library:  visualize_map(map_manager, "out.rrd")
@@ -49,6 +51,8 @@ from utils.utils_rerun import log_world_frame_axes  # litevloc rerun utils
 _BODY_HALF = np.array([0.03, 0.03, 0.03], dtype=np.float32)
 _NODE_COLOR = np.array([[0, 180, 100]], dtype=np.uint8)
 _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
+_OBJ_PCD_COLOR = np.array([[255, 152, 150]], dtype=np.uint8)
+_OBJ_VIS_COLOR = np.array([[148, 103, 189]], dtype=np.uint8)  # object->keyframe edges
 _EDGE_COLORS = {"covis": [44, 160, 44], "odom": [31, 119, 180], "trav": [255, 127, 14]}
 _FRUSTUM_DIST = 0.75   # enlarged camera-frustum image-plane distance
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
@@ -115,12 +119,14 @@ def log_map_edges(graph, edge_type: str) -> None:
 
 
 def log_map_objects(manager) -> None:
-    """L4 object graph as oriented bounding boxes at ``map/objects`` (timeless)."""
+    """L4 object graph: OBBs at ``map/objects/boxes`` + per-object detected point
+    clouds at ``map/objects/points/{id}`` (all timeless)."""
     object_graph = manager.graphs.get("object")
     if object_graph is None or object_graph.get_num_node() == 0:
         return
     from scipy.spatial.transform import Rotation as R
 
+    root = Path(object_graph.map_root)
     centers, half_sizes, rotations, labels = [], [], [], []
     for node in object_graph.nodes.values():
         centers.append(np.asarray(node.obb.center, float).reshape(3))
@@ -128,8 +134,33 @@ def log_map_objects(manager) -> None:
         rotations.append(rr.Quaternion(
             xyzw=R.from_matrix(np.asarray(node.obb.R, float).reshape(3, 3)).as_quat()))
         labels.append(f"{node.label} {node.confidence:.2f}")
-    rr.log("map/objects", rr.Boxes3D(centers=centers, half_sizes=half_sizes,
-                                     rotations=rotations, labels=labels, colors=_OBJ_COLOR), static=True)
+        if node.pointcloud_ref:
+            pcd_path = root / node.pointcloud_ref
+            if pcd_path.exists():
+                pts = np.load(pcd_path).astype(np.float32).reshape(-1, 3)
+                rr.log(f"map/objects/points/{node.id}",
+                       rr.Points3D(pts, colors=_OBJ_PCD_COLOR, radii=0.01), static=True)
+    rr.log("map/objects/boxes", rr.Boxes3D(centers=centers, half_sizes=half_sizes,
+                                           rotations=rotations, labels=labels,
+                                           colors=_OBJ_COLOR), static=True)
+
+
+def log_object_visibility_edges(manager) -> None:
+    """object->keyframe visibility edges (each node's ``observed_keyframes``) as lines
+    from the object center to the observing keyframe body (timeless, purple)."""
+    object_graph = manager.graphs.get("object")
+    covis = manager.covis
+    if object_graph is None or covis is None or object_graph.get_num_node() == 0:
+        return
+    for node in object_graph.nodes.values():
+        oc = np.asarray(node.obb.center, float).reshape(3)
+        for kf_id, _score in node.observed_keyframes:
+            if kf_id not in covis.nodes:
+                continue
+            kc = np.asarray(covis.get_node(kf_id).trans, float).reshape(3)
+            rr.log(f"map/objects/vis_edges/{node.id}-{kf_id}",
+                   rr.LineStrips3D(strips=[np.array([oc, kc], dtype=np.float32)],
+                                   radii=0.0015, colors=_OBJ_VIS_COLOR), static=True)
 
 
 def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
@@ -156,6 +187,7 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
         if graph is not None and graph.get_num_node() > 0:
             log_map_edges(graph, edge_type)
     log_map_objects(manager)
+    log_object_visibility_edges(manager)
 
     out_path = Path(out_rrd)
     out_path.parent.mkdir(parents=True, exist_ok=True)

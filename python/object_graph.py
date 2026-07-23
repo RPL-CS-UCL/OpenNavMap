@@ -8,12 +8,13 @@ OBB fusion with pi-periodic yaw circular mean and 90-degree size alignment.
 Dual embeddings ("msgnav" visual 1024-d, "boxer" text 512-d) are each fused by a
 confidence-weighted running mean.
 """
+import itertools
 import json
 import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -29,6 +30,40 @@ from utils_object_geom import (
 DEFAULT_IOU_THRESHOLD = 0.3
 DEFAULT_EMBEDDING_THRESHOLD = 0.7
 _ID_RE = re.compile(r"obj_(\d+)")
+
+
+def _obb_world_corners(obb: OBB) -> np.ndarray:
+    """8 world-frame corners of an OBB, shape (8, 3)."""
+    signs = np.array(list(itertools.product((-1.0, 1.0), repeat=3)))
+    local = signs * (np.asarray(obb.size, float).reshape(3) / 2.0)
+    return local @ np.asarray(obb.R, float).reshape(3, 3).T + np.asarray(obb.center, float).reshape(3)
+
+
+def _visibility_score(
+    corners: np.ndarray, center: np.ndarray, T_world_cam: np.ndarray,
+    K: np.ndarray, width: int, height: int, dist_max: float,
+) -> float:
+    """Projected-OBB image-area fraction of one object in one keyframe (no occlusion).
+
+    Returns 0 if the object center is behind the camera, farther than ``dist_max``,
+    or projects fully outside the image. ``T_world_cam`` is camera->world (CV frame).
+    """
+    T_cw = np.linalg.inv(np.asarray(T_world_cam, float).reshape(4, 4))
+    c_cam = T_cw[:3, :3] @ np.asarray(center, float).reshape(3) + T_cw[:3, 3]
+    if c_cam[2] <= 1e-6 or float(np.linalg.norm(c_cam)) > dist_max:
+        return 0.0
+    cam = corners @ T_cw[:3, :3].T + T_cw[:3, 3]
+    cam = cam[cam[:, 2] > 1e-6]
+    if cam.shape[0] == 0:
+        return 0.0
+    K = np.asarray(K, float).reshape(3, 3)
+    u = cam[:, 0] * K[0, 0] / cam[:, 2] + K[0, 2]
+    v = cam[:, 1] * K[1, 1] / cam[:, 2] + K[1, 2]
+    umin, umax = np.clip((u.min(), u.max()), 0, width)
+    vmin, vmax = np.clip((v.min(), v.max()), 0, height)
+    if umax <= umin or vmax <= vmin:
+        return 0.0
+    return float((umax - umin) * (vmax - vmin) / (width * height))
 
 
 class ObjectGraph(BaseGraph):
@@ -87,6 +122,42 @@ class ObjectGraph(BaseGraph):
     def integrate_observations(self, observations: List[ObjectObservation], step: int) -> None:
         for obs in observations:
             self.integrate_observation(obs, step)
+
+    def ingest_provider_nodes(self, nodes: List[ObjectNode]) -> None:
+        """Directly add already-merged object nodes from a provider that does its own
+        cross-frame association (T1.3 msgnav direct-passthrough: layer IoU/embedding
+        merge is bypassed -- see STATUS deviation / risk 6b). Ids are renumbered obj_N
+        so they stay unique within this graph.
+        """
+        for node in nodes:
+            node.id = self._new_id()
+            node.trans = np.asarray(node.obb.center, float).reshape(3)
+            self.add_node(node)
+
+    def compute_visibility_edges(
+        self,
+        keyframes: List[Dict[str, Any]],
+        dist_max: float = 8.0,
+        min_score: float = 1e-3,
+        replace: bool = True,
+    ) -> None:
+        """Fill each object's ``observed_keyframes`` (object->keyframe visibility edge)
+        by projecting its OBB into every keyframe -- pure geometry, no occlusion test.
+
+        keyframes: ``[{"id", "T_world_cam" (4x4 cam->world, CV frame), "K" (3x3),
+        "width", "height"}]``. ``visibility_score`` = projected-OBB image-area fraction.
+        """
+        for node in self.nodes.values():
+            if replace:
+                node.observed_keyframes = []
+            corners = _obb_world_corners(node.obb)
+            center = np.asarray(node.obb.center, float).reshape(3)
+            for kf in keyframes:
+                score = _visibility_score(
+                    corners, center, kf["T_world_cam"], kf["K"],
+                    int(kf["width"]), int(kf["height"]), dist_max)
+                if score >= min_score:
+                    node.observed_keyframes.append((int(kf["id"]), round(float(score), 4)))
 
     def _merge_into(self, node: ObjectNode, obs: ObjectObservation, obs_yaw: float, step: int) -> None:
         node.num_observations += 1
