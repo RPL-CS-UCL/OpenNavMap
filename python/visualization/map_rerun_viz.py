@@ -1,16 +1,13 @@
 #! /usr/bin/env python
 """Rerun (.rrd) visualization for an OpenNavMap map session.
 
-Visualizes the keyframe graph (covis/odom/trav trajectory + edges) and the L4
-object graph (oriented bounding boxes with label/confidence) into a single Rerun
-recording saved as .rrd (open with `rerun <file>.rrd`).
+Keyframes are logged as ``rr.Transform3D`` (pose axes) on a ``time`` timeline
+using each node's timestamp; graph edges appear at their later endpoint's
+timestamp (so a time-scrubbed replay shows the map being built). The L4 object
+graph is drawn as oriented bounding boxes. Saved as .rrd (open with `rerun x.rrd`).
 
-Usage as a library:
-    from map_rerun_viz import visualize_map
-    visualize_map(map_manager, "outputs/viz/map.rrd")
-
-Usage as a standalone program (load a stored map, then visualize):
-    python -m visualization.map_rerun_viz --map <map_dir> --out <file>.rrd
+Library:  visualize_map(map_manager, "out.rrd")
+CLI:      python -m visualization.map_rerun_viz --map <map_dir> --out <file>.rrd
 """
 import argparse
 import ctypes
@@ -34,44 +31,55 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # 
 _EDGE_COLORS = {"odom": [31, 119, 180], "covis": [44, 160, 44], "trav": [255, 127, 14]}
 
 
-def _positions(graph):
-    return {nid: np.asarray(node.trans, float).reshape(3) for nid, node in graph.nodes.items()}
+def _node_time(node, fallback) -> float:
+    return float(getattr(node, "time", fallback))
 
 
-def _edge_strips(graph, pos):
-    strips, seen = [], set()
-    for nid, node in graph.nodes.items():
-        for neighbor, _w in node.edges.values():
-            key = (min(str(nid), str(neighbor.id)), max(str(nid), str(neighbor.id)))
-            if key in seen or nid not in pos or neighbor.id not in pos:
-                continue
-            seen.add(key)
-            strips.append([pos[nid].tolist(), pos[neighbor.id].tolist()])
-    return strips
-
-
-def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
-    """Log the map (keyframe graph + object graph) to a Rerun .rrd file."""
+def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap", axis_length: float = 0.5) -> str:
+    """Log the map (keyframe poses + graph edges + object OBBs) to a Rerun .rrd."""
     rr.init(app_id)
 
     pos_graph = manager.odom or manager.covis
-    if pos_graph is not None and pos_graph.get_num_node() > 0:
-        pos = _positions(pos_graph)
-        ordered = np.array([pos[i] for i in sorted(pos, key=str)])
-        rr.log("world/keyframes", rr.Points3D(ordered, radii=0.04, colors=[80, 80, 80]))
-        rr.log("world/trajectory", rr.LineStrips3D([ordered.tolist()], colors=[150, 150, 150]))
+    times = {}
+    if pos_graph is not None:
+        # keyframes as pose transforms on the timeline (sorted by timestamp)
+        for nid, node in pos_graph.nodes.items():
+            times[nid] = _node_time(node, nid)
+        for nid in sorted(pos_graph.nodes, key=lambda i: times[i]):
+            node = pos_graph.get_node(nid)
+            rr.set_time_seconds("time", times[nid])
+            rr.log(
+                f"world/keyframes/{nid}",
+                rr.Transform3D(
+                    translation=np.asarray(node.trans, float).reshape(3),
+                    rotation=rr.Quaternion(xyzw=np.asarray(node.quat, float).reshape(4)),
+                    axis_length=axis_length,
+                ),
+            )
 
     for name in ("odom", "covis", "trav"):
         graph = manager.graphs.get(name)
         if graph is None or graph.get_num_node() == 0:
             continue
-        strips = _edge_strips(graph, _positions(graph))
-        if strips:
-            rr.log(f"world/edges/{name}", rr.LineStrips3D(strips, colors=_EDGE_COLORS[name]))
+        pos = {i: np.asarray(nd.trans, float).reshape(3) for i, nd in graph.nodes.items()}
+        tim = {i: _node_time(nd, i) for i, nd in graph.nodes.items()}
+        seen, edges = set(), []
+        for nid, node in graph.nodes.items():
+            for neighbor, _w in node.edges.values():
+                key = (min(str(nid), str(neighbor.id)), max(str(nid), str(neighbor.id)))
+                if key in seen:
+                    continue
+                seen.add(key)
+                edges.append((max(tim[nid], tim[neighbor.id]), nid, neighbor.id))
+        for t, a, b in sorted(edges):
+            rr.set_time_seconds("time", t)
+            rr.log(f"world/edges/{name}/{a}-{b}",
+                   rr.LineStrips3D([[pos[a].tolist(), pos[b].tolist()]], colors=_EDGE_COLORS[name]))
 
     object_graph = manager.graphs.get("object")
     if object_graph is not None and object_graph.get_num_node() > 0:
         from scipy.spatial.transform import Rotation
+        rr.set_time_seconds("time", max(times.values()) if times else 0.0)
         centers, half_sizes, rotations, labels = [], [], [], []
         for node in object_graph.nodes.values():
             centers.append(np.asarray(node.obb.center, float).reshape(3))
