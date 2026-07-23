@@ -127,23 +127,22 @@ def _log_objects(manager) -> None:
                                        rotations=rotations, labels=labels, colors=[214, 39, 40]))
 
 
-def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap", axis_length: float = 0.5) -> str:
+def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap", axis_length: float = 0.25) -> str:
     """Log the map to a Rerun .rrd with a horizontal layout: 3D map on the left,
     the current keyframe's color/depth (2D, time-aligned) stacked on the right."""
     import rerun.blueprint as rrb
+    # horizontal layout: 3D map on the left, a single color 2D image on the right
+    # (time-aligned to the current keyframe); depth stays logged but is not shown.
     blueprint = rrb.Blueprint(
         rrb.Horizontal(
             rrb.Spatial3DView(origin="/world", name="3D map"),
-            rrb.Vertical(
-                rrb.Spatial2DView(origin="/camera/color", name="color"),
-                rrb.Spatial2DView(origin="/camera/depth", name="depth"),
-            ),
-            column_shares=[2, 1],
+            rrb.Spatial2DView(origin="/camera/color", name="color"),
+            column_shares=[3, 1],
         )
     )
     rr.init(app_id, default_blueprint=blueprint)
     # world frame axes (z-up), longer than keyframe axes (2x)
-    rr.log("world", rr.Transform3D(axis_length=2.0 * axis_length), static=True)
+    rr.log("world", rr.Transform3D(axis_length=3.0 * axis_length), static=True)
     _log_keyframes(manager, axis_length)
     _log_edges(manager)
     _log_objects(manager)
