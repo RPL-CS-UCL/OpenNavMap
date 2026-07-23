@@ -174,6 +174,25 @@ class MapManager:
 		num_node = sum([graph.get_num_node() for graph in self._graphs.values()])
 		return not (num_node > 0)
 
+def load_map(map_root: Path) -> 'MapManager':
+	"""Best-effort reload of a stored map session (T1.4).
+
+	Detects which graphs are present on disk (odom/trav always attempted;
+	covis if `intrinsics.txt` exists; object if `objects.json` exists) and
+	reconstructs a fully-populated MapManager, mirroring `save_to_file`.
+	"""
+	map_root = Path(map_root)
+	manager = MapManager(map_root)
+	configs = {'odom': {}, 'trav': {}}
+	if (map_root / 'intrinsics.txt').exists():
+		configs['covis'] = {'resize': None, 'depth_scale': 1.0,
+			'load_rgb': False, 'load_depth': False, 'normalized': False}
+	if (map_root / 'objects.json').exists():
+		configs['object'] = {}
+	manager.load_graphs(configs)
+	return manager
+
+
 class TestMapManager():
 	def __init__(self):
 		pass
