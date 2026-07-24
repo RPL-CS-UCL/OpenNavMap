@@ -97,6 +97,7 @@ Clone with submodules and set up environment (NVIDIA GeForce RTX 4090 and CUDA 1
 ```bash
 git clone --recurse-submodules https://github.com/RPL-CS-UCL/OpenNavMap.git
 cd OpenNavMap
+git remote set-url origin git@github.com:RPL-CS-UCL/OpenNavMap.git
 conda install pytorch=2.0.1 torchvision=0.15.2 pytorch-cuda=11.8 numpy=1.24.3 -c pytorch -c nvidia
 pip install -r requirements.txt
 pip install -e third_party/vismatch
