@@ -17,7 +17,9 @@ Entities:
 - ``map/objects/centers``   : object OBB geometric centers (timeless)
 - ``map/objects/points/{id}``: per-object detected point cloud (timeless)
 - ``map/objects/vis_edges/*``: object-center -> keyframe visibility edges (timeless, red)
-- ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window)
+- ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window);
+                             rgb has visible objects' projected 3D OBB wireframes + type
+                             labels drawn on it via OpenCV (clipped to the original WxH)
 
 Library:  visualize_map(map_manager, "out.rrd")
 CLI:      python -m visualization.map_rerun_viz --map <map_dir> --out <file>.rrd
@@ -59,6 +61,20 @@ _FRUSTUM_DIST = 0.75   # enlarged camera-frustum image-plane distance
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
 _TIMELINE = "node_time"
 
+# OBB local-corner signs (bottom face 0-3 at -z, top face 4-7 at +z), and a
+# single-stroke vertex order that traces all 12 edges (some repeated) so each box
+# projects to one labelled LineStrips2D strip.
+_OBB_SIGNS = np.array([
+    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+    [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
+], dtype=float)
+_OBB_STROKE = [0, 1, 2, 3, 0, 4, 5, 1, 5, 6, 2, 6, 7, 3, 7, 4]
+# Distinct overlay colors cycled per visible object (bright on rgb).
+_OBB_PALETTE = np.array([
+    [255, 214, 0], [0, 229, 255], [124, 252, 0], [255, 105, 180],
+    [255, 128, 0], [0, 255, 128], [180, 120, 255], [255, 80, 80],
+], dtype=np.uint8)
+
 
 def _load_rgb(path: Path):
     img = cv2.imread(str(path))
@@ -73,10 +89,15 @@ def _node_time(node, fallback) -> float:
     return float(getattr(node, "time", fallback))
 
 
-def log_map_nodes(covis) -> None:
-    """Per-keyframe frustum + body cube + rgb/depth panels, on the node_time timeline."""
+def log_map_nodes(covis, visible: "dict | None" = None) -> None:
+    """Per-keyframe frustum + body cube + rgb/depth panels, on the node_time timeline.
+
+    If ``visible`` (kf_id -> [object node, ...]) is given, each visible object's 3D
+    OBB is projected and drawn onto the rgb with OpenCV (clipped to the image, so
+    the logged rgb keeps its original size) before logging."""
     from scipy.spatial.transform import Rotation as R
 
+    visible = visible or {}
     root = Path(covis.map_root)
     for nid in sorted(covis.nodes, key=lambda i: _node_time(covis.get_node(i), i)):
         node = covis.get_node(nid)
@@ -92,6 +113,7 @@ def log_map_nodes(covis) -> None:
         rr.log(entity + "/body", rr.Boxes3D(half_sizes=[_BODY_HALF], colors=_NODE_COLOR))
         rgb = _load_rgb(root / node.rgb_img_name)
         if rgb is not None:
+            rgb = _draw_obb_on_image(rgb, visible.get(nid, []), node)
             rr.log("camera/color", rr.Image(rgb))
         depth = _load_depth(root / node.depth_img_name)
         if depth is not None:
@@ -149,6 +171,62 @@ def log_map_objects(manager) -> None:
            rr.Points3D(centers, colors=_OBJ_COLOR, radii=0.05), static=True)
 
 
+def _obb_world_corners(obb) -> np.ndarray:
+    """8 world-frame corners of an OBB (center/size/R), ordered per _OBB_SIGNS."""
+    center = np.asarray(obb.center, float).reshape(3)
+    half = np.asarray(obb.size, float).reshape(3) / 2.0
+    rot = np.asarray(obb.R, float).reshape(3, 3)
+    return center + (_OBB_SIGNS * half) @ rot.T
+
+
+def _project_corners(world_corners: np.ndarray, node) -> "np.ndarray | None":
+    """Project world corners into a keyframe's CV image plane. Returns 8x2 pixel
+    coords, or None if any corner is at/behind the camera (skip partial boxes)."""
+    from scipy.spatial.transform import Rotation as R
+
+    rot = R.from_quat(np.asarray(node.quat, float).reshape(4)).as_matrix()  # cam->world
+    trans = np.asarray(node.trans, float).reshape(3)
+    cam = (world_corners - trans) @ rot  # world->cam == R^T @ (p - t)
+    z = cam[:, 2]
+    if np.any(z <= 1e-3):
+        return None
+    K = np.asarray(node.K, float).reshape(3, 3)
+    uv = (K @ cam.T).T
+    return uv[:, :2] / uv[:, 2:3]
+
+
+def _visible_objects(manager) -> dict:
+    """Map kf_id -> [object node, ...] from each object's ``observed_keyframes``."""
+    object_graph = manager.graphs.get("object")
+    visible: dict = {}
+    if object_graph is None:
+        return visible
+    for node in object_graph.nodes.values():
+        for kf_id, _score in node.observed_keyframes:
+            visible.setdefault(kf_id, []).append(node)
+    return visible
+
+
+def _draw_obb_on_image(rgb: np.ndarray, objs: list, node) -> np.ndarray:
+    """Draw each object's projected 3D OBB wireframe + type label onto a copy of
+    the rgb (OpenCV clips to the image, keeping the original WxH). ``rgb`` is RGB
+    uint8; colors are passed as RGB so channels stay correct in ``rr.Image``."""
+    if not objs:
+        return rgb
+    img = np.ascontiguousarray(rgb).copy()
+    for i, obj in enumerate(objs):
+        uv = _project_corners(_obb_world_corners(obj.obb), node)
+        if uv is None:
+            continue
+        color = tuple(int(c) for c in _OBB_PALETTE[i % len(_OBB_PALETTE)])
+        pts = uv[_OBB_STROKE].round().astype(np.int32)
+        cv2.polylines(img, [pts], isClosed=False, color=color, thickness=2, lineType=cv2.LINE_AA)
+        top = uv[int(np.argmin(uv[:, 1]))]
+        org = (int(round(top[0])), max(10, int(round(top[1])) - 4))
+        cv2.putText(img, obj.label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+    return img
+
+
 def log_object_visibility_edges(manager) -> None:
     """object->keyframe visibility edges (each node's ``observed_keyframes``) as red
     lines from the object OBB center to the observing keyframe body (timeless)."""
@@ -185,7 +263,7 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
     log_world_frame_axes(length=1.5)
     covis = manager.covis
     if covis is not None and covis.get_num_node() > 0:
-        log_map_nodes(covis)
+        log_map_nodes(covis, _visible_objects(manager))
     for edge_type in ("covis", "odom", "trav"):
         graph = manager.graphs.get(edge_type)
         if graph is not None and graph.get_num_node() > 0:
