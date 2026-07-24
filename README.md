@@ -120,23 +120,29 @@ All evaluation data used in the paper are released on Google Drive. **All human 
 
 **🔗 [Download from Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-)**
 
-The release mirrors the expected local layout under `data_opennavmap/`. Each benchmark is packed as a single `.7z` archive:
+The release mirrors the expected local layout under `data_opennavmap/`. Each item is packed as its own `.7z` archive. For **map merging** (`map_multisession_eval`), every data folder is packed separately so you can download only what you need (`s00000_orders.txt` travels with the `s00000_aria_data_390` archive of the same site).
 
 | Archive | Content | Size |
 |---------|---------|------|
 | `map_free_eval/ucl_campus_aria.7z` | Map-free relocalization test set — UCL Campus (Aria) | ~60 MB |
 | `map_free_eval/360loc_aria.7z` | Map-free relocalization test set — 360Loc (Aria) | ~124 MB |
 | `vpr_eval/ucl_campus.7z` | Visual place recognition query/database — UCL Campus | ~250 MB |
-| `map_multisession_eval/hkust_campus_and_vineyard.7z` | Multi-session mapping submaps — HKUST Campus + Vineyard | ~2.7 GB |
-| `map_multisession_eval/ucl_campus_aria.7z` | Multi-session mapping submaps — UCL Campus (Aria) | ~14 GB |
-| `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` | **Map-merging small subset** — UCL Campus culling submaps (quick start) | ~73 MB |
+| `map_multisession_eval/ucl_campus_aria/s00000_aria_data_000.7z` | Map merging — UCL Campus, session 000 | ~11 GB |
+| `map_multisession_eval/ucl_campus_aria/s00000_aria_data_390.7z` | Map merging — UCL Campus, session 390 (+ `s00000_orders.txt`) | ~330 MB |
+| `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_000.7z` | Map merging — UCL Campus, culling exp. 000 | ~2.4 GB |
+| `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` | Map merging — UCL Campus, culling exp. 390 (**small subset / quick start**) | ~73 MB |
+| `map_multisession_eval/hkust_campus/s00000_aria_data_000.7z` | Map merging — HKUST Campus, session 000 | ~2.1 GB |
+| `map_multisession_eval/hkust_campus/s00000_aria_data_390.7z` | Map merging — HKUST Campus, session 390 (+ `s00000_orders.txt`) | ~46 MB |
+| `map_multisession_eval/hkust_campus/s00001_fp_data.7z` | Map merging — HKUST Campus, false-positive data | ~82 MB |
+| `map_multisession_eval/vineyard/s00000_aria_data_000.7z` | Map merging — Vineyard, session 000 | ~440 MB |
+| `map_multisession_eval/vineyard/s00000_aria_data_390.7z` | Map merging — Vineyard, session 390 (+ `s00000_orders.txt`) | ~16 MB |
 
 ### Map Merging Evaluation: Full Dataset vs. Small Subset
 
 For the **multi-session map-merging evaluation** (`map_multisession_eval`) you can choose one of two options:
 
-- **Full dataset** — download both `map_multisession_eval/hkust_campus_and_vineyard.7z` (~2.7 GB) and `map_multisession_eval/ucl_campus_aria.7z` (~14 GB) to reproduce all UCL Campus, HKUST Campus, and Vineyard results.
-- **Small subset (quick start, recommended for a first try)** — download only `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` (~73 MB). It contains the UCL Campus `s00003_exp_culling_aria_data_390` submaps, which are enough to run and inspect the map-merging pipeline without the full ~17 GB download.
+- **Full dataset** — download all `map_multisession_eval/{ucl_campus_aria,hkust_campus,vineyard}/*.7z` archives to reproduce every UCL Campus, HKUST Campus, and Vineyard result. Since each data folder is a separate archive, you can also fetch just one site (e.g. only the Vineyard or HKUST archives).
+- **Small subset (quick start, recommended for a first try)** — download only `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` (~73 MB). It contains the UCL Campus `s00003_exp_culling_aria_data_390` submaps, which are enough to run and inspect the map-merging pipeline without downloading the full dataset.
 
 ```bash
 # Small-subset quick start (map merging only) — ~73 MB
@@ -157,7 +163,7 @@ gdown --folder https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO
 
 # 3. Extract every archive in place (each archive already carries its sub-path)
 cd data_release
-for f in map_free_eval/*.7z vpr_eval/*.7z map_multisession_eval/*.7z; do
+for f in map_free_eval/*.7z vpr_eval/*.7z map_multisession_eval/*/*.7z; do
     7z x "$f" -o"$(dirname "$f")"
 done
 ```
