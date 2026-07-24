@@ -5,7 +5,7 @@
 [submodule "third_party/VPR-methods-evaluation"]
 	path = third_party/VPR-methods-evaluation
 	url = git@github.com:gogojjh/VPR-methods-evaluation.git
-	branch = opennavmap-py38
+	branch = master
 [submodule "third_party/litevloc_code"]
 	path = third_party/litevloc_code
 	url = git@github.com:RPL-CS-UCL/litevloc_code.git
