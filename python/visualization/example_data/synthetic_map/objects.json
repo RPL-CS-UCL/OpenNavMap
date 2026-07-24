@@ -1,0 +1,163 @@
+{
+  "schema_version": "2.0",
+  "edge_type": "object",
+  "embedding_dims": {
+    "msgnav": 4,
+    "boxer": 3
+  },
+  "objects": [
+    {
+      "id": "obj_0",
+      "label": "chair",
+      "obb": {
+        "center": [
+          1.5,
+          0.4,
+          1.0
+        ],
+        "size": [
+          0.6,
+          0.6,
+          0.8
+        ],
+        "R": [
+          0.955336489125606,
+          -0.29552020666133955,
+          0.0,
+          0.29552020666133955,
+          0.955336489125606,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "embeddings": {
+        "msgnav": [
+          1.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "boxer": [
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "confidence": 0.9,
+      "last_verified_step": 0,
+      "provider": "mock",
+      "pointcloud_ref": null,
+      "observed_keyframes": [
+        [
+          0,
+          0.5
+        ]
+      ],
+      "num_observations": 1
+    },
+    {
+      "id": "obj_1",
+      "label": "table",
+      "obb": {
+        "center": [
+          3.0,
+          0.3,
+          -0.5
+        ],
+        "size": [
+          0.6,
+          0.6,
+          0.8
+        ],
+        "R": [
+          0.955336489125606,
+          -0.29552020666133955,
+          0.0,
+          0.29552020666133955,
+          0.955336489125606,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "embeddings": {
+        "msgnav": [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        "boxer": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      "confidence": 0.9,
+      "last_verified_step": 0,
+      "provider": "mock",
+      "pointcloud_ref": null,
+      "observed_keyframes": [
+        [
+          1,
+          0.5
+        ]
+      ],
+      "num_observations": 1
+    },
+    {
+      "id": "obj_2",
+      "label": "sofa",
+      "obb": {
+        "center": [
+          5.0,
+          0.5,
+          0.8
+        ],
+        "size": [
+          0.6,
+          0.6,
+          0.8
+        ],
+        "R": [
+          0.955336489125606,
+          -0.29552020666133955,
+          0.0,
+          0.29552020666133955,
+          0.955336489125606,
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "embeddings": {
+        "msgnav": [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        "boxer": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "confidence": 0.9,
+      "last_verified_step": 0,
+      "provider": "mock",
+      "pointcloud_ref": null,
+      "observed_keyframes": [
+        [
+          2,
+          0.5
+        ]
+      ],
+      "num_observations": 1
+    }
+  ]
+}
