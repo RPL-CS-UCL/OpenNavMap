@@ -47,6 +47,7 @@ The repository consists of three main lines:
 
 | Time | Update |
 |---------|--------|
+| 2026/07 | 📦 Evaluation datasets released on [Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-) (map-free relocalization, VPR, and multi-session mapping; faces anonymized). See [Testing Data](#-testing-data). |
 | 2026/07 | Full codebase released: multi-session mapping, submap merging, and benchmark. |
 | | Third-party libraries also published: |
 | | • [litevloc_code](https://github.com/RPL-CS-UCL/litevloc_code) — visual localization (global VPR → local matching → pose solving) |
@@ -64,6 +65,7 @@ The repository consists of three main lines:
 - [🏠 Introduction](#-introduction)
 - [🔥 News](#-news)
 - [🛠️ Getting Started](#-getting-started)
+- [📦 Testing Data](#-testing-data)
 - [📚 Documentation](#-documentation)
 - [📊 Multi-Session Mapping Benchmark](#-multi-session-mapping-benchmark)
 - [🎬 Results Gallery](#-results-gallery)
@@ -109,6 +111,54 @@ Verify torch installation:
 ```bash
 python test_torch_install.py
 ```
+
+---
+
+## 📦 Testing Data
+
+All evaluation data used in the paper are released on Google Drive. **All human faces in the released imagery are automatically anonymized (blurred).**
+
+**🔗 [Download from Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-)**
+
+The release mirrors the expected local layout under `data_opennavmap/`. Each benchmark is packed as a single `.7z` archive:
+
+| Archive | Content | Size |
+|---------|---------|------|
+| `map_free_eval/ucl_campus_aria.7z` | Map-free relocalization test set — UCL Campus (Aria) | ~60 MB |
+| `map_free_eval/360loc_aria.7z` | Map-free relocalization test set — 360Loc (Aria) | ~124 MB |
+| `vpr_eval/ucl_campus.7z` | Visual place recognition query/database — UCL Campus | ~250 MB |
+| `map_multisession_eval/hkust_campus_and_vineyard.7z` | Multi-session mapping submaps — HKUST Campus + Vineyard | ~2.7 GB |
+| `map_multisession_eval/ucl_campus_aria.7z` | Multi-session mapping submaps — UCL Campus (Aria) | ~14 GB |
+
+### Download & Extract
+
+```bash
+# 1. Install the downloader and 7-Zip
+pip install gdown
+sudo apt install -y p7zip-full
+
+# 2. Download the whole release folder (preserves the directory layout)
+gdown --folder https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-
+
+# 3. Extract every archive in place (each archive already carries its sub-path)
+cd data_release
+for f in map_free_eval/*.7z vpr_eval/*.7z map_multisession_eval/*.7z; do
+    7z x "$f" -o"$(dirname "$f")"
+done
+```
+
+After extraction the data are organized as follows (mirrors the layout expected by the pipelines):
+
+```
+data_release/
+├── map_free_eval/           # map-free relocalization: ucl_campus_aria/, 360loc_aria/
+├── vpr_eval/                # visual place recognition: ucl_campus/
+└── map_multisession_eval/   # multi-session mapping: ucl_campus_aria/, hkust_campus/, vineyard/
+```
+
+> **Privacy note:** Faces are blurred with [BlurryFaces](https://github.com/asmaamirkhan/BlurryFaces) (see `scripts/blur_seq_blurryfaces.py`). Results (`*_results_*`, `*_sfm_*`, `scene_stat`, `.rrd` visualizations) are **not** included in the release — only the raw benchmark inputs.
+
+The map data format (`poses.txt`, `intrinsics.txt`, `edges_*.txt`, `database_descriptors.txt`, …) is documented in [Instruction in Processing Dataset](docs/instruction_dataset.md).
 
 ---
 
