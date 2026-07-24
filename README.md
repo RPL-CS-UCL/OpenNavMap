@@ -129,6 +129,21 @@ The release mirrors the expected local layout under `data_opennavmap/`. Each ben
 | `vpr_eval/ucl_campus.7z` | Visual place recognition query/database — UCL Campus | ~250 MB |
 | `map_multisession_eval/hkust_campus_and_vineyard.7z` | Multi-session mapping submaps — HKUST Campus + Vineyard | ~2.7 GB |
 | `map_multisession_eval/ucl_campus_aria.7z` | Multi-session mapping submaps — UCL Campus (Aria) | ~14 GB |
+| `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` | **Map-merging small subset** — UCL Campus culling submaps (quick start) | ~73 MB |
+
+### Map Merging Evaluation: Full Dataset vs. Small Subset
+
+For the **multi-session map-merging evaluation** (`map_multisession_eval`) you can choose one of two options:
+
+- **Full dataset** — download both `map_multisession_eval/hkust_campus_and_vineyard.7z` (~2.7 GB) and `map_multisession_eval/ucl_campus_aria.7z` (~14 GB) to reproduce all UCL Campus, HKUST Campus, and Vineyard results.
+- **Small subset (quick start, recommended for a first try)** — download only `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` (~73 MB). It contains the UCL Campus `s00003_exp_culling_aria_data_390` submaps, which are enough to run and inspect the map-merging pipeline without the full ~17 GB download.
+
+```bash
+# Small-subset quick start (map merging only) — ~73 MB
+pip install gdown
+gdown 1uwDi2CgxV8GqZMTFuEfUD_pCm-taU0M9   # s00003_exp_culling_aria_data_390.7z
+7z x s00003_exp_culling_aria_data_390.7z -o map_multisession_eval/ucl_campus_aria/
+```
 
 ### Download & Extract
 
