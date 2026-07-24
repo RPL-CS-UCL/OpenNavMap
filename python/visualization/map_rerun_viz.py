@@ -15,6 +15,9 @@ Entities:
 - ``map/edges/{type}/{a}-{b}`` : color-coded edges appearing at the later endpoint
 - ``map/objects/boxes``     : L4 object graph OBBs (timeless)
 - ``map/objects/centers``   : object OBB geometric centers (timeless)
+- ``map/objects/labels/{id}``: per-object category+confidence text above each box
+                             (one single-instance Points3D each so rerun 0.17 renders
+                             it as always-on 3D text, not a hover-only marker; timeless)
 - ``map/objects/points/{id}``: per-object detected point cloud (timeless)
 - ``map/objects/vis_edges/*``: object-center -> keyframe visibility edges (timeless, red)
 - ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window);
@@ -138,7 +141,7 @@ def log_map_edges(graph, edge_type: str) -> None:
         rr.set_time_seconds(_TIMELINE, t)
         rr.log(f"map/edges/{edge_type}/{a}-{b}",
                rr.LineStrips3D(strips=[np.array([pos[a], pos[b]], dtype=np.float32)],
-                               radii=0.0025, colors=color))
+                               radii=0.01, colors=color))
 
 
 def log_map_objects(manager) -> None:
@@ -150,13 +153,22 @@ def log_map_objects(manager) -> None:
     from scipy.spatial.transform import Rotation as R
 
     root = Path(object_graph.map_root)
-    centers, half_sizes, rotations, labels = [], [], [], []
+    centers, half_sizes, rotations = [], [], []
     for node in object_graph.nodes.values():
-        centers.append(np.asarray(node.obb.center, float).reshape(3))
-        half_sizes.append(np.asarray(node.obb.size, float).reshape(3) / 2.0)
+        center = np.asarray(node.obb.center, float).reshape(3)
+        half = np.asarray(node.obb.size, float).reshape(3) / 2.0
+        centers.append(center)
+        half_sizes.append(half)
         rotations.append(rr.Quaternion(
             xyzw=R.from_matrix(np.asarray(node.obb.R, float).reshape(3, 3)).as_quat()))
-        labels.append(f"{node.label} {node.confidence:.2f}")
+        # Always-on category/confidence text in the 3D view: one single-instance
+        # Points3D per object, anchored just above the box top. In rerun 0.17 a
+        # single label on a single-instance entity is drawn as persistent 3D text,
+        # whereas a batched Points3D with many labels shows only hover-only markers.
+        anchor = center + np.array([0.0, 0.0, float(np.max(half)) + 0.1])
+        rr.log(f"map/objects/labels/{node.id}",
+               rr.Points3D([anchor], colors=_OBJ_COLOR, radii=0.01,
+                           labels=[f"{node.label} {node.confidence:.2f}"]), static=True)
         if node.pointcloud_ref:
             pcd_path = root / node.pointcloud_ref
             if pcd_path.exists():
@@ -164,8 +176,7 @@ def log_map_objects(manager) -> None:
                 rr.log(f"map/objects/points/{node.id}",
                        rr.Points3D(pts, colors=_OBJ_PCD_COLOR, radii=0.01), static=True)
     rr.log("map/objects/boxes", rr.Boxes3D(centers=centers, half_sizes=half_sizes,
-                                           rotations=rotations, labels=labels,
-                                           colors=_OBJ_COLOR), static=True)
+                                           rotations=rotations, colors=_OBJ_COLOR), static=True)
     # OBB geometric centers -- the endpoint that object->keyframe edges connect to.
     rr.log("map/objects/centers",
            rr.Points3D(centers, colors=_OBJ_COLOR, radii=0.05), static=True)
@@ -249,13 +260,13 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
     """Log the map to a Rerun .rrd: 3D map on top, rgb/depth horizontal window below."""
     rr.init(app_id, spawn=False)
     rr.send_blueprint(rrb.Blueprint(
-        rrb.Vertical(
+        rrb.Horizontal(
             rrb.Spatial3DView(name="OpenNavMap", origin="/"),
-            rrb.Horizontal(
+            rrb.Vertical(
                 rrb.Spatial2DView(name="rgb", origin="/camera/color"),
                 rrb.Spatial2DView(name="depth", origin="/camera/depth"),
             ),
-            row_shares=[3, 1],
+            column_shares=[3.5, 1],
         ),
         auto_space_views=False,
     ))
