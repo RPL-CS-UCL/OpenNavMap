@@ -47,6 +47,7 @@ The repository consists of three main lines:
 
 | Time | Update |
 |---------|--------|
+| 2026/07 | 📦 Evaluation datasets released on [Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-) (map-free relocalization, VPR, and multi-session mapping; faces anonymized). See [Testing Data](#-testing-data). |
 | 2026/07 | Full codebase released: multi-session mapping, submap merging, and benchmark. |
 | | Third-party libraries also published: |
 | | • [litevloc_code](https://github.com/RPL-CS-UCL/litevloc_code) — visual localization (global VPR → local matching → pose solving) |
@@ -64,6 +65,7 @@ The repository consists of three main lines:
 - [🏠 Introduction](#-introduction)
 - [🔥 News](#-news)
 - [🛠️ Getting Started](#-getting-started)
+- [📦 Testing Data](#-testing-data)
 - [📚 Documentation](#-documentation)
 - [📊 Multi-Session Mapping Benchmark](#-multi-session-mapping-benchmark)
 - [🎬 Results Gallery](#-results-gallery)
@@ -112,18 +114,40 @@ python test_torch_install.py
 
 ---
 
+## 📦 Testing Data
+
+We release all evaluation datasets used in the paper on Google Drive (a 19 km,
+multi-site, cross-device collection; **all human faces are anonymized**). Each
+released dataset corresponds to one experiment:
+
+| Dataset | Paper experiment |
+|---------|------------------|
+| `vpr_eval` | Topological localization |
+| `map_free_eval` | Metric localization |
+| `map_multisession_eval` | Multi-session map merging |
+
+**🔗 [Download from Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-)**
+
+See **[Benchmark Evaluation](docs/instruction_benchmark_evaluation.md)** for the full
+archive list, the small-subset quick start, download/extract commands, test-time
+(temporal/spatial) coverage, and how to run each benchmark. The map data format is
+documented in [Instruction in Processing Dataset](docs/instruction_dataset.md).
+
+---
+
 ## 📚 Documentation
 
 **OpenNavMap:**
 1. [Instruction in Running Map Merging](docs/instruction_map_merging.md)
 2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
-3. [Instruction in Data Collection (Project Aria)](docs/instruction_data_collection.md)
+3. [Benchmark Evaluation (datasets ↔ experiments, how to run)](docs/instruction_benchmark_evaluation.md)
+4. [Instruction in Data Collection (Project Aria)](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_data_collection.md)
 
 **LiteVLoc submodule (`third_party/litevloc_code`):**
 
-5. [Instruction in Running LiteVLoc with Offline Data](docs/instruction_vloc_data.md)
-6. [Instruction in Running Visual Navigation with Simulated Matterport3d](docs/instruction_vnav_simu_matterport3d.md)
-7. [Instruction in Running Visual Navigation with Real Robots](docs/instruction_vnav_real_robot.md)
+5. [Instruction in Running LiteVLoc with Offline Data](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vloc_data.md)
+6. [Instruction in Running Visual Navigation with Simulated Matterport3d](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_simu_matterport3d.md)
+7. [Instruction in Running Visual Navigation with Real Robots](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_real_robot.md)
 
 **Additional:**
 8. [Repo Structure Guide](docs/repo_structure_brief.md)
