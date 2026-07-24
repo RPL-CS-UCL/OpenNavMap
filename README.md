@@ -167,13 +167,13 @@ The map data format (`poses.txt`, `intrinsics.txt`, `edges_*.txt`, `database_des
 **OpenNavMap:**
 1. [Instruction in Running Map Merging](docs/instruction_map_merging.md)
 2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
-3. [Instruction in Data Collection (Project Aria)](docs/instruction_data_collection.md)
+3. [Instruction in Data Collection (Project Aria)](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_data_collection.md)
 
 **LiteVLoc submodule (`third_party/litevloc_code`):**
 
-5. [Instruction in Running LiteVLoc with Offline Data](docs/instruction_vloc_data.md)
-6. [Instruction in Running Visual Navigation with Simulated Matterport3d](docs/instruction_vnav_simu_matterport3d.md)
-7. [Instruction in Running Visual Navigation with Real Robots](docs/instruction_vnav_real_robot.md)
+5. [Instruction in Running LiteVLoc with Offline Data](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vloc_data.md)
+6. [Instruction in Running Visual Navigation with Simulated Matterport3d](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_simu_matterport3d.md)
+7. [Instruction in Running Visual Navigation with Real Robots](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_real_robot.md)
 
 **Additional:**
 8. [Repo Structure Guide](docs/repo_structure_brief.md)
