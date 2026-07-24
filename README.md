@@ -67,7 +67,7 @@ The repository consists of three main lines:
 - [🛠️ Getting Started](#-getting-started)
 - [📦 Testing Data](#-testing-data)
 - [📚 Documentation](#-documentation)
-- [📊 Multi-Session Mapping Benchmark](#-multi-session-mapping-benchmark)
+- [📊 Multi-Session Mapping Experiment](#-multi-session-mapping-experiment)
 - [🎬 Results Gallery](#-results-gallery)
 - [🐛 Known Issues](#-known-issues)
 - [🔗 Citation](#-citation)
@@ -154,45 +154,21 @@ documented in [Instruction in Processing Dataset](docs/instruction_dataset.md).
 
 ---
 
-## 📊 Multi-Session Mapping Benchmark
+## 📊 Multi-Session Mapping Experiment
 
-We provide a pure Python benchmark under `python/benchmark_mms/` to demonstrate the navigation benefit of multi-session mapping compared with single-session mapping.
-
-The benchmark uses a real OpenStreetMap occupancy grid and simulates 10 crowdsourced mapping sessions. It evaluates spatial coverage growth, goal reachability improvement, path optimality improvement, and long-term map update behavior under dynamic obstacles.
-
-Run:
+Run the multi-session mapping and submap-merging experiment on the released
+`map_multisession_eval` data (see [Testing Data](#-testing-data)):
 
 ```bash
 conda activate opennavmap
-python python/benchmark_mms/multisession_sim_osm.py
+bash scripts/run_map_merging.sh <SCENE> <ORDER> <METHOD> <POSE_EST> [IQA] [IG] [TD] [MAX_SUBMAPS]
 ```
 
-Generated outputs are saved to:
-
-```bash
-python/benchmark_mms/output/
-```
-
-The detailed experimental specification is documented in:
-
-```bash
-python/benchmark_mms/REQUIREMENTS.md
-```
-
-The plotting code uses the project font helper `python/utils/utils_setting_color_font.py`, which enables Matplotlib LaTeX rendering (`usetex=True`). Make sure LaTeX is available:
-
-```bash
-which latex
-which pdflatex
-which dvipng
-```
-
-If missing:
-
-```bash
-apt update
-apt install -y texlive-latex-base texlive-latex-recommended texlive-fonts-recommended dvipng cm-super
-```
+The pipeline incrementally aligns submaps into a globally consistent map
+(topological localization → metric localization → PGO → node culling) and reports
+the ATE against ground truth. See [Instruction in Running Map Merging](docs/instruction_map_merging.md)
+for the full argument reference, and [Benchmark Evaluation](docs/instruction_benchmark_evaluation.md)
+for how each released dataset maps to a paper experiment.
 
 ---
 

@@ -41,7 +41,7 @@ process_model() {
 	local top_k="$2"
 	echo "Processing model: $MODEL"
 	echo "Loading dataset from $DATASET_PATH"
-	python "$PROJECT_PATH/third_party/litevloc_code/python/benchmark_rpe/submission.py" \
+	python "$PROJECT_PATH/python/benchmark_rpe/submission.py" \
 		--config "$CONFIG_FILE" \
 		--models "$MODEL" \
 		--out_dir "$OUT_DIR" \

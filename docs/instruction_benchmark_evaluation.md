@@ -122,16 +122,18 @@ Precision@`[100 cm, 10°]` and AUC as a function of the number of reference imag
 HLoc (DISK+LG / SP+LG), VPR (CosPlace/NetVLAD), Reloc3R, DUSt3R, and MASt3R; our
 method uses a GFM (DUSt3R/MASt3R) with confidence-map calibration.
 
+Run the relative-pose-estimation (RPE) benchmark, which evaluates all baselines
+over the Map-Free-format data and writes per-model submissions:
+
 ```bash
-# LiteVLoc offline localization (metric stage)
-PYTHONPATH=$(pwd)/third_party/litevloc_code/python \
-python third_party/litevloc_code/python/loc_pipeline.py \
-    --map_path <path>/map_free_eval/<dataset>/map_free_eval/test/<sXXXXX> \
-    --query_data_path <path>/map_free_eval/<dataset>/map_free_eval/test/<sXXXXX> \
-    --image_size 512 288 --device cuda \
-    --vpr_method cosplace --vpr_backbone ResNet18 --vpr_descriptors_dimension 256 \
-    --img_matcher master --pose_solver pnp
+# Metric-localization benchmark (all baselines, swept over the number of reference images)
+bash scripts/run_benchmark_rpe_submission.sh <DATASET_NAME> <SPLIT>
+#   DATASET_NAME: ucl_campus_aria | 360loc_aria | 360loc_phone | 360loc_vehicle | mapfree | hkustgz_campus | matterport3d
+#   SPLIT:        train | val | test
 ```
+
+The benchmark code lives in `python/benchmark_rpe/`; results are written to
+`<map_free_eval>/<DATASET_NAME>/map_free_eval/results_rpe/`.
 
 Each `test/sXXXXX` contains `seq0/` (reference, identity pose) and `seq1/` (queries,
 poses relative to the reference) plus `poses.txt`, `intrinsics.txt`. See the
