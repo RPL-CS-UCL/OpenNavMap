@@ -89,6 +89,21 @@ map_root/
 - world-to-camera：$R(q), t$ 将世界坐标系点变换到相机坐标系，即 $Rp + t$
 - `seq0/frame_00000.jpg` 恒为 identity pose；query 帧位姿相对于参考帧给出
 
+## 数据发布与评测对应
+
+评测数据发布在 Google Drive（[data_release 文件夹](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-)，人脸已脱敏），三个数据集分别对应论文实验：
+
+| 数据集 | 论文实验 | 任务 | 主要指标 |
+|--------|----------|------|----------|
+| `vpr_eval` | Exp 1 — Topological Localization | 参考地图上的位置检索/回环 | Precision@1、Recall@1 @ `[7.5m,75°]` |
+| `map_free_eval` | Exp 1 — Metric Localization | query 相对参考图的 6-DoF 位姿（Map-Free 格式） | Precision@`[100cm,10°]`、AUC |
+| `map_multisession_eval` | Exp 2 & 3 — Map Merging | 多会话子图合并成全局一致地图 | ATE（trans[m]/rot[deg]，RMSE） |
+
+- 发布仅含原始 benchmark 输入，剔除 `*_results_*`、`*_sfm_*`、`scene_stat`、`.rrd`。
+- `map_multisession_eval` **按单个数据文件夹分别打包**（嵌套在 place 目录下）；`s00000_orders.txt` 随同 place 的 `s00000_aria_data_390` 包；`s00003_exp_culling_aria_data_390.7z`（~73M）是 map merging 的最小快速子集。
+- 打包上传脚本：`scripts/pack_and_upload_data_release.sh`（幂等，远端已存在则跳过；经本地代理 `127.0.0.1:7897` 上传）。人脸脱敏脚本：`scripts/blur_seq_blurryfaces.py`。
+- 详见 [docs/instruction_benchmark_evaluation.md](docs/instruction_benchmark_evaluation.md)（评测方法、测试时间跨度、运行命令）。
+
 ## benchmark_map_merge
 
 - **目录命名规则**：

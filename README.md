@@ -116,70 +116,22 @@ python test_torch_install.py
 
 ## 📦 Testing Data
 
-All evaluation data used in the paper are released on Google Drive. **All human faces in the released imagery are automatically anonymized (blurred).**
+We release all evaluation datasets used in the paper on Google Drive (a 19 km,
+multi-site, cross-device collection; **all human faces are anonymized**). Each
+released dataset corresponds to one experiment:
+
+| Dataset | Paper experiment |
+|---------|------------------|
+| `vpr_eval` | Topological localization |
+| `map_free_eval` | Metric localization |
+| `map_multisession_eval` | Multi-session map merging |
 
 **🔗 [Download from Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-)**
 
-The release mirrors the expected local layout under `data_opennavmap/`. Each item is packed as its own `.7z` archive. For **map merging** (`map_multisession_eval`), every data folder is packed separately so you can download only what you need (`s00000_orders.txt` travels with the `s00000_aria_data_390` archive of the same site).
-
-| Archive | Content | Size |
-|---------|---------|------|
-| `map_free_eval/ucl_campus_aria.7z` | Map-free relocalization test set — UCL Campus (Aria) | ~60 MB |
-| `map_free_eval/360loc_aria.7z` | Map-free relocalization test set — 360Loc (Aria) | ~124 MB |
-| `vpr_eval/ucl_campus.7z` | Visual place recognition query/database — UCL Campus | ~250 MB |
-| `map_multisession_eval/ucl_campus_aria/s00000_aria_data_000.7z` | Map merging — UCL Campus, session 000 | ~11 GB |
-| `map_multisession_eval/ucl_campus_aria/s00000_aria_data_390.7z` | Map merging — UCL Campus, session 390 (+ `s00000_orders.txt`) | ~330 MB |
-| `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_000.7z` | Map merging — UCL Campus, culling exp. 000 | ~2.4 GB |
-| `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` | Map merging — UCL Campus, culling exp. 390 (**small subset / quick start**) | ~73 MB |
-| `map_multisession_eval/hkust_campus/s00000_aria_data_000.7z` | Map merging — HKUST Campus, session 000 | ~2.1 GB |
-| `map_multisession_eval/hkust_campus/s00000_aria_data_390.7z` | Map merging — HKUST Campus, session 390 (+ `s00000_orders.txt`) | ~46 MB |
-| `map_multisession_eval/hkust_campus/s00001_fp_data.7z` | Map merging — HKUST Campus, false-positive data | ~82 MB |
-| `map_multisession_eval/vineyard/s00000_aria_data_000.7z` | Map merging — Vineyard, session 000 | ~440 MB |
-| `map_multisession_eval/vineyard/s00000_aria_data_390.7z` | Map merging — Vineyard, session 390 (+ `s00000_orders.txt`) | ~16 MB |
-
-### Map Merging Evaluation: Full Dataset vs. Small Subset
-
-For the **multi-session map-merging evaluation** (`map_multisession_eval`) you can choose one of two options:
-
-- **Full dataset** — download all `map_multisession_eval/{ucl_campus_aria,hkust_campus,vineyard}/*.7z` archives to reproduce every UCL Campus, HKUST Campus, and Vineyard result. Since each data folder is a separate archive, you can also fetch just one site (e.g. only the Vineyard or HKUST archives).
-- **Small subset (quick start, recommended for a first try)** — download only `map_multisession_eval/ucl_campus_aria/s00003_exp_culling_aria_data_390.7z` (~73 MB). It contains the UCL Campus `s00003_exp_culling_aria_data_390` submaps, which are enough to run and inspect the map-merging pipeline without downloading the full dataset.
-
-```bash
-# Small-subset quick start (map merging only) — ~73 MB
-pip install gdown
-gdown 1uwDi2CgxV8GqZMTFuEfUD_pCm-taU0M9   # s00003_exp_culling_aria_data_390.7z
-7z x s00003_exp_culling_aria_data_390.7z -o map_multisession_eval/ucl_campus_aria/
-```
-
-### Download & Extract
-
-```bash
-# 1. Install the downloader and 7-Zip
-pip install gdown
-sudo apt install -y p7zip-full
-
-# 2. Download the whole release folder (preserves the directory layout)
-gdown --folder https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-
-
-# 3. Extract every archive in place (each archive already carries its sub-path)
-cd data_release
-for f in map_free_eval/*.7z vpr_eval/*.7z map_multisession_eval/*/*.7z; do
-    7z x "$f" -o"$(dirname "$f")"
-done
-```
-
-After extraction the data are organized as follows (mirrors the layout expected by the pipelines):
-
-```
-data_release/
-├── map_free_eval/           # map-free relocalization: ucl_campus_aria/, 360loc_aria/
-├── vpr_eval/                # visual place recognition: ucl_campus/
-└── map_multisession_eval/   # multi-session mapping: ucl_campus_aria/, hkust_campus/, vineyard/
-```
-
-> **Privacy note:** Faces are blurred with [BlurryFaces](https://github.com/asmaamirkhan/BlurryFaces) (see `scripts/blur_seq_blurryfaces.py`). Results (`*_results_*`, `*_sfm_*`, `scene_stat`, `.rrd` visualizations) are **not** included in the release — only the raw benchmark inputs.
-
-The map data format (`poses.txt`, `intrinsics.txt`, `edges_*.txt`, `database_descriptors.txt`, …) is documented in [Instruction in Processing Dataset](docs/instruction_dataset.md).
+See **[Benchmark Evaluation](docs/instruction_benchmark_evaluation.md)** for the full
+archive list, the small-subset quick start, download/extract commands, test-time
+(temporal/spatial) coverage, and how to run each benchmark. The map data format is
+documented in [Instruction in Processing Dataset](docs/instruction_dataset.md).
 
 ---
 
@@ -188,7 +140,8 @@ The map data format (`poses.txt`, `intrinsics.txt`, `edges_*.txt`, `database_des
 **OpenNavMap:**
 1. [Instruction in Running Map Merging](docs/instruction_map_merging.md)
 2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
-3. [Instruction in Data Collection (Project Aria)](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_data_collection.md)
+3. [Benchmark Evaluation (datasets ↔ experiments, how to run)](docs/instruction_benchmark_evaluation.md)
+4. [Instruction in Data Collection (Project Aria)](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_data_collection.md)
 
 **LiteVLoc submodule (`third_party/litevloc_code`):**
 
