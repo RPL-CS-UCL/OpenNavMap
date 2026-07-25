@@ -509,10 +509,23 @@ def _iter_unique_edges(graph):
 
 
 def _scene_confidence_maps(scene):
-	"""Return confidence maps from current pose-estimator scenes with legacy fallback."""
-	if hasattr(scene, 'conf_i') and hasattr(scene, 'conf_j'):
-		return scene.conf_i, scene.conf_j
-	return scene.weight_i, scene.weight_j
+	"""Return the confidence-TRANSFORMED weights used as loop-closure certainty.
+
+	`scene.weight_i` is `conf_trf(conf_i)`, and dust3r's default `conf='log'`
+	puts it on a log scale. `scene.conf_i` is the RAW confidence, which dust3r
+	defines as `1 + exp(x)` (`conf_mode=('exp', 1, inf)`), so every element is
+	>= 1 by construction. The two are an exponential apart.
+
+	Downstream, this value is used in two places that are both calibrated for
+	the log scale: the REFINE_CONF_THRESHOLD (0.5) / RELIABLE_CONF_THRESHOLD
+	(0.1) gates in perform_local_loc, and `update_loop_sigma = loop_sigma /
+	conf` in create_pose_graph_from_map. Reading the raw confidence makes both
+	gates unreachable -- a product of two means each >= 1 is always >= 1 -- and
+	drives the loop-closure sigma far below the intended 0.1 m floor.
+	"""
+	if hasattr(scene, 'weight_i') and hasattr(scene, 'weight_j'):
+		return scene.weight_i, scene.weight_j
+	return scene.conf_i, scene.conf_j
 
 
 def _record_graph_edges(recorder, merge_step: int, submap_id: int, edge_type: str, graph):
