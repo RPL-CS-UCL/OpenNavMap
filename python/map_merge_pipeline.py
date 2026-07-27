@@ -737,19 +737,6 @@ def compute_lm_pairwise(
 			else:
 				lm_gain_pw.append(('query', all_nodes[i], all_nodes[j], 1.0 - redu))
 
-			# DEBUG(gogojjh): Visualize the projected depth map
-			# import matplotlib.pyplot as plt
-			# fig, axs = plt.subplots(1, 2, figsize=(16, 12))
-			# im0 = axs[0].imshow(depthmaps[j].detach().cpu().numpy(), cmap='turbo')
-			# axs[0].set_title(f'Original Depth Camera {j} onto Camera {j}')
-			# plt.colorbar(im0, ax=axs[0], label='Depth')			
-			# im1 = axs[1].imshow(proj_depth_map.detach().cpu().numpy(), cmap='turbo')
-			# axs[1].set_title(f'Projected Depth of Camera {i} onto Camera {j})')
-			# plt.colorbar(im1, ax=axs[1], label='Depth')
-			# plt.tight_layout()
-			# plt.savefig(os.path.join('/Rocket_ssd/dataset/data_litevloc/map_multisession_eval/ucl_campus_aria/s00001/out_map_test/preds', f'depth_maps_{i}_to_{j}.jpg'))
-			# plt.close()
-
 	return lm_gain_pw
 
 def perform_global_loc(
@@ -892,13 +879,6 @@ def perform_global_loc(
 			warning_str = Fore.GREEN + f"Query {query_node.rgb_img_name}-DB {db_node.rgb_img_name}-Matched Kpts: {num_inlier}"
 			logging.warning(warning_str)
 
-			################# DEBUG(gogojjh): Visualize the matched keypoints
-			# save_visualization(
-			# 	to_numpy(db_node.rgb_image.permute(1, 2, 0)), to_numpy(query_node.rgb_image.permute(1, 2, 0)), 
-			# 	result['inlier_kpts0'], result['inlier_kpts1'], merger.log_dir / 'preds/match_vis', 
-			# 	query_idx
-			# )
-			#################
 			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
 				accepted_by_gv = True
@@ -1043,11 +1023,11 @@ def perform_local_loc(
 				if hasattr(merger.pose_estimator, 'get_minimum_spanning_tree'):
 					top_k_matches = len(db_names) # default: 2
 					msp_edges = merger.pose_estimator.get_minimum_spanning_tree()
-					conf_i, conf_j = _scene_confidence_maps(merger.pose_estimator.scene)
+					weight_i, weight_j = _scene_confidence_maps(merger.pose_estimator.scene)
 					for edge in msp_edges:
 						if edge[0] == top_k_matches or edge[1] == top_k_matches: # confidence of the query image
 							edge_str = f"{edge[0]}_{edge[1]}"
-							conf = (conf_i[edge_str].mean() * conf_j[edge_str].mean()).detach().cpu().item()
+							conf = (weight_i[edge_str].mean() * weight_j[edge_str].mean()).detach().cpu().item()
 
 					logging.warning(Fore.GREEN + f"{db_names[0]} {db_names[1]} - {query_name} with conf: {conf:.3f}")
 					##### Only reliable db-query pairs are considered for keyframe selection
