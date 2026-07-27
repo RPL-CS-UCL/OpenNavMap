@@ -23,6 +23,12 @@ Entities:
 - ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window);
                              rgb has visible objects' projected 3D OBB wireframes + type
                              labels drawn on it via OpenCV (clipped to the original WxH)
+- ``map/explore/frontiers``    : P3 frontier candidates (on node_time; opengoalnav
+                             ``core.explore.FrontierCandidate``-shaped objects, duck-typed
+                             so this fork stays independent of the main project)
+- ``map/explore/decision_path``: P3 agent path so far, segmented by the arbitration
+                             action that produced each step (go_to_frontier=blue,
+                             go_to_target=green), on node_time
 
 Library:  visualize_map(map_manager, "out.rrd")
 CLI:      python -m visualization.map_rerun_viz --map <map_dir> --out <file>.rrd
@@ -60,6 +66,9 @@ _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
 _OBJ_PCD_COLOR = np.array([[255, 152, 150]], dtype=np.uint8)
 _OBJ_VIS_COLOR = np.array([[255, 0, 0]], dtype=np.uint8)  # object->keyframe edges (red)
 _EDGE_COLORS = {"covis": [44, 160, 44], "odom": [31, 119, 180], "trav": [255, 127, 14]}
+_FRONTIER_COLOR = np.array([[255, 200, 0]], dtype=np.uint8)  # P3 T3.5: frontier candidates (yellow)
+_PATH_EXPLORE_COLOR = [31, 119, 180]  # P3 T3.5: go_to_frontier path segments (blue)
+_PATH_CONVERGE_COLOR = [44, 160, 44]  # P3 T3.5: go_to_target path segments (green)
 _FRUSTUM_DIST = 0.75   # enlarged camera-frustum image-plane distance
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
 _TIMELINE = "node_time"
@@ -256,7 +265,62 @@ def log_object_visibility_edges(manager) -> None:
                                    radii=0.0015, colors=_OBJ_VIS_COLOR), static=True)
 
 
-def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
+def log_frontier_candidates(frontiers: list, timestamp) -> None:
+    """P3 T3.5: log frontier candidates as points at ``map/explore/frontiers``.
+
+    Follows ``log_map_edges``'s pattern (single ``_TIMELINE`` timestamp per
+    call, not ``static=True``) so a scrub through node_time also replays how
+    the frontier set evolved. ``frontiers`` is duck-typed (``.frontier_id``,
+    ``.position``, ``.region_size``) rather than importing
+    ``core.explore.FrontierCandidate``, keeping this fork free of a reverse
+    dependency on the main opengoalnav project.
+
+    Args:
+        frontiers: frontier candidates for the current step; no-op if empty.
+        timestamp: ``_TIMELINE`` seconds to log this snapshot at.
+    """
+    if not frontiers:
+        return
+    rr.set_time_seconds(_TIMELINE, timestamp)
+    positions = [np.asarray(f.position, dtype=np.float32).reshape(3) for f in frontiers]
+    labels = [f"id={f.frontier_id} size={f.region_size}" for f in frontiers]
+    rr.log("map/explore/frontiers", rr.Points3D(positions, colors=_FRONTIER_COLOR, radii=0.06, labels=labels))
+
+
+def log_decision_path(positions: list, actions: list, timestamp) -> None:
+    """P3 T3.5: log the agent's path at ``map/explore/decision_path``, colored per segment.
+
+    ``actions[i]`` is the arbitration action that produced ``positions[i]``
+    (so the segment ``positions[i-1] -> positions[i]`` is colored by
+    ``actions[i]``); ``go_to_frontier`` segments are blue, ``go_to_target``
+    segments are green.
+
+    Args:
+        positions: agent positions so far, oldest first; no-op if fewer than 2.
+        actions: one action per position, same length and order as ``positions``.
+        timestamp: ``_TIMELINE`` seconds to log this snapshot at.
+    """
+    if len(positions) < 2:
+        return
+    rr.set_time_seconds(_TIMELINE, timestamp)
+    pts = [np.asarray(p, dtype=np.float32).reshape(3) for p in positions]
+    strips, colors = [], []
+    for i in range(1, len(pts)):
+        strips.append(np.array([pts[i - 1], pts[i]], dtype=np.float32))
+        colors.append(_PATH_CONVERGE_COLOR if actions[i] == "go_to_target" else _PATH_EXPLORE_COLOR)
+    rr.log("map/explore/decision_path",
+           rr.LineStrips3D(strips=strips, radii=0.015, colors=np.array(colors, dtype=np.uint8)))
+
+
+def visualize_map(
+    manager,
+    out_rrd: str,
+    app_id: str = "opennavmap",
+    frontiers: "list | None" = None,
+    decision_positions: "list | None" = None,
+    decision_actions: "list | None" = None,
+    explore_timestamp: float = 0.0,
+) -> str:
     """Log the map to a Rerun .rrd: 3D map on top, rgb/depth horizontal window below."""
     rr.init(app_id, spawn=False)
     rr.send_blueprint(rrb.Blueprint(
@@ -281,6 +345,10 @@ def visualize_map(manager, out_rrd: str, app_id: str = "opennavmap") -> str:
             log_map_edges(graph, edge_type)
     log_map_objects(manager)
     log_object_visibility_edges(manager)
+    if frontiers:
+        log_frontier_candidates(frontiers, explore_timestamp)
+    if decision_positions:
+        log_decision_path(decision_positions, decision_actions or [], explore_timestamp)
 
     out_path = Path(out_rrd)
     out_path.parent.mkdir(parents=True, exist_ok=True)
