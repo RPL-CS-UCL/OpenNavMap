@@ -509,19 +509,13 @@ def _iter_unique_edges(graph):
 
 
 def _scene_confidence_maps(scene):
-	"""Return the confidence-TRANSFORMED weights used as loop-closure certainty.
+	"""Return the calibrated confidence (weight) maps used as loop-closure certainty.
 
-	`scene.weight_i` is `conf_trf(conf_i)`, and dust3r's default `conf='log'`
-	puts it on a log scale. `scene.conf_i` is the RAW confidence, which dust3r
-	defines as `1 + exp(x)` (`conf_mode=('exp', 1, inf)`), so every element is
-	>= 1 by construction. The two are an exponential apart.
-
-	Downstream, this value is used in two places that are both calibrated for
-	the log scale: the REFINE_CONF_THRESHOLD (0.5) / RELIABLE_CONF_THRESHOLD
-	(0.1) gates in perform_local_loc, and `update_loop_sigma = loop_sigma /
-	conf` in create_pose_graph_from_map. Reading the raw confidence makes both
-	gates unreachable -- a product of two means each >= 1 is always >= 1 -- and
-	drives the loop-closure sigma far below the intended 0.1 m floor.
+	`conf_i`/`conf_j` is dust3r's RAW confidence (`1 + exp(x)`, always >= 1).
+	`weight_i`/`weight_j` starts as `conf_trf(conf)` (log scale) but, since this
+	project always runs with calibration enabled and no warmup, gets robustly
+	re-weighted by the reprojection residual throughout optimization. So it's
+	a residual-discounted log-confidence, not just `conf_trf(conf)`.
 	"""
 	if hasattr(scene, 'weight_i') and hasattr(scene, 'weight_j'):
 		return scene.weight_i, scene.weight_j
@@ -664,7 +658,6 @@ def _record_pgo_event(merger: MergePipeline, stage: str, event_type: str, g2o_pa
 		payload=payload,
 		artifacts={"g2o": pathlib.Path(g2o_path)},
 	)
-
 
 def _record_stage_annotation(
 	merger: MergePipeline,
