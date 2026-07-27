@@ -37,17 +37,6 @@ if not hasattr(sys, "ps1"):	matplotlib.use("Agg")
 
 ORDER_TAGS = ["in", "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]
 
-def update_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
-	if key not in edge_history:
-		assert db_row is not None or query_row is not None, "db_row and query_row must be provided"
-		value = {'action': action, 'db_row': db_row, 'query_row': query_row}
-		edge_history[key] = value
-		logging.warning(f"Add Edge history: DB {key[0]} -> Query {key[1]}: {value}")
-	else:
-		value = edge_history[key]
-		value['action'] = action
-		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
-
 class MergePipeline:
 	def __init__(self, args, log_dir: pathlib.Path):
 		self.args = args
@@ -679,9 +668,20 @@ def _record_stage_annotation(
 		subtitle=subtitle,
 	)
 		
+def update_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
+	if key not in edge_history:
+		assert db_row is not None or query_row is not None, "db_row and query_row must be provided"
+		value = {'action': action, 'db_row': db_row, 'query_row': query_row}
+		edge_history[key] = value
+		logging.warning(f"Add Edge history: DB {key[0]} -> Query {key[1]}: {value}")
+	else:
+		value = edge_history[key]
+		value['action'] = action
+		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
+
 def compute_lm_pairwise(
-	db_nodes, 
-	query_node, 
+	db_nodes,
+	query_node,
 	estimator,
 	device
 ) -> Dict[Tuple[ImageNode, ImageNode], float]:
