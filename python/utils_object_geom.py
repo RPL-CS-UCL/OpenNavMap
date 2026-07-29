@@ -10,6 +10,8 @@ without importing boxer (whose `utils` package collides with litevloc's):
 
 Rotation about the ``up_axis`` (default 2 = z, matching BOXER's z-up gravity axis).
 """
+from typing import Tuple
+
 import numpy as np
 
 from object_node import OBB
@@ -78,6 +80,28 @@ def yaw_from_R(rot: np.ndarray, up_axis: int = 2) -> float:
     plane = [i for i in range(3) if i != up_axis]
     x_axis = np.asarray(rot, float).reshape(3, 3)[:, 0]
     return float(np.arctan2(x_axis[plane[1]], x_axis[plane[0]]))
+
+
+def canonicalize_vertical_axis(
+    r_box: np.ndarray, extent: np.ndarray, rot: np.ndarray, up_axis: int = 2,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Reorder an oriented box's local axes so ``up_axis`` holds the vertical extent.
+
+    Open3d's ``OrientedBoundingBox.R`` orders local axes by PCA variance, which has
+    no relation to which axis is vertical once rotated into the world frame by
+    ``rot``. Permutes columns of ``r_box`` (and the matching entries of ``extent``)
+    so the local axis most aligned with world-``up_axis`` lands in slot ``up_axis``;
+    the other two keep their relative order. Callers can then trust
+    ``extent[up_axis]`` as height and pass the returned ``r_box`` to
+    ``yaw_from_R(rot @ r_box, up_axis)`` for a valid yaw.
+    """
+    r_box = np.asarray(r_box, float).reshape(3, 3)
+    extent = np.asarray(extent, float).reshape(3)
+    rot = np.asarray(rot, float).reshape(3, 3)
+    vertical_local = int(np.argmax(np.abs(r_box.T @ rot[up_axis, :])))
+    order = [i for i in range(3) if i != vertical_local]
+    order.insert(up_axis, vertical_local)
+    return r_box[:, order], extent[order]
 
 
 def iou_exact7(

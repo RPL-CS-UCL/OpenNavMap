@@ -17,7 +17,7 @@ sys.path.insert(0, str(_ROOT / "third_party" / "litevloc_code" / "python"))
 from object_graph import ObjectGraph, ObjectGraphLoader  # noqa: E402
 from object_node import OBB, ObjectObservation, SCHEMA_VERSION  # noqa: E402
 from object_provider import MockObjectProvider  # noqa: E402
-from utils_object_geom import iou_exact7, weighted_yaw_mean  # noqa: E402
+from utils_object_geom import canonicalize_vertical_axis, iou_exact7, weighted_yaw_mean  # noqa: E402
 
 
 def _obs(label, center, emb_msgnav, emb_boxer=None, conf=0.8, kf_id=0, size=(1.0, 1.0, 1.0), yaw=0.0):
@@ -109,3 +109,25 @@ def test_mock_provider_20_frames():
         g.integrate_observations(provider.on_keyframe(kf=step, obs=None), step=step)
     assert g.get_num_node() == 2
     assert sorted(n.num_observations for n in g.nodes.values()) == [10, 10]
+
+
+def test_canonicalize_vertical_axis_identity_rot():
+    # local axis0 = vertical (height 1.2m); rot=I means world-up is also axis2.
+    r_box = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], float)
+    extent = np.array([1.2, 0.3, 0.4])
+    r_fixed, extent_fixed = canonicalize_vertical_axis(r_box, extent, np.eye(3), up_axis=2)
+    assert extent_fixed[2] == pytest.approx(1.2)
+    composed = np.eye(3) @ r_fixed
+    np.testing.assert_allclose(composed[:, 2], [0, 0, 1], atol=1e-9)
+
+
+def test_canonicalize_vertical_axis_world_zup_rotation():
+    # habitat y-up -> z-up world rotation (msgnav_provider._WORLD_ZUP).
+    world_zup = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
+    # local axis0 = habitat-y = vertical (height 1.2m); axis1=habitat-z (0.3m); axis2=habitat-x (0.4m)
+    r_box = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], float)
+    extent = np.array([1.2, 0.3, 0.4])
+    r_fixed, extent_fixed = canonicalize_vertical_axis(r_box, extent, world_zup, up_axis=2)
+    assert extent_fixed[2] == pytest.approx(1.2)
+    composed = world_zup @ r_fixed
+    np.testing.assert_allclose(composed[:, 2], [0, 0, 1], atol=1e-9)
