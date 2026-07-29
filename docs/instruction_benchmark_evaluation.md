@@ -4,8 +4,12 @@ This document describes the released evaluation datasets, how each one maps to a
 experiment in the paper, and how to run the corresponding benchmark. All released
 imagery has human faces automatically anonymized (blurred with
 [BlurryFaces](https://github.com/asmaamirkhan/BlurryFaces); see
-`scripts/blur_seq_blurryfaces.py`). Only raw benchmark inputs are released —
-results (`*_results_*`, `*_sfm_*`, `scene_stat`, `.rrd` visualizations) are excluded.
+`scripts/blur_seq_blurryfaces.py`). Raw benchmark inputs are released under
+`data_release` — results (`*_results_*`, `*_sfm_*`, `scene_stat`) are excluded
+there. For `map_multisession_eval`, the map-merging **results** (including
+`.rrd` visualizations, no longer bundled under `data_release`) are additionally
+released in a separate `results_release` folder; see
+[§4.3](#43-multi-session-map-merging--map_multisession_eval).
 
 ## 1. Dataset ↔ Experiment Correspondence
 
@@ -161,3 +165,19 @@ Trajectory evaluation uses `third_party/slam_trajectory_evaluation` (TUM format)
 The **small subset** (`s00003_exp_culling_aria_data_390.7z`, ~73 MB) is enough to
 run and inspect the pipeline without the full download. See the merging tutorial:
 [instruction_map_merging.md](instruction_map_merging.md).
+
+#### Pre-computed merging results
+
+**🔗 [Download results from Google Drive](https://drive.google.com/drive/folders/13W91PPFc7eSqkiK37G7UdnZusLblW3rS)**
+
+Beyond the raw inputs above, the full outputs of the reported map-merging runs are
+released separately under
+[`results_release`](https://drive.google.com/drive/folders/1M1uUb5IwqGsA2JzngdJAuPod6DBzARaF),
+as `s00000_results_*_kf_spgo_cc_seqmatch.7z` per site
+(`ucl_campus_aria/`, `hkust_campus/`, `vineyard/`) and per ordering (in-order plus
+several shuffled `r*` orders). Each archive contains the complete pipeline output
+per incremental `merge_*` stage — including `preds/kf_vis/` keyframe visualizations
+and `preds/*.g2o` pose graphs (other diagnostic `preds/` artifacts, e.g. kml/pdf/png,
+are omitted to keep archive size down) — plus the `.rrd` rerun visualization for
+that site. Use these to inspect the ATE evaluation inputs or view the reported
+merges directly, without re-running the full pipeline.
