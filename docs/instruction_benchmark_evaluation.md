@@ -110,12 +110,22 @@ retrievals are those within `[7.5 m, 75°]` of a query; scored by Precision@1 an
 Recall@1 (paper Tab. II).
 
 ```bash
-# VPR / topological-localization benchmark
-python python/benchmark_vpr/... --data_path <path>/vpr_eval/ucl_campus/<sXXXXX>
+# 1. Generate VPR submissions (retrieval + sequence matching + GV) for one sXXXXX
+bash scripts/run_benchmark_vpr_submission.sh <path>/vpr_eval/ucl_campus/<sXXXXX>
+#   Writes per-method results under <sXXXXX>/results_vpr/<method>/
+
+# 2. Evaluate the submissions: per-method Precision@1/Recall@1, then a summary report
+bash scripts/run_benchmark_vpr_evaluation.sh <path>/vpr_eval/ucl_campus/<sXXXXX>
+#   Writes report_evaluation.txt (per method) and report_evaluation.csv / runtime_results.csv (summary)
+#   under <sXXXXX>/results_vpr/
 ```
 
 Each `sXXXXX` holds `query/` and `database/` sub-sequences (`out_map_*`), each with
-`seq/`, `poses.txt`, `intrinsics.txt`, `timestamps.txt`.
+`seq/`, `poses.txt`, `intrinsics.txt`, `timestamps.txt`. Edit the `METHODS` list in
+`run_benchmark_vpr_evaluation.sh` to match the methods produced in step 1 (VPR
+backbone × matcher × image-matcher combination), and the `trans_threshold` /
+`ori_threshold` args to the scene's correct-match radius (`[7.5 m, 75°]` for
+`ucl_campus`).
 
 ### 4.2 Metric Localization — `map_free_eval`
 
@@ -130,14 +140,21 @@ Run the relative-pose-estimation (RPE) benchmark, which evaluates all baselines
 over the Map-Free-format data and writes per-model submissions:
 
 ```bash
-# Metric-localization benchmark (all baselines, swept over the number of reference images)
+# 1. Generate per-model, per-N submissions (relative pose predictions)
 bash scripts/run_benchmark_rpe_submission.sh <DATASET_NAME> <SPLIT>
 #   DATASET_NAME: ucl_campus_aria | 360loc_aria | 360loc_phone | 360loc_vehicle | mapfree | hkustgz_campus | matterport3d
 #   SPLIT:        train | val | test
+#   Writes <map_free_eval>/<DATASET_NAME>/map_free_eval/results_rpe/<model>/submission_<N>.zip
+
+# 2. Evaluate the submissions against ground truth: Precision@[100cm,10°], AUC, translation error
+bash scripts/run_benchmark_rpe_evaluation.sh <DATASET_NAME> <SPLIT>
+#   Sweeps the same TOP_K / model grid as the submission step; edit MODELS / TOP_K / EVAL_CONFIGS
+#   in the script to match what was generated. Prints per-model metrics and saves the
+#   precision-recall curve alongside each submission.
 ```
 
-The benchmark code lives in `python/benchmark_rpe/`; results are written to
-`<map_free_eval>/<DATASET_NAME>/map_free_eval/results_rpe/`.
+The benchmark code lives in `python/benchmark_rpe/`
+(evaluation logic shared with `third_party/litevloc_code/python/benchmark_rpe/evaluation.py`).
 
 Each `test/sXXXXX` contains `seq0/` (reference, identity pose) and `seq1/` (queries,
 poses relative to the reference) plus `poses.txt`, `intrinsics.txt`. See the
@@ -172,12 +189,19 @@ run and inspect the pipeline without the full download. See the merging tutorial
 
 Beyond the raw inputs above, the full outputs of the reported map-merging runs are
 released separately under
-[`results_release`](https://drive.google.com/drive/folders/1M1uUb5IwqGsA2JzngdJAuPod6DBzARaF),
-as `s00000_results_*_kf_spgo_cc_seqmatch.7z` per site
-(`ucl_campus_aria/`, `hkust_campus/`, `vineyard/`) and per ordering (in-order plus
-several shuffled `r*` orders). Each archive contains the complete pipeline output
-per incremental `merge_*` stage — including `preds/kf_vis/` keyframe visualizations
-and `preds/*.g2o` pose graphs (other diagnostic `preds/` artifacts, e.g. kml/pdf/png,
-are omitted to keep archive size down) — plus the `.rrd` rerun visualization for
-that site. Use these to inspect the ATE evaluation inputs or view the reported
-merges directly, without re-running the full pipeline.
+[`results_release`](https://drive.google.com/drive/folders/1M1uUb5IwqGsA2JzngdJAuPod6DBzARaF).
+
+**Archive structure:**
+- **Naming:** `s00000_results_*_kf_spgo_cc_seqmatch.7z`
+- **Per site:** `ucl_campus_aria/`, `hkust_campus/`, `vineyard/`
+- **Per ordering:** InOrder + multiple shuffled `r*` variants
+
+**Archive contents:**
+- Complete pipeline output per incremental `merge_*` stage
+- `preds/kf_vis/` — keyframe visualizations
+- `preds/*.g2o` — pose graphs (evaluation inputs)
+- `.rrd` — rerun visualization for the site
+
+**Use cases:**
+- Inspect the ATE evaluation inputs without re-running the full pipeline
+- View the reported map merges directly
