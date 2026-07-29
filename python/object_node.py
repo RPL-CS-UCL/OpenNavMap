@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-"""L4 object-graph node + observation schema (OpenGoalNav T1.2, schema v2.0).
+"""L4 object-graph node + observation schema (OpenGoalNav T1.2, schema v2.1).
 
 Changes vs v1.0 (frozen after user review):
 - ``id`` is now ``str`` (may contain digits, e.g. "obj_3").

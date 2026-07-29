@@ -1,5 +1,5 @@
 #! /usr/bin/env python
-"""T1.2 acceptance (schema v2.0): dual-embedding schema round-trip, BOXER-aligned
+"""T1.2 acceptance (schema v2.1): dual-embedding schema round-trip, BOXER-aligned
 IoU/merge, and provider integration.
 
 Run: pytest third_party/opennavmap/tests/test_object_graph.py
