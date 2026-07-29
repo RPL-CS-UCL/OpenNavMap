@@ -19,7 +19,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.base_node import BaseNode  # litevloc read-only base
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"
 
 
 def _R_about(up_axis: int, yaw: float) -> np.ndarray:
@@ -90,6 +90,8 @@ class ObjectNode(BaseNode):
         pointcloud_ref: Optional[str] = None,
         observed_keyframes: Optional[List[Tuple[int, float]]] = None,
         num_observations: int = 1,
+        caption: Optional[str] = None,
+        best_crop: Optional[Tuple[int, Tuple[float, float, float, float]]] = None,
     ) -> None:
         super().__init__(id, trans=np.asarray(obb.center, float).reshape(3))
         self.label = label
@@ -103,6 +105,8 @@ class ObjectNode(BaseNode):
         self.pointcloud_ref = pointcloud_ref
         self.observed_keyframes: List[Tuple[int, float]] = list(observed_keyframes or [])
         self.num_observations = int(num_observations)
+        self.caption = caption
+        self.best_crop = best_crop
         # In-memory fusion history (not serialized; seeded from fused state on load).
         self._centers: List[np.ndarray] = [np.asarray(obb.center, float).reshape(3)]
         self._sizes: List[np.ndarray] = [np.asarray(obb.size, float).reshape(3)]
@@ -122,10 +126,13 @@ class ObjectNode(BaseNode):
             "pointcloud_ref": self.pointcloud_ref,
             "observed_keyframes": [[int(k), float(v)] for k, v in self.observed_keyframes],
             "num_observations": self.num_observations,
+            "caption": self.caption,
+            "best_crop": [self.best_crop[0], list(self.best_crop[1])] if self.best_crop else None,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "ObjectNode":
+        best_crop = data.get("best_crop")
         node = ObjectNode(
             id=str(data["id"]),
             label=data["label"],
@@ -137,6 +144,8 @@ class ObjectNode(BaseNode):
             pointcloud_ref=data.get("pointcloud_ref"),
             observed_keyframes=[(int(k), float(v)) for k, v in data.get("observed_keyframes", [])],
             num_observations=int(data.get("num_observations", 1)),
+            caption=data.get("caption"),
+            best_crop=(int(best_crop[0]), tuple(best_crop[1])) if best_crop else None,
         )
         return node
 

@@ -15,7 +15,7 @@ sys.path.insert(0, str(_ROOT / "python"))
 sys.path.insert(0, str(_ROOT / "third_party" / "litevloc_code" / "python"))
 
 from object_graph import ObjectGraph, ObjectGraphLoader  # noqa: E402
-from object_node import OBB, ObjectObservation, SCHEMA_VERSION  # noqa: E402
+from object_node import OBB, ObjectNode, ObjectObservation, SCHEMA_VERSION  # noqa: E402
 from object_provider import MockObjectProvider  # noqa: E402
 from utils_object_geom import canonicalize_vertical_axis, iou_exact7, weighted_yaw_mean  # noqa: E402
 
@@ -131,3 +131,30 @@ def test_canonicalize_vertical_axis_world_zup_rotation():
     assert extent_fixed[2] == pytest.approx(1.2)
     composed = world_zup @ r_fixed
     np.testing.assert_allclose(composed[:, 2], [0, 0, 1], atol=1e-9)
+
+
+def test_object_node_schema_2_1_caption_best_crop_roundtrip():
+    node = ObjectNode(
+        id="obj_0", label="chair", obb=OBB.from_center_size_yaw([0, 0, 0], [1, 1, 1], 0.0),
+        embeddings={"msgnav": np.array([1.0, 0.0])}, confidence=0.8, last_verified_step=0,
+        provider="mock", caption="a wooden chair", best_crop=(3, (0.0, 0.0, 640.0, 360.0)),
+    )
+    data = node.to_dict()
+    assert data["caption"] == "a wooden chair"
+    assert data["best_crop"] == [3, [0.0, 0.0, 640.0, 360.0]]
+    reloaded = ObjectNode.from_dict(data)
+    assert reloaded.caption == "a wooden chair"
+    assert reloaded.best_crop == (3, (0.0, 0.0, 640.0, 360.0))
+
+
+def test_object_node_caption_best_crop_default_none():
+    node = ObjectNode(
+        id="obj_0", label="chair", obb=OBB.from_center_size_yaw([0, 0, 0], [1, 1, 1], 0.0),
+        embeddings={"msgnav": np.array([1.0, 0.0])}, confidence=0.8, last_verified_step=0,
+        provider="mock",
+    )
+    assert node.caption is None and node.best_crop is None
+    data = node.to_dict()
+    assert data["caption"] is None and data["best_crop"] is None
+    reloaded = ObjectNode.from_dict(data)
+    assert reloaded.caption is None and reloaded.best_crop is None
