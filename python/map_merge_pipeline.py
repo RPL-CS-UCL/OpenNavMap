@@ -108,17 +108,19 @@ class MergePipeline:
 						odom_sigma
 					)
 		
-		# Add the loop factor
+		# Add the loop factor, recording each factor index so that GNC can treat
+		# only these edges as outlier candidates
+		loop_factor_indices = []
 		for edge in inter_edges_covis:
 			nodeA, nodeB, T_AB, conf = edge[:4]
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			update_loop_sigma = loop_sigma / conf
-			pose_graph.add_odometry_factor(
-				nodeA.id, I_pose3, 
-				nodeB.id+self.id_offset, next_pose3, 
+			loop_factor_indices.append(pose_graph.add_odometry_factor(
+				nodeA.id, I_pose3,
+				nodeB.id+self.id_offset, next_pose3,
 				update_loop_sigma
-			)
+			))
 
 		# Add prior factor to each disconnected subgraph
 		subgraph_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
@@ -127,7 +129,7 @@ class MergePipeline:
 			pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
 			print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
 
-		return pose_graph, subgraph_keys
+		return pose_graph, subgraph_keys, loop_factor_indices
 
 	def merge_and_update_submaps(
 		self, 
@@ -202,7 +204,7 @@ class MergePipeline:
 				title=f"Pose Graph Optimization: Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Optimize the combined pose graph before committing the merged map.",
 			)
-			pose_graph, subgraph_keys = self.create_pose_graph_from_map(
+			pose_graph, subgraph_keys, loop_factor_indices = self.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom,
 				edges_nodeAB_refine_covis
@@ -411,7 +413,7 @@ class MergePipeline:
 					},
 				)
 		else:
-			pose_graph, _ = self.create_pose_graph_from_map(
+			pose_graph, _, _ = self.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom,
 				[]
