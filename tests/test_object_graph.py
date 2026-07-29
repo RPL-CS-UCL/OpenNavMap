@@ -78,9 +78,11 @@ def test_confidence_prob_weighting():
 
 def test_dual_embedding_roundtrip(tmp_path):
     g = ObjectGraph(tmp_path)
-    g.integrate_observation(
+    n1, _ = g.integrate_observation(
         _obs("chair", [0, 0, 0], [1, 0, 0, 0], emb_boxer=[0, 1, 0], kf_id=0), step=0)
     g.integrate_observation(_obs("table", [9, 0, 0], [0, 1, 0, 0], emb_boxer=[1, 0, 0], kf_id=1), step=1)
+    n1.caption = "a red chair"
+    n1.best_crop = (0, (0.0, 0.0, 640.0, 360.0))
     g.save_to_file()
     payload = (tmp_path / "objects.json").read_text()
     assert '"schema_version": "%s"' % SCHEMA_VERSION in payload
@@ -94,6 +96,8 @@ def test_dual_embedding_roundtrip(tmp_path):
         np.testing.assert_allclose(r.embeddings["boxer"], original.embeddings["boxer"])
         np.testing.assert_allclose(r.obb.center, original.obb.center)
         assert r.confidence == pytest.approx(original.confidence)
+        assert r.caption == original.caption
+        assert r.best_crop == original.best_crop
 
 
 def test_mock_provider_20_frames():
@@ -158,3 +162,24 @@ def test_object_node_caption_best_crop_default_none():
     assert data["caption"] is None and data["best_crop"] is None
     reloaded = ObjectNode.from_dict(data)
     assert reloaded.caption is None and reloaded.best_crop is None
+
+
+def test_select_best_crops_picks_top_visibility_keyframe():
+    g = ObjectGraph(Path("/tmp/ogn_og_crop_a"))
+    node, _ = g.integrate_observation(_obs("chair", [0, 0, 0], [1, 0, 0, 0], kf_id=0), step=0)
+    node.observed_keyframes = [(0, 0.2), (5, 0.9), (7, 0.4)]
+    keyframes = [
+        {"id": 0, "width": 640, "height": 360},
+        {"id": 5, "width": 640, "height": 360},
+        {"id": 7, "width": 640, "height": 360},
+    ]
+    g.select_best_crops(keyframes)
+    assert node.best_crop == (5, (0.0, 0.0, 640.0, 360.0))
+
+
+def test_select_best_crops_skips_nodes_without_observed_keyframes():
+    g = ObjectGraph(Path("/tmp/ogn_og_crop_b"))
+    node, _ = g.integrate_observation(_obs("chair", [0, 0, 0], [1, 0, 0, 0], kf_id=0), step=0)
+    node.observed_keyframes = []
+    g.select_best_crops([{"id": 0, "width": 640, "height": 360}])
+    assert node.best_crop is None

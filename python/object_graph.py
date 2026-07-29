@@ -160,6 +160,29 @@ class ObjectGraph(BaseGraph):
                 if score >= min_score:
                     node.observed_keyframes.append((int(kf["id"]), round(float(score), 4)))
 
+    def select_best_crops(self, keyframes: List[Dict[str, Any]]) -> None:
+        """Fill each object's ``best_crop`` from its top-visibility keyframe.
+
+        Transitional fallback (spec S02): no crop-region detector exists yet, so
+        ``best_crop`` is the *whole frame* of the highest ``visibility_score`` entry
+        in ``observed_keyframes`` -- the same choice ``core/goal/verify.py`` already
+        makes when picking frames to show the VLM. Requires ``observed_keyframes``
+        to be populated first (``compute_visibility_edges``); nodes with none are
+        left with ``best_crop = None``.
+
+        keyframes: ``[{"id", "width", "height"}]`` (same shape as
+        ``compute_visibility_edges``; ``T_world_cam``/``K`` are not needed here).
+        """
+        dims = {int(kf["id"]): (float(kf["width"]), float(kf["height"])) for kf in keyframes}
+        for node in self.nodes.values():
+            if not node.observed_keyframes:
+                continue
+            kf_id, _ = max(node.observed_keyframes, key=lambda kv: kv[1])
+            if kf_id not in dims:
+                continue
+            width, height = dims[kf_id]
+            node.best_crop = (int(kf_id), (0.0, 0.0, width, height))
+
     def _merge_into(self, node: ObjectNode, obs: ObjectObservation, obs_yaw: float, step: int) -> None:
         node.num_observations += 1
         node._centers.append(np.asarray(obs.obb.center, float).reshape(3))
