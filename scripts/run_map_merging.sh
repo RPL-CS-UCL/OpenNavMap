@@ -66,6 +66,10 @@ DATASET_NAME="$(basename "$DATASET_ROOT")"
 TUM_NAME="${DATASET_NAME}_${SCENE}_${ORDER_TAG}"
 TRAJ_NAME="${METHOD}${SUFFIX}"
 
+# Robust pose graph optimization back-end (none | huber | gnc_tls | gnc_gm)
+PGO_ROBUST=${PGO_ROBUST:-gnc_tls}
+PGO_GNC_BARC_PROB=${PGO_GNC_BARC_PROB:-0.99}
+
 PIPELINE_ARGS=(
     --dataset_root "$DATASET_ROOT"
     --output_root "$OUTPUT_ROOT"
@@ -76,6 +80,8 @@ PIPELINE_ARGS=(
     --image_size 512 288
     --vpr_match_model vpr_dp
     --vpr_match_seq_len 10
+    --pgo_robust "$PGO_ROBUST"
+    --pgo_gnc_barc_prob "$PGO_GNC_BARC_PROB"
     --viz
 )
 if [[ -n "$DATA_DIR" ]]; then

@@ -220,13 +220,58 @@ class MergePipeline:
 			)
 
 			logging.info(f"PGO: initial error: {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
-			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
-				pose_graph.get_factor_graph(),
-				pose_graph.get_initial_estimate(),
-				verbose=False,
-				robust_kernel=True
-			)
+			# Only inter-submap loop edges may be classified as outliers; odometry
+			# and prior factors are trusted by construction
+			loop_index_set = set(loop_factor_indices)
+			known_inlier_indices = [
+				i for i in range(pose_graph.get_factor_graph().size())
+				if i not in loop_index_set
+			]
+			if args.pgo_robust in ('gnc_tls', 'gnc_gm'):
+				result_pgo, gnc_weights = PoseGraph.optimize_pose_graph_with_GNC(
+					pose_graph.get_factor_graph(),
+					pose_graph.get_initial_estimate(),
+					known_inlier_indices=known_inlier_indices,
+					loss='TLS' if args.pgo_robust == 'gnc_tls' else 'GM',
+					barc_prob=args.pgo_gnc_barc_prob,
+				)
+			else:
+				result_pgo = PoseGraph.optimize_pose_graph_with_LM(
+					pose_graph.get_factor_graph(),
+					pose_graph.get_initial_estimate(),
+					verbose=False,
+					robust_kernel=(args.pgo_robust == 'huber')
+				)
+				gnc_weights = np.ones(pose_graph.get_factor_graph().size())
 			logging.info(f"PGO: final error: {pose_graph.get_factor_graph().error(result_pgo):.3f}")
+
+			gnc_weights_path = str(self.log_dir / "preds" / "gnc_weights.txt")
+			with open(gnc_weights_path, 'w') as f:
+				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={args.pgo_gnc_barc_prob}\n")
+				f.write("# db_id,query_id,weight,conf,trans_err,rot_err\n")
+				for edge, factor_idx in zip(edges_nodeAB_refine_covis, loop_factor_indices):
+					record = lloc_history.get((edge[0].id, edge[1].id), {})
+					f.write(
+						f"{edge[0].id},{edge[1].id},{gnc_weights[factor_idx]:.6f},"
+						f"{record.get('conf', float('nan')):.3f},"
+						f"{record.get('trans_err', float('nan')):.3f},"
+						f"{record.get('rot_err', float('nan')):.3f}\n"
+					)
+
+			edges_nodeAB_refine_covis, rejected_edges = split_edges_by_gnc_weight(
+				edges_nodeAB_refine_covis, loop_factor_indices, gnc_weights, edge_history
+			)
+			if rejected_edges:
+				logging.warning(
+					Fore.YELLOW + f"PGO: rejected {len(rejected_edges)} outlier loop "
+					f"edge(s) for submap {cur_submap.map_id}" + Fore.RESET
+				)
+			if loop_factor_indices and not edges_nodeAB_refine_covis:
+				logging.warning(
+					Fore.RED + f"PGO: ALL {len(loop_factor_indices)} loop edges rejected "
+					f"for submap {cur_submap.map_id}; submaps remain anchored by their "
+					"own priors and keep their initial relative pose" + Fore.RESET
+				)
 
 			if args.viz:
 				save_dir = str(self.log_dir / "preds")
@@ -255,6 +300,7 @@ class MergePipeline:
 
 				total_num_edges = len(edge_history)
 				num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
+				num_edge_removed_by_pgo = 0
 				for key, value in edge_history.items():
 					db_idx, query_idx = int(key[0]), int(key[1])
 					action = value['action'] if isinstance(value, dict) else value
@@ -264,12 +310,15 @@ class MergePipeline:
 						num_edge_removed_by_gv += 1
 					elif 'removed_by_ccm' in action:
 						num_edge_removed_by_ccm += 1
+					elif 'removed_by_pgo' in action:
+						num_edge_removed_by_pgo += 1
 
 				edge_history_path = str(self.log_dir / "preds" / "edge_history.txt")
 				with open(edge_history_path, 'w') as f:
 					f.write(f"Number of edges added by VPR: {total_num_edges}\n")
 					f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
+					f.write(f"Number of edges removed by PGO: {num_edge_removed_by_pgo} ({num_edge_removed_by_pgo/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
 					f.write(f"Precision: " + ",".join([f"{precision:.2f}" for precision in precision_list]) + "\n")
 					f.write(f"Recall: " + ",".join([f"{recall:.2f}" for recall in recall_list]) + "\n")
@@ -680,6 +729,31 @@ def update_edge_history(edge_history, key, action: str, db_row=None, query_row=N
 		value = edge_history[key]
 		value['action'] = action
 		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
+
+def split_edges_by_gnc_weight(
+	refined_edges: List[Tuple],
+	loop_factor_indices: List[int],
+	weights: np.ndarray,
+	edge_history: Dict,
+) -> Tuple[List[Tuple], List[Tuple]]:
+	"""Partition refined loop edges into GNC inliers and outliers.
+
+	Rejected edges are recorded in edge_history as 'removed_by_pgo' so they show
+	up alongside the VPR/GV/CCM statistics. They must not reach the merged
+	topology graphs: an edge written into the odom graph is re-measured from the
+	current poses under odom_sigma on the next merge step, which would weld a
+	wrong relative geometry in permanently.
+	"""
+	inlier_edges, outlier_edges = [], []
+	for edge, factor_idx in zip(refined_edges, loop_factor_indices):
+		if weights[factor_idx] >= PGO_INLIER_WEIGHT_THRESHOLD:
+			inlier_edges.append(edge)
+		else:
+			outlier_edges.append(edge)
+			update_edge_history(
+				edge_history, (edge[0].id, edge[1].id), action='removed_by_pgo'
+			)
+	return inlier_edges, outlier_edges
 
 def compute_lm_pairwise(
 	db_nodes,

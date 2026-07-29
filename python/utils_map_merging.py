@@ -24,6 +24,10 @@ assert RELIABLE_CONF_THRESHOLD < REFINE_CONF_THRESHOLD
 # Same Place Threshold
 TRANS_THRESHOLD = 7.5
 ORI_THRESHOLD = 75.0
+# (pose graph optimization) Minimum GNC weight for a loop edge to be accepted
+# into the merged map. TLS weights are near 0 or near 1, so the midpoint is a
+# safe cut.
+PGO_INLIER_WEIGHT_THRESHOLD = 0.5
 
 def is_same_place(nodeA, nodeB):
 	dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
@@ -230,6 +234,12 @@ def parse_arguments():
 	parser.add_argument("--use_iqa", action="store_true", help="Use image quality assessment in node culling")
 	parser.add_argument("--use_ig", action="store_true", help="Use information gain in node culling")
 	parser.add_argument("--use_td", action="store_true", help="Use temporal difference in node culling")
+	# Robust pose graph optimization
+	parser.add_argument("--pgo_robust", type=str, default="gnc_tls",
+		choices=["none", "huber", "gnc_tls", "gnc_gm"],
+		help="Robust back-end for pose graph optimization")
+	parser.add_argument("--pgo_gnc_barc_prob", type=float, default=0.99,
+		help="Chi-squared probability for the GNC inlier cost threshold")
 	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")

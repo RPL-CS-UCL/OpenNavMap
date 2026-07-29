@@ -57,3 +57,11 @@ attribute 'Generic'`），跑测试时需加 `-p no:dash`：
 ```bash
 python -m pytest python/benchmark_pgo/tests/ -v -p no:dash
 ```
+
+`tests/` 里涉及 `map_merge_pipeline` 的用例还需要 `pose_estimation_models`
+（`utils_map_merging` 会 import `estimator`）：
+
+```bash
+PYTHONPATH=python:third_party/litevloc_code/python:third_party/pose_estimation_models \
+  python -m pytest tests/ python/benchmark_pgo/tests/ -q -p no:dash
+```
