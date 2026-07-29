@@ -7,6 +7,11 @@ Changes vs v1.0 (frozen after user review):
   open_clip ViT-H-14 visual, "boxer"=512-d OWLv2 text) — dev-phase keeps both.
 - OBB carries a yaw builder; 3D IoU + fusion align with BOXER (see utils_object_geom).
 
+Changes in v2.1:
+- ``caption``: one-time goal-agnostic VLM description (filled by the consumer repo).
+- ``best_crop``: ``(keyframe_id, (x0, y0, x1, y1))`` source image for that caption,
+  picked by ``ObjectGraph.select_best_crops`` (full-frame fallback for now).
+
 Any field change must bump SCHEMA_VERSION and update the round-trip test.
 """
 import os
