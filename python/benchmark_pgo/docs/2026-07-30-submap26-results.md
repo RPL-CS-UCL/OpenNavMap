@@ -5,8 +5,9 @@
 
 - 数据：`ucl_campus_aria` `s00000`，order `in`，前 27 个 submap
 - 基线：`s00000_results_in_spgo_cc_seqmatch_master_iqaigtd`（Huber）
-- 本次：`s00000_results_in_spgo_cc_seqmatch_master_gnctls_iqaigtd`
-  （`PGO_ROBUST=gnc_tls`、`PGO_GNC_BARC_PROB=0.99`）
+- 本次：`s00000_results_in_27sub_spgo_cc_seqmatch_master_gnctls_iqaigtd`
+  （`PGO_ROBUST=gnc_tls`、`PGO_GNC_BARC_PROB=0.99`；运行时目录名不带 `27sub`，
+  跑完后重命名归档，以免被阶段 3 的完整重跑覆盖，`run.log` 同目录）
 - 耗时约 1 h 45 min
 - 原始数据：[`step26_per_step_ate.txt`](step26_per_step_ate.txt)、
   [`step26_gnc_rejections.csv`](step26_gnc_rejections.csv)
@@ -15,8 +16,8 @@
 
 ```bash
 cd /Titan/code/robohike_ws/src/opennavmap
-PGO_ROBUST=gnc_tls PGO_GNC_BARC_PROB=0.99 MAX_SUBMAPS=27 \
-  bash scripts/run_map_merging.sh
+PGO_ROBUST=gnc_tls PGO_GNC_BARC_PROB=0.99 \
+  bash scripts/run_map_merging.sh s00000 0 spgo_cc_seqmatch_master_gnctls master 1 1 1 27
 ```
 
 ## 验收 1：坏边被判为 outlier
