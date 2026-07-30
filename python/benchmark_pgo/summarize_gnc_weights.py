@@ -34,9 +34,13 @@ def _parse(path: Path) -> List[Dict[str, float]]:
     return rows
 
 
-def _step_index(weights_path: Path) -> int:
-    """merge_0_1_2/preds/gnc_weights.txt -> 2 (the last submap merged in)."""
-    return int(weights_path.parent.parent.name.split("_")[-1])
+def _step_index(weights_path: Path) -> Optional[int]:
+    """merge_0_1_2/preds/gnc_weights.txt -> 2 (the last submap merged in).
+
+    Returns None for non-step directories such as merge_finalmap.
+    """
+    tail = weights_path.parent.parent.name.split("_")[-1]
+    return int(tail) if tail.isdigit() else None
 
 
 def summarize(rows: List[Dict[str, float]]) -> Dict[str, float]:
@@ -65,7 +69,9 @@ def main() -> None:
                         help="Optional path to write the per-step table")
     args = parser.parse_args()
 
-    paths = sorted(Path(args.result_root).glob("merge_*/preds/gnc_weights.txt"),
+    paths = sorted((p for p in Path(args.result_root).glob(
+                        "merge_*/preds/gnc_weights.txt")
+                    if _step_index(p) is not None),
                    key=_step_index)
     if not paths:
         raise SystemExit(f"no gnc_weights.txt under {args.result_root}")
