@@ -181,6 +181,52 @@ class MergePipeline:
 
 		return pose_graph, subgraph_keys, loop_factor_indices, loop_factor_keys
 
+	def update_loop_registry(
+		self,
+		loop_factor_keys: List[Tuple[int, int]],
+		loop_factor_indices: List[int],
+		gnc_weights: np.ndarray,
+		accepted_new_edges: List[Tuple],
+		num_hist: int,
+		step: int
+	) -> None:
+		"""Refresh historical loop stats and register this step's accepted edges.
+
+		Must be called AFTER merge_and_update_submaps(), because adjust_all_ids()
+		rewrites cur_submap node ids in place: edge[1].id is only the merged
+		global id once that has run.
+		"""
+		for i in range(num_hist):
+			record = self.loop_edge_registry.get(loop_factor_keys[i])
+			if record is None:
+				continue
+			weight = float(gnc_weights[loop_factor_indices[i]])
+			record['last_weight'] = weight
+			if weight < PGO_INLIER_WEIGHT_THRESHOLD:
+				record['reject_count'] = int(record['reject_count']) + 1
+
+		for edge in accepted_new_edges:
+			key = (edge[0].id, edge[1].id)
+			if key in self.loop_edge_registry:
+				continue
+			self.loop_edge_registry[key] = {
+				'T_AB': np.array(edge[2], dtype=float),
+				'conf': float(edge[3]),
+				'first_step': int(step),
+				'reject_count': 0,
+				'last_weight': 1.0,
+			}
+
+	def save_loop_registry(self, path: str) -> None:
+		"""Dump the registry so a run can be audited step by step."""
+		with open(path, 'w') as f:
+			f.write("# a_id,b_id,conf,first_step,reject_count,last_weight\n")
+			for (key_a, key_b), record in self.loop_edge_registry.items():
+				f.write(
+					f"{key_a},{key_b},{record['conf']:.3f},{record['first_step']},"
+					f"{record['reject_count']},{record['last_weight']:.6f}\n"
+				)
+
 	def merge_and_update_submaps(
 		self, 
 		submap_a: MapManager, 
@@ -296,19 +342,26 @@ class MergePipeline:
 				gnc_weights = np.ones(pose_graph.get_factor_graph().size())
 			logging.info(f"PGO: final error: {pose_graph.get_factor_graph().error(result_pgo):.3f}")
 
+			# Historical loop factors come first in loop_factor_indices; this
+			# step's new edges are the trailing len(edges_nodeAB_refine_covis)
+			num_hist = len(loop_factor_indices) - len(edges_nodeAB_refine_covis)
 			gnc_weights_path = str(self.log_dir / "preds" / "gnc_weights.txt")
 			with open(gnc_weights_path, 'w') as f:
 				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={args.pgo_gnc_barc_prob}\n")
-				f.write("# db_id,query_id,weight,conf,trans_err,rot_err\n")
-				for edge, factor_idx in zip(edges_nodeAB_refine_covis, loop_factor_indices):
-					record = lloc_history.get((edge[0].id, edge[1].id), {})
+				f.write("# db_id,query_id,weight,conf,trans_err,rot_err,origin\n")
+				for i, (factor_idx, key) in enumerate(zip(loop_factor_indices, loop_factor_keys)):
+					# lloc_history only covers this step, so historical edges get
+					# nan for conf/err; their conf lives in loop_registry.txt
+					record = lloc_history.get(key, {})
 					f.write(
-						f"{edge[0].id},{edge[1].id},{gnc_weights[factor_idx]:.6f},"
+						f"{key[0]},{key[1]},{gnc_weights[factor_idx]:.6f},"
 						f"{record.get('conf', float('nan')):.3f},"
 						f"{record.get('trans_err', float('nan')):.3f},"
-						f"{record.get('rot_err', float('nan')):.3f}\n"
+						f"{record.get('rot_err', float('nan')):.3f},"
+						f"{'hist' if i < num_hist else 'new'}\n"
 					)
 
+			num_new = len(edges_nodeAB_refine_covis)
 			edges_nodeAB_refine_covis, rejected_edges = split_edges_by_gnc_weight(
 				edges_nodeAB_refine_covis, loop_factor_indices, gnc_weights, edge_history
 			)
@@ -317,12 +370,28 @@ class MergePipeline:
 					Fore.YELLOW + f"PGO: rejected {len(rejected_edges)} outlier loop "
 					f"edge(s) for submap {cur_submap.map_id}" + Fore.RESET
 				)
-			if loop_factor_indices and not edges_nodeAB_refine_covis:
+			if num_new and not edges_nodeAB_refine_covis:
 				logging.warning(
-					Fore.RED + f"PGO: ALL {len(loop_factor_indices)} loop edges rejected "
+					Fore.RED + f"PGO: ALL {num_new} new loop edges rejected "
 					f"for submap {cur_submap.map_id}; submaps remain anchored by their "
 					"own priors and keep their initial relative pose" + Fore.RESET
 				)
+			if num_hist:
+				hist_rejected = [
+					key for i, key in enumerate(loop_factor_keys[:num_hist])
+					if gnc_weights[loop_factor_indices[i]] < PGO_INLIER_WEIGHT_THRESHOLD
+				]
+				if hist_rejected:
+					logging.warning(
+						Fore.YELLOW + f"PGO: overturned {len(hist_rejected)}/{num_hist} "
+						f"historical loop edge(s): {hist_rejected[:10]}" + Fore.RESET
+					)
+				if len(hist_rejected) > num_hist * 0.5:
+					logging.warning(
+						Fore.RED + f"PGO: more than half of the historical loop edges "
+						f"({len(hist_rejected)}/{num_hist}) were rejected at step "
+						f"{self.runtime_merge_step}; the merged map may fragment" + Fore.RESET
+					)
 
 			if args.viz:
 				save_dir = str(self.log_dir / "preds")
@@ -479,6 +548,16 @@ class MergePipeline:
 			]:
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
+
+			if args.pgo_persistent_loops:
+				self.update_loop_registry(
+					loop_factor_keys, loop_factor_indices, gnc_weights,
+					edges_nodeAB_refine_covis, num_hist, self.runtime_merge_step
+				)
+				self.save_loop_registry(str(self.log_dir / "preds" / "loop_registry.txt"))
+				logging.info(
+					f"Loop registry: {len(self.loop_edge_registry)} persistent loop edges"
+				)
 
 			logging.info(f"Final map info:\n{final_map}")
 			if self.runtime_viz_recorder is not None:
@@ -803,7 +882,10 @@ def split_edges_by_gnc_weight(
 	weights: np.ndarray,
 	edge_history: Dict,
 ) -> Tuple[List[Tuple], List[Tuple]]:
-	"""Partition refined loop edges into GNC inliers and outliers.
+	"""Partition this step's refined loop edges into GNC inliers and outliers.
+
+	loop_factor_indices may also contain historical loop factors (they come
+	first); this step's edges are the trailing len(refined_edges) entries.
 
 	Rejected edges are recorded in edge_history as 'removed_by_pgo' so they show
 	up alongside the VPR/GV/CCM statistics. They must not reach the merged
@@ -811,8 +893,9 @@ def split_edges_by_gnc_weight(
 	current poses under odom_sigma on the next merge step, which would weld a
 	wrong relative geometry in permanently.
 	"""
+	new_indices = loop_factor_indices[len(loop_factor_indices) - len(refined_edges):]
 	inlier_edges, outlier_edges = [], []
-	for edge, factor_idx in zip(refined_edges, loop_factor_indices):
+	for edge, factor_idx in zip(refined_edges, new_indices):
 		if weights[factor_idx] >= PGO_INLIER_WEIGHT_THRESHOLD:
 			inlier_edges.append(edge)
 		else:
