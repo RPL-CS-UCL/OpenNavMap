@@ -88,6 +88,18 @@ class MergePipeline:
 		self.pose_estimator.verbose = False
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
+	def scale_loop_sigma(self, loop_sigma: np.ndarray, conf: float) -> np.ndarray:
+		"""Apply the configured confidence scaling to one loop factor's sigma.
+
+		'inverse' is the historical behaviour: sigma = loop_sigma / conf. It is
+		backwards -- conf > 1 tightens the residual budget, so the edges the
+		matcher was most sure about are the ones GNC judges most harshly.
+		'none' gives every loop factor the same sigma.
+		"""
+		if self.args.pgo_loop_conf_scaling == 'none':
+			return loop_sigma
+		return loop_sigma / conf
+
 	def create_pose_graph_from_map(
 		self,
 		graph_odom_a,     # The odometry graph
@@ -106,7 +118,14 @@ class MergePipeline:
 		# Set basic std for factors
 		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
-		loop_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
+		# Loop sigma drives the GNC TLS threshold, so it decides which edges are
+		# even eligible to be called outliers. Tunable because the 1 deg / 0.1 m
+		# default is tight enough that hundreds of persistent loop factors fight
+		# each other instead of the bad ones standing out.
+		loop_sigma = np.array(
+			[np.deg2rad(self.args.pgo_loop_sigma_rot)] * 3
+			+ [self.args.pgo_loop_sigma_trans] * 3
+		)
 		# Weak anchor for every submap other than the gauge one. Loop factors
 		# (sigma ~0.1 m) outweigh it by ~300x, so it only prevents a singular
 		# system when GNC drives all loop weights to zero.
@@ -146,18 +165,17 @@ class MergePipeline:
 			loop_factor_indices.append(pose_graph.add_odometry_factor(
 				key_a, I_pose3,
 				key_b, next_pose3,
-				loop_sigma / record['conf']
+				self.scale_loop_sigma(loop_sigma, record['conf'])
 			))
 			loop_factor_keys.append((key_a, key_b))
 		for edge in inter_edges_covis:
 			nodeA, nodeB, T_AB, conf = edge[:4]
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
-			update_loop_sigma = loop_sigma / conf
 			loop_factor_indices.append(pose_graph.add_odometry_factor(
 				nodeA.id, I_pose3,
 				nodeB.id+self.id_offset, next_pose3,
-				update_loop_sigma
+				self.scale_loop_sigma(loop_sigma, conf)
 			))
 			loop_factor_keys.append((nodeA.id, nodeB.id + self.id_offset))
 

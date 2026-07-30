@@ -21,6 +21,8 @@ class _Graph:
 
 
 def test_loop_factor_indices_follow_odometry_factors():
+    from argparse import Namespace
+
     from map_merge_pipeline import MergePipeline
 
     a0, a1 = _Node(0, (0, 0, 0)), _Node(1, (1, 0, 0))
@@ -31,6 +33,11 @@ def test_loop_factor_indices_follow_odometry_factors():
     merger = MergePipeline.__new__(MergePipeline)
     merger.id_offset = 100
     merger.loop_edge_registry = {}
+    merger.args = Namespace(
+        pgo_loop_sigma_trans=0.1,
+        pgo_loop_sigma_rot=1.0,
+        pgo_loop_conf_scaling='inverse',
+    )
 
     inter_edges = [(a0, b0, np.eye(4), 0.8, 0.5)]
     pose_graph, subgraph_keys, loop_indices, loop_keys = merger.create_pose_graph_from_map(

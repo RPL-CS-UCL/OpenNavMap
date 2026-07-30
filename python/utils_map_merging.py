@@ -243,6 +243,15 @@ def parse_arguments():
 	parser.add_argument("--pgo_persistent_loops", action="store_true",
 		help="Keep accepted inter-submap loop edges as loop factors across merge "
 		     "steps so GNC can re-classify them instead of welding them into odometry")
+	parser.add_argument("--pgo_loop_sigma_trans", type=float, default=0.1,
+		help="Translation std [m] of an inter-submap loop factor; drives the GNC "
+		     "TLS inlier threshold")
+	parser.add_argument("--pgo_loop_sigma_rot", type=float, default=1.0,
+		help="Rotation std [deg] of an inter-submap loop factor")
+	parser.add_argument("--pgo_loop_conf_scaling", type=str, default="inverse",
+		choices=["inverse", "none"],
+		help="How matcher confidence scales a loop factor's sigma: 'inverse' "
+		     "divides by conf (tightens high-confidence edges), 'none' keeps it flat")
 	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")

@@ -26,12 +26,19 @@ def _translation(dx, dy=0.0, dz=0.0):
     return T
 
 
-def _merger(id_offset=100):
+def _merger(id_offset=100, sigma_trans=0.1, sigma_rot=1.0, conf_scaling='inverse'):
+    from argparse import Namespace
+
     from map_merge_pipeline import MergePipeline
 
     merger = MergePipeline.__new__(MergePipeline)
     merger.id_offset = id_offset
     merger.loop_edge_registry = {}
+    merger.args = Namespace(
+        pgo_loop_sigma_trans=sigma_trans,
+        pgo_loop_sigma_rot=sigma_rot,
+        pgo_loop_conf_scaling=conf_scaling,
+    )
     return merger
 
 
@@ -86,6 +93,33 @@ def test_empty_registry_preserves_legacy_factor_order():
     # One connected component (the loop factor joins both submaps) -> one prior.
     assert len(subgraph_keys) == 1
     assert pose_graph.get_factor_graph().size() == 4
+
+
+def _loop_sigmas(merger, conf):
+    """Sigmas of the single loop factor merger builds for an edge with this conf."""
+    a0, a1 = _Node(0, (0, 0, 0)), _Node(1, (1, 0, 0))
+    a0.edges = {1: (a1, 1.0)}
+    b0, b1 = _Node(0, (10, 0, 0)), _Node(1, (11, 0, 0))
+    b0.edges = {1: (b1, 1.0)}
+    pose_graph, _, loop_indices, _ = merger.create_pose_graph_from_map(
+        _Graph([a0, a1]), _Graph([b0, b1]), [(a0, b0, np.eye(4), conf)])
+    factor = pose_graph.get_factor_graph().at(loop_indices[0])
+    return factor.noiseModel().sigmas()
+
+
+def test_loop_sigma_is_configurable():
+    """The GNC threshold follows --pgo_loop_sigma_{trans,rot}."""
+    sigmas = _loop_sigmas(_merger(sigma_trans=0.3, sigma_rot=3.0), conf=1.0)
+    assert sigmas[3:] == pytest.approx([0.3] * 3)
+    assert sigmas[:3] == pytest.approx([np.deg2rad(3.0)] * 3)
+
+
+def test_conf_scaling_none_leaves_sigma_flat():
+    """'inverse' tightens a conf>1 edge; 'none' must not touch it."""
+    inverse = _loop_sigmas(_merger(conf_scaling='inverse'), conf=2.0)
+    flat = _loop_sigmas(_merger(conf_scaling='none'), conf=2.0)
+    assert inverse[3:] == pytest.approx([0.05] * 3)
+    assert flat[3:] == pytest.approx([0.1] * 3)
 
 
 def _rot_z(deg):
