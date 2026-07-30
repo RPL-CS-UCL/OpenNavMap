@@ -7,6 +7,8 @@
 #
 # Environment overrides:
 #   DATASET_ROOT, OUTPUT_ROOT, DATA_DIR, TRAJ_EVAL_ROOT, EVAL_CONFIG
+#   PGO_ROBUST, PGO_GNC_BARC_PROB, PGO_PERSISTENT_LOOPS
+#   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING
 #   RERUN_VIZ=1 to enable Rerun visualization recording
 #   RERUN_OUTPUT, RERUN_IMAGE_FORMAT, RERUN_JPEG_QUALITY,
 #   RERUN_DMATRIX_FORMAT, RERUN_AXIS_SCALE, RERUN_VIZ_DIR
@@ -71,6 +73,10 @@ PGO_ROBUST=${PGO_ROBUST:-gnc_tls}
 PGO_GNC_BARC_PROB=${PGO_GNC_BARC_PROB:-0.99}
 # Keep accepted loop edges as loop factors across merge steps (0 | 1)
 PGO_PERSISTENT_LOOPS=${PGO_PERSISTENT_LOOPS:-0}
+# Loop factor noise, which sets the GNC outlier threshold
+PGO_LOOP_SIGMA_TRANS=${PGO_LOOP_SIGMA_TRANS:-0.1}
+PGO_LOOP_SIGMA_ROT=${PGO_LOOP_SIGMA_ROT:-1.0}
+PGO_LOOP_CONF_SCALING=${PGO_LOOP_CONF_SCALING:-inverse}
 
 PIPELINE_ARGS=(
     --dataset_root "$DATASET_ROOT"
@@ -84,6 +90,9 @@ PIPELINE_ARGS=(
     --vpr_match_seq_len 10
     --pgo_robust "$PGO_ROBUST"
     --pgo_gnc_barc_prob "$PGO_GNC_BARC_PROB"
+    --pgo_loop_sigma_trans "$PGO_LOOP_SIGMA_TRANS"
+    --pgo_loop_sigma_rot "$PGO_LOOP_SIGMA_ROT"
+    --pgo_loop_conf_scaling "$PGO_LOOP_CONF_SCALING"
     --viz
 )
 if [[ -n "$DATA_DIR" ]]; then
