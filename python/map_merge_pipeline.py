@@ -70,6 +70,12 @@ class MergePipeline:
 			'crop_image_to_database': False
 		}
 
+		# Inter-submap loop edges that survived GNC, keyed by the merged global
+		# node-id pair. Persisting the original T_AB measurement is what lets a
+		# later step re-judge the edge: re-measuring it from the current poses
+		# would make its residual identically zero.
+		self.loop_edge_registry: Dict[Tuple[int, int], Dict[str, object]] = {}
+
 	def init_vpr_match_model(self):
 		self.vpr_match_model = initialize_match_model(self.args.vpr_match_model, self.args.vpr_match_seq_len)		
 		logging.info(f"VPR Match Model: {self.args.vpr_match_model}")

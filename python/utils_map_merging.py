@@ -240,6 +240,9 @@ def parse_arguments():
 		help="Robust back-end for pose graph optimization")
 	parser.add_argument("--pgo_gnc_barc_prob", type=float, default=0.99,
 		help="Chi-squared probability for the GNC inlier cost threshold")
+	parser.add_argument("--pgo_persistent_loops", action="store_true",
+		help="Keep accepted inter-submap loop edges as loop factors across merge "
+		     "steps so GNC can re-classify them instead of welding them into odometry")
 	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")

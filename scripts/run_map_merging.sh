@@ -69,6 +69,8 @@ TRAJ_NAME="${METHOD}${SUFFIX}"
 # Robust pose graph optimization back-end (none | huber | gnc_tls | gnc_gm)
 PGO_ROBUST=${PGO_ROBUST:-gnc_tls}
 PGO_GNC_BARC_PROB=${PGO_GNC_BARC_PROB:-0.99}
+# Keep accepted loop edges as loop factors across merge steps (0 | 1)
+PGO_PERSISTENT_LOOPS=${PGO_PERSISTENT_LOOPS:-0}
 
 PIPELINE_ARGS=(
     --dataset_root "$DATASET_ROOT"
@@ -89,6 +91,9 @@ if [[ -n "$DATA_DIR" ]]; then
 fi
 if [[ -n "$MAX_SUBMAPS" ]]; then
     PIPELINE_ARGS+=(--max_submaps "$MAX_SUBMAPS")
+fi
+if [[ "$PGO_PERSISTENT_LOOPS" == "1" ]]; then
+    PIPELINE_ARGS+=(--pgo_persistent_loops)
 fi
 PIPELINE_ARGS+=("${ABLATION_FLAGS[@]}")
 
