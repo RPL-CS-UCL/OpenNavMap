@@ -12,7 +12,7 @@ import gtsam
 import matplotlib
 from tqdm import tqdm
 import pathlib
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from codetiming import Timer
 
 from utils.utils_vpr_method import initialize_match_model
@@ -70,6 +70,12 @@ class MergePipeline:
 			'crop_image_to_database': False
 		}
 
+		# Inter-submap loop edges that survived GNC, keyed by the merged global
+		# node-id pair. Persisting the original T_AB measurement is what lets a
+		# later step re-judge the edge: re-measuring it from the current poses
+		# would make its residual identically zero.
+		self.loop_edge_registry: Dict[Tuple[int, int], Dict[str, object]] = {}
+
 	def init_vpr_match_model(self):
 		self.vpr_match_model = initialize_match_model(self.args.vpr_match_model, self.args.vpr_match_seq_len)		
 		logging.info(f"VPR Match Model: {self.args.vpr_match_model}")
@@ -83,51 +89,143 @@ class MergePipeline:
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
 	def create_pose_graph_from_map(
-		self, 
-		graph_odom_a,     # The odometry graph 
-		graph_odom_b,     # The odometry graph 
-		inter_edges_covis # inter_edges_covis own the same node id with odom
+		self,
+		graph_odom_a,     # The odometry graph
+		graph_odom_b,     # The odometry graph
+		inter_edges_covis, # inter_edges_covis own the same node id with odom
+		loop_registry: Optional[Dict[Tuple[int, int], Dict[str, object]]] = None
 	):
+		"""Build the merge-step factor graph.
+
+		When loop_registry is non-empty, inter-submap edges recorded there are
+		rebuilt as loop factors from their ORIGINAL T_AB measurement instead of
+		being re-measured from the current poses as odometry. Re-measuring makes
+		their residual identically zero, which is what welds an earlier bad edge
+		into the map permanently.
+		"""
 		# Set basic std for factors
 		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
 		loop_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
+		# Weak anchor for every submap other than the gauge one. Loop factors
+		# (sigma ~0.1 m) outweigh it by ~300x, so it only prevents a singular
+		# system when GNC drives all loop weights to zero.
+		anchor_sigma = np.array([np.deg2rad(30.0)] * 3 + [30.0] * 3)
 		pose_graph = PoseGraph()
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
+		registry = loop_registry or {}
 
-		# Create a pose graph from graph_odom_a/b by adding internal edges of graph_odom_a/b
+		# Create a pose graph from graph_odom_a/b by adding internal edges of graph_odom_a/b.
+		# Edges held in the registry are skipped here and re-added as loop factors below.
 		for graph, offset in [(graph_odom_a, 0), (graph_odom_b, self.id_offset)]:
 			for node in graph.nodes.values():
 				pose = convert_vec_gtsam_pose3(node.trans, node.quat)
 				pose_graph.add_init_estimate(node.id + offset, pose)
 				for next_node in (edge[0] for edge in node.edges.values() if node.id < edge[0].id):
+					if offset == 0 and (node.id, next_node.id) in registry:
+						continue
 					next_pose = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(
 						node.id + offset, pose,
 						next_node.id + offset, next_pose,
 						odom_sigma
 					)
-		
-		# Add the loop factor
+
+		# Priors are assigned per odom-only component, computed BEFORE any loop
+		# factor exists, so a submap stays anchored even if GNC rejects every
+		# loop edge touching it.
+		odom_only_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
+
+		# Add the loop factors, recording each factor index and its global key pair
+		# so that GNC can treat only these edges as outlier candidates
+		loop_factor_indices = []
+		loop_factor_keys = []
+		for (key_a, key_b), record in registry.items():
+			trans, quat = convert_matrix_to_vec(record['T_AB'])
+			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
+			loop_factor_indices.append(pose_graph.add_odometry_factor(
+				key_a, I_pose3,
+				key_b, next_pose3,
+				loop_sigma / record['conf']
+			))
+			loop_factor_keys.append((key_a, key_b))
 		for edge in inter_edges_covis:
 			nodeA, nodeB, T_AB, conf = edge[:4]
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			update_loop_sigma = loop_sigma / conf
-			pose_graph.add_odometry_factor(
-				nodeA.id, I_pose3, 
-				nodeB.id+self.id_offset, next_pose3, 
+			loop_factor_indices.append(pose_graph.add_odometry_factor(
+				nodeA.id, I_pose3,
+				nodeB.id+self.id_offset, next_pose3,
 				update_loop_sigma
-			)
+			))
+			loop_factor_keys.append((nodeA.id, nodeB.id + self.id_offset))
 
 		# Add prior factor to each disconnected subgraph
-		subgraph_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
-		for graph_id, keys in enumerate(subgraph_keys):
-			curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
-			pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
-			print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
+		if registry:
+			subgraph_keys = odom_only_keys
+			gauge_component = min(
+				range(len(subgraph_keys)), key=lambda i: min(subgraph_keys[i])
+			)
+			for graph_id, keys in enumerate(subgraph_keys):
+				curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
+				sigma = prior_sigma if graph_id == gauge_component else anchor_sigma
+				pose_graph.add_prior_factor(keys[0], curr_pose3, sigma)
+				print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
+		else:
+			subgraph_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
+			for graph_id, keys in enumerate(subgraph_keys):
+				curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
+				pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
+				print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
 
-		return pose_graph, subgraph_keys
+		return pose_graph, subgraph_keys, loop_factor_indices, loop_factor_keys
+
+	def update_loop_registry(
+		self,
+		loop_factor_keys: List[Tuple[int, int]],
+		loop_factor_indices: List[int],
+		gnc_weights: np.ndarray,
+		accepted_new_edges: List[Tuple],
+		num_hist: int,
+		step: int
+	) -> None:
+		"""Refresh historical loop stats and register this step's accepted edges.
+
+		Must be called AFTER merge_and_update_submaps(), because adjust_all_ids()
+		rewrites cur_submap node ids in place: edge[1].id is only the merged
+		global id once that has run.
+		"""
+		for i in range(num_hist):
+			record = self.loop_edge_registry.get(loop_factor_keys[i])
+			if record is None:
+				continue
+			weight = float(gnc_weights[loop_factor_indices[i]])
+			record['last_weight'] = weight
+			if weight < PGO_INLIER_WEIGHT_THRESHOLD:
+				record['reject_count'] = int(record['reject_count']) + 1
+
+		for edge in accepted_new_edges:
+			key = (edge[0].id, edge[1].id)
+			if key in self.loop_edge_registry:
+				continue
+			self.loop_edge_registry[key] = {
+				'T_AB': np.array(edge[2], dtype=float),
+				'conf': float(edge[3]),
+				'first_step': int(step),
+				'reject_count': 0,
+				'last_weight': 1.0,
+			}
+
+	def save_loop_registry(self, path: str) -> None:
+		"""Dump the registry so a run can be audited step by step."""
+		with open(path, 'w') as f:
+			f.write("# a_id,b_id,conf,first_step,reject_count,last_weight\n")
+			for (key_a, key_b), record in self.loop_edge_registry.items():
+				f.write(
+					f"{key_a},{key_b},{record['conf']:.3f},{record['first_step']},"
+					f"{record['reject_count']},{record['last_weight']:.6f}\n"
+				)
 
 	def merge_and_update_submaps(
 		self, 
@@ -202,10 +300,11 @@ class MergePipeline:
 				title=f"Pose Graph Optimization: Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Optimize the combined pose graph before committing the merged map.",
 			)
-			pose_graph, subgraph_keys = self.create_pose_graph_from_map(
+			pose_graph, subgraph_keys, loop_factor_indices, loop_factor_keys = self.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom,
-				edges_nodeAB_refine_covis
+				edges_nodeAB_refine_covis,
+				loop_registry=self.loop_edge_registry if args.pgo_persistent_loops else None
 			)
 			g2o_path = str(self.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
@@ -218,13 +317,84 @@ class MergePipeline:
 			)
 
 			logging.info(f"PGO: initial error: {pose_graph.get_factor_graph().error(pose_graph.get_initial_estimate()):.3f}")
-			result_pgo = PoseGraph.optimize_pose_graph_with_LM(
-				pose_graph.get_factor_graph(),
-				pose_graph.get_initial_estimate(),
-				verbose=False,
-				robust_kernel=True
-			)
+			# Only inter-submap loop edges may be classified as outliers; odometry
+			# and prior factors are trusted by construction
+			loop_index_set = set(loop_factor_indices)
+			known_inlier_indices = [
+				i for i in range(pose_graph.get_factor_graph().size())
+				if i not in loop_index_set
+			]
+			if args.pgo_robust in ('gnc_tls', 'gnc_gm'):
+				result_pgo, gnc_weights = PoseGraph.optimize_pose_graph_with_GNC(
+					pose_graph.get_factor_graph(),
+					pose_graph.get_initial_estimate(),
+					known_inlier_indices=known_inlier_indices,
+					loss='TLS' if args.pgo_robust == 'gnc_tls' else 'GM',
+					barc_prob=args.pgo_gnc_barc_prob,
+				)
+			else:
+				result_pgo = PoseGraph.optimize_pose_graph_with_LM(
+					pose_graph.get_factor_graph(),
+					pose_graph.get_initial_estimate(),
+					verbose=False,
+					robust_kernel=(args.pgo_robust == 'huber')
+				)
+				gnc_weights = np.ones(pose_graph.get_factor_graph().size())
 			logging.info(f"PGO: final error: {pose_graph.get_factor_graph().error(result_pgo):.3f}")
+
+			# Historical loop factors come first in loop_factor_indices; this
+			# step's new edges are the trailing len(edges_nodeAB_refine_covis)
+			num_hist = len(loop_factor_indices) - len(edges_nodeAB_refine_covis)
+			gnc_weights_path = str(self.log_dir / "preds" / "gnc_weights.txt")
+			with open(gnc_weights_path, 'w') as f:
+				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={args.pgo_gnc_barc_prob}\n")
+				f.write("# db_id,query_id are merged global node ids\n")
+				f.write("# db_id,query_id,weight,conf,trans_err,rot_err,origin\n")
+				for i, (factor_idx, key) in enumerate(zip(loop_factor_indices, loop_factor_keys)):
+					# lloc_history is keyed by this step's submap-local query id and
+					# only covers this step, so historical edges get nan conf/err;
+					# their conf lives in loop_registry.txt instead
+					lloc_key = key if i < num_hist else (key[0], key[1] - self.id_offset)
+					record = lloc_history.get(lloc_key, {})
+					f.write(
+						f"{key[0]},{key[1]},{gnc_weights[factor_idx]:.6f},"
+						f"{record.get('conf', float('nan')):.3f},"
+						f"{record.get('trans_err', float('nan')):.3f},"
+						f"{record.get('rot_err', float('nan')):.3f},"
+						f"{'hist' if i < num_hist else 'new'}\n"
+					)
+
+			num_new = len(edges_nodeAB_refine_covis)
+			edges_nodeAB_refine_covis, rejected_edges = split_edges_by_gnc_weight(
+				edges_nodeAB_refine_covis, loop_factor_indices, gnc_weights, edge_history
+			)
+			if rejected_edges:
+				logging.warning(
+					Fore.YELLOW + f"PGO: rejected {len(rejected_edges)} outlier loop "
+					f"edge(s) for submap {cur_submap.map_id}" + Fore.RESET
+				)
+			if num_new and not edges_nodeAB_refine_covis:
+				logging.warning(
+					Fore.RED + f"PGO: ALL {num_new} new loop edges rejected "
+					f"for submap {cur_submap.map_id}; submaps remain anchored by their "
+					"own priors and keep their initial relative pose" + Fore.RESET
+				)
+			if num_hist:
+				hist_rejected = [
+					key for i, key in enumerate(loop_factor_keys[:num_hist])
+					if gnc_weights[loop_factor_indices[i]] < PGO_INLIER_WEIGHT_THRESHOLD
+				]
+				if hist_rejected:
+					logging.warning(
+						Fore.YELLOW + f"PGO: overturned {len(hist_rejected)}/{num_hist} "
+						f"historical loop edge(s): {hist_rejected[:10]}" + Fore.RESET
+					)
+				if len(hist_rejected) > num_hist * 0.5:
+					logging.warning(
+						Fore.RED + f"PGO: more than half of the historical loop edges "
+						f"({len(hist_rejected)}/{num_hist}) were rejected at step "
+						f"{self.runtime_merge_step}; the merged map may fragment" + Fore.RESET
+					)
 
 			if args.viz:
 				save_dir = str(self.log_dir / "preds")
@@ -253,6 +423,7 @@ class MergePipeline:
 
 				total_num_edges = len(edge_history)
 				num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
+				num_edge_removed_by_pgo = 0
 				for key, value in edge_history.items():
 					db_idx, query_idx = int(key[0]), int(key[1])
 					action = value['action'] if isinstance(value, dict) else value
@@ -262,19 +433,23 @@ class MergePipeline:
 						num_edge_removed_by_gv += 1
 					elif 'removed_by_ccm' in action:
 						num_edge_removed_by_ccm += 1
+					elif 'removed_by_pgo' in action:
+						num_edge_removed_by_pgo += 1
 
 				edge_history_path = str(self.log_dir / "preds" / "edge_history.txt")
 				with open(edge_history_path, 'w') as f:
 					f.write(f"Number of edges added by VPR: {total_num_edges}\n")
 					f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
+					f.write(f"Number of edges removed by PGO: {num_edge_removed_by_pgo} ({num_edge_removed_by_pgo/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
 					f.write(f"Precision: " + ",".join([f"{precision:.2f}" for precision in precision_list]) + "\n")
 					f.write(f"Recall: " + ",".join([f"{recall:.2f}" for recall in recall_list]) + "\n")
 					for key, value in edge_history.items():
 						db_idx, query_idx = key[0], key[1]
 						action = value['action']
-						f.write(f"{db_idx},{query_idx},{action}\n")
+						gv_inlier = value.get('gv_inlier', -1)
+						f.write(f"{db_idx},{query_idx},{action},gv_inlier: {gv_inlier}\n")
 
 				lloc_history_path = str(self.log_dir / "preds" / "lloc_history.txt")
 				with open(lloc_history_path, 'w') as f:
@@ -377,6 +552,16 @@ class MergePipeline:
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 
+			if args.pgo_persistent_loops:
+				self.update_loop_registry(
+					loop_factor_keys, loop_factor_indices, gnc_weights,
+					edges_nodeAB_refine_covis, num_hist, self.runtime_merge_step
+				)
+				self.save_loop_registry(str(self.log_dir / "preds" / "loop_registry.txt"))
+				logging.info(
+					f"Loop registry: {len(self.loop_edge_registry)} persistent loop edges"
+				)
+
 			logging.info(f"Final map info:\n{final_map}")
 			if self.runtime_viz_recorder is not None:
 				self.runtime_viz_recorder.record_event(
@@ -411,7 +596,7 @@ class MergePipeline:
 					},
 				)
 		else:
-			pose_graph, _ = self.create_pose_graph_from_map(
+			pose_graph, _, _, _ = self.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom,
 				[]
@@ -668,7 +853,20 @@ def _record_stage_annotation(
 		subtitle=subtitle,
 	)
 		
-def update_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
+def update_edge_history(
+	edge_history,
+	key,
+	action: str,
+	db_row=None,
+	query_row=None,
+	gv_inlier: Optional[int] = None,
+):
+	"""Record or update one edge's lifecycle stage.
+
+	gv_inlier is the feature-inlier count that geometric verification measured
+	for this pair. It is written once by perform_global_loc and then preserved
+	across later action updates so edge_history.txt keeps it for debugging.
+	"""
 	if key not in edge_history:
 		assert db_row is not None or query_row is not None, "db_row and query_row must be provided"
 		value = {'action': action, 'db_row': db_row, 'query_row': query_row}
@@ -678,6 +876,37 @@ def update_edge_history(edge_history, key, action: str, db_row=None, query_row=N
 		value = edge_history[key]
 		value['action'] = action
 		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
+	if gv_inlier is not None:
+		value['gv_inlier'] = int(gv_inlier)
+
+def split_edges_by_gnc_weight(
+	refined_edges: List[Tuple],
+	loop_factor_indices: List[int],
+	weights: np.ndarray,
+	edge_history: Dict,
+) -> Tuple[List[Tuple], List[Tuple]]:
+	"""Partition this step's refined loop edges into GNC inliers and outliers.
+
+	loop_factor_indices may also contain historical loop factors (they come
+	first); this step's edges are the trailing len(refined_edges) entries.
+
+	Rejected edges are recorded in edge_history as 'removed_by_pgo' so they show
+	up alongside the VPR/GV/CCM statistics. They must not reach the merged
+	topology graphs: an edge written into the odom graph is re-measured from the
+	current poses under odom_sigma on the next merge step, which would weld a
+	wrong relative geometry in permanently.
+	"""
+	new_indices = loop_factor_indices[len(loop_factor_indices) - len(refined_edges):]
+	inlier_edges, outlier_edges = [], []
+	for edge, factor_idx in zip(refined_edges, new_indices):
+		if weights[factor_idx] >= PGO_INLIER_WEIGHT_THRESHOLD:
+			inlier_edges.append(edge)
+		else:
+			outlier_edges.append(edge)
+			update_edge_history(
+				edge_history, (edge[0].id, edge[1].id), action='removed_by_pgo'
+			)
+	return inlier_edges, outlier_edges
 
 def compute_lm_pairwise(
 	db_nodes,
@@ -872,11 +1101,19 @@ def perform_global_loc(
 			warning_str = Fore.GREEN + f"Query {query_node.rgb_img_name}-DB {db_node.rgb_img_name}-Matched Kpts: {num_inlier}"
 			logging.warning(warning_str)
 
-			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
+			if num_inlier >= REFINE_GV_SCORE_THRESHOLD:
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
+				# GV passing does not advance the stage, only record the inlier count
+				update_edge_history(
+					edge_history, (db_idx, query_idx),
+					action='added_by_vpr', gv_inlier=num_inlier
+				)
 				accepted_by_gv = True
 			else:
-				update_edge_history(edge_history, (db_idx, query_idx), action='removed_by_gv')
+				update_edge_history(
+					edge_history, (db_idx, query_idx),
+					action='removed_by_gv', gv_inlier=num_inlier
+				)
 				accepted_by_gv = False
 			if recorder is not None:
 				recorder.record_event(

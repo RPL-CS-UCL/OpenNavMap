@@ -1,0 +1,7 @@
+dataset,ratio,num_outliers,method,barc_prob,trans_rmse,rot_rmse,precision,recall
+sphere2500,0.1,245,gnc_tls,0.9,0.1016,0.2186,1.0,1.0
+sphere2500,0.1,245,gnc_tls,0.999,0.2857,0.6194,1.0,1.0
+sphere2500,0.2,490,gnc_tls,0.9,0.2404,0.4752,1.0,1.0
+sphere2500,0.2,490,gnc_tls,0.999,0.7534,1.6081,1.0,1.0
+sphere2500,0.5,1225,gnc_tls,0.9,0.8587,1.593,1.0,1.0
+sphere2500,0.5,1225,gnc_tls,0.999,0.0,0.0001,1.0,1.0
