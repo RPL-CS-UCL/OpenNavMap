@@ -19,17 +19,23 @@ GT_TRANS_TOLERANCE = 0.45
 
 
 def _parse(path: Path) -> List[Dict[str, float]]:
-    """Read one gnc_weights.txt into a list of per-edge records."""
+    """Read one gnc_weights.txt into a list of per-edge records.
+
+    The trailing `origin` column (new | hist) only exists once persistent loop
+    factors landed; runs predating it have six columns and are read as `new`.
+    """
     rows = []
     with open(path) as handle:
         for line in handle:
             if line.startswith("#") or not line.strip():
                 continue
-            db, query, weight, conf, trans_err, rot_err = line.split(",")
+            fields = line.strip().split(",")
+            db, query, weight, conf, trans_err, rot_err = fields[:6]
             rows.append({
                 "db_id": int(db), "query_id": int(query),
                 "weight": float(weight), "conf": float(conf),
                 "trans_err": float(trans_err), "rot_err": float(rot_err),
+                "origin": fields[6] if len(fields) > 6 else "new",
             })
     return rows
 
@@ -44,20 +50,30 @@ def _step_index(weights_path: Path) -> Optional[int]:
 
 
 def summarize(rows: List[Dict[str, float]]) -> Dict[str, float]:
-    """Rejection counts plus how many rejections the GT error backs up."""
-    rejected = [r for r in rows if r["weight"] < WEIGHT_THRESHOLD]
+    """Rejection counts plus how many rejections the GT error backs up.
+
+    Counts cover this step's new edges only; historical loop factors re-judged
+    under --pgo_persistent_loops are reported separately, since they carry no
+    GT error (lloc_history holds only the step that first accepted them).
+    """
+    new_rows = [r for r in rows if r["origin"] == "new"]
+    hist_rows = [r for r in rows if r["origin"] == "hist"]
+    rejected = [r for r in new_rows if r["weight"] < WEIGHT_THRESHOLD]
     justified = [r for r in rejected
                  if not math.isnan(r["trans_err"])
                  and r["trans_err"] > GT_TRANS_TOLERANCE]
-    kept_max = max((r["trans_err"] for r in rows
+    kept_max = max((r["trans_err"] for r in new_rows
                     if r["weight"] >= WEIGHT_THRESHOLD), default=float("nan"))
     return {
-        "total": len(rows),
+        "total": len(new_rows),
         "rejected": len(rejected),
         "justified": len(justified),
         "max_rejected_trans_err": max((r["trans_err"] for r in rejected),
                                       default=float("nan")),
         "max_kept_trans_err": kept_max,
+        "hist": len(hist_rows),
+        "hist_overturned": sum(1 for r in hist_rows
+                               if r["weight"] < WEIGHT_THRESHOLD),
     }
 
 

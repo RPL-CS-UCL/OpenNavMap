@@ -348,11 +348,14 @@ class MergePipeline:
 			gnc_weights_path = str(self.log_dir / "preds" / "gnc_weights.txt")
 			with open(gnc_weights_path, 'w') as f:
 				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={args.pgo_gnc_barc_prob}\n")
+				f.write("# db_id,query_id are merged global node ids\n")
 				f.write("# db_id,query_id,weight,conf,trans_err,rot_err,origin\n")
 				for i, (factor_idx, key) in enumerate(zip(loop_factor_indices, loop_factor_keys)):
-					# lloc_history only covers this step, so historical edges get
-					# nan for conf/err; their conf lives in loop_registry.txt
-					record = lloc_history.get(key, {})
+					# lloc_history is keyed by this step's submap-local query id and
+					# only covers this step, so historical edges get nan conf/err;
+					# their conf lives in loop_registry.txt instead
+					lloc_key = key if i < num_hist else (key[0], key[1] - self.id_offset)
+					record = lloc_history.get(lloc_key, {})
 					f.write(
 						f"{key[0]},{key[1]},{gnc_weights[factor_idx]:.6f},"
 						f"{record.get('conf', float('nan')):.3f},"
