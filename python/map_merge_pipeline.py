@@ -12,7 +12,7 @@ import gtsam
 import matplotlib
 from tqdm import tqdm
 import pathlib
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from codetiming import Timer
 
 from utils.utils_vpr_method import initialize_match_model
@@ -325,7 +325,8 @@ class MergePipeline:
 					for key, value in edge_history.items():
 						db_idx, query_idx = key[0], key[1]
 						action = value['action']
-						f.write(f"{db_idx},{query_idx},{action}\n")
+						gv_inlier = value.get('gv_inlier', -1)
+						f.write(f"{db_idx},{query_idx},{action},gv_inlier: {gv_inlier}\n")
 
 				lloc_history_path = str(self.log_dir / "preds" / "lloc_history.txt")
 				with open(lloc_history_path, 'w') as f:
@@ -719,7 +720,20 @@ def _record_stage_annotation(
 		subtitle=subtitle,
 	)
 		
-def update_edge_history(edge_history, key, action: str, db_row=None, query_row=None):
+def update_edge_history(
+	edge_history,
+	key,
+	action: str,
+	db_row=None,
+	query_row=None,
+	gv_inlier: Optional[int] = None,
+):
+	"""Record or update one edge's lifecycle stage.
+
+	gv_inlier is the feature-inlier count that geometric verification measured
+	for this pair. It is written once by perform_global_loc and then preserved
+	across later action updates so edge_history.txt keeps it for debugging.
+	"""
 	if key not in edge_history:
 		assert db_row is not None or query_row is not None, "db_row and query_row must be provided"
 		value = {'action': action, 'db_row': db_row, 'query_row': query_row}
@@ -729,6 +743,8 @@ def update_edge_history(edge_history, key, action: str, db_row=None, query_row=N
 		value = edge_history[key]
 		value['action'] = action
 		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
+	if gv_inlier is not None:
+		value['gv_inlier'] = int(gv_inlier)
 
 def split_edges_by_gnc_weight(
 	refined_edges: List[Tuple],
@@ -948,11 +964,19 @@ def perform_global_loc(
 			warning_str = Fore.GREEN + f"Query {query_node.rgb_img_name}-DB {db_node.rgb_img_name}-Matched Kpts: {num_inlier}"
 			logging.warning(warning_str)
 
-			if num_inlier >= REFINE_GV_SCORE_THRESHOLD: 
+			if num_inlier >= REFINE_GV_SCORE_THRESHOLD:
 				coarse_edges.append((db_node, query_node, np.eye(4), num_inlier))
+				# GV passing does not advance the stage, only record the inlier count
+				update_edge_history(
+					edge_history, (db_idx, query_idx),
+					action='added_by_vpr', gv_inlier=num_inlier
+				)
 				accepted_by_gv = True
 			else:
-				update_edge_history(edge_history, (db_idx, query_idx), action='removed_by_gv')
+				update_edge_history(
+					edge_history, (db_idx, query_idx),
+					action='removed_by_gv', gv_inlier=num_inlier
+				)
 				accepted_by_gv = False
 			if recorder is not None:
 				recorder.record_event(
