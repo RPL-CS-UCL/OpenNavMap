@@ -89,34 +89,66 @@ class MergePipeline:
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
 	def create_pose_graph_from_map(
-		self, 
-		graph_odom_a,     # The odometry graph 
-		graph_odom_b,     # The odometry graph 
-		inter_edges_covis # inter_edges_covis own the same node id with odom
+		self,
+		graph_odom_a,     # The odometry graph
+		graph_odom_b,     # The odometry graph
+		inter_edges_covis, # inter_edges_covis own the same node id with odom
+		loop_registry: Optional[Dict[Tuple[int, int], Dict[str, object]]] = None
 	):
+		"""Build the merge-step factor graph.
+
+		When loop_registry is non-empty, inter-submap edges recorded there are
+		rebuilt as loop factors from their ORIGINAL T_AB measurement instead of
+		being re-measured from the current poses as odometry. Re-measuring makes
+		their residual identically zero, which is what welds an earlier bad edge
+		into the map permanently.
+		"""
 		# Set basic std for factors
 		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
 		loop_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3)
+		# Weak anchor for every submap other than the gauge one. Loop factors
+		# (sigma ~0.1 m) outweigh it by ~300x, so it only prevents a singular
+		# system when GNC drives all loop weights to zero.
+		anchor_sigma = np.array([np.deg2rad(30.0)] * 3 + [30.0] * 3)
 		pose_graph = PoseGraph()
 		I_pose3 = convert_matrix_gtsam_pose3(np.eye(4))
+		registry = loop_registry or {}
 
-		# Create a pose graph from graph_odom_a/b by adding internal edges of graph_odom_a/b
+		# Create a pose graph from graph_odom_a/b by adding internal edges of graph_odom_a/b.
+		# Edges held in the registry are skipped here and re-added as loop factors below.
 		for graph, offset in [(graph_odom_a, 0), (graph_odom_b, self.id_offset)]:
 			for node in graph.nodes.values():
 				pose = convert_vec_gtsam_pose3(node.trans, node.quat)
 				pose_graph.add_init_estimate(node.id + offset, pose)
 				for next_node in (edge[0] for edge in node.edges.values() if node.id < edge[0].id):
+					if offset == 0 and (node.id, next_node.id) in registry:
+						continue
 					next_pose = convert_vec_gtsam_pose3(next_node.trans, next_node.quat)
 					pose_graph.add_odometry_factor(
 						node.id + offset, pose,
 						next_node.id + offset, next_pose,
 						odom_sigma
 					)
-		
-		# Add the loop factor, recording each factor index so that GNC can treat
-		# only these edges as outlier candidates
+
+		# Priors are assigned per odom-only component, computed BEFORE any loop
+		# factor exists, so a submap stays anchored even if GNC rejects every
+		# loop edge touching it.
+		odom_only_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
+
+		# Add the loop factors, recording each factor index and its global key pair
+		# so that GNC can treat only these edges as outlier candidates
 		loop_factor_indices = []
+		loop_factor_keys = []
+		for (key_a, key_b), record in registry.items():
+			trans, quat = convert_matrix_to_vec(record['T_AB'])
+			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
+			loop_factor_indices.append(pose_graph.add_odometry_factor(
+				key_a, I_pose3,
+				key_b, next_pose3,
+				loop_sigma / record['conf']
+			))
+			loop_factor_keys.append((key_a, key_b))
 		for edge in inter_edges_covis:
 			nodeA, nodeB, T_AB, conf = edge[:4]
 			trans, quat = convert_matrix_to_vec(T_AB)
@@ -127,15 +159,27 @@ class MergePipeline:
 				nodeB.id+self.id_offset, next_pose3,
 				update_loop_sigma
 			))
+			loop_factor_keys.append((nodeA.id, nodeB.id + self.id_offset))
 
 		# Add prior factor to each disconnected subgraph
-		subgraph_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
-		for graph_id, keys in enumerate(subgraph_keys):
-			curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
-			pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
-			print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
+		if registry:
+			subgraph_keys = odom_only_keys
+			gauge_component = min(
+				range(len(subgraph_keys)), key=lambda i: min(subgraph_keys[i])
+			)
+			for graph_id, keys in enumerate(subgraph_keys):
+				curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
+				sigma = prior_sigma if graph_id == gauge_component else anchor_sigma
+				pose_graph.add_prior_factor(keys[0], curr_pose3, sigma)
+				print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
+		else:
+			subgraph_keys = PoseGraph.find_connected_components(pose_graph.get_factor_graph())
+			for graph_id, keys in enumerate(subgraph_keys):
+				curr_pose3 = pose_graph.get_initial_estimate().atPose3(keys[0])
+				pose_graph.add_prior_factor(keys[0], curr_pose3, prior_sigma)
+				print(f"Add prior: {keys[0]} to the {graph_id} subgraph with node number {len(keys)}")
 
-		return pose_graph, subgraph_keys, loop_factor_indices
+		return pose_graph, subgraph_keys, loop_factor_indices, loop_factor_keys
 
 	def merge_and_update_submaps(
 		self, 
@@ -210,10 +254,11 @@ class MergePipeline:
 				title=f"Pose Graph Optimization: Reference Map-Submap {cur_submap.map_id}",
 				subtitle="Optimize the combined pose graph before committing the merged map.",
 			)
-			pose_graph, subgraph_keys, loop_factor_indices = self.create_pose_graph_from_map(
+			pose_graph, subgraph_keys, loop_factor_indices, loop_factor_keys = self.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom,
-				edges_nodeAB_refine_covis
+				edges_nodeAB_refine_covis,
+				loop_registry=self.loop_edge_registry if args.pgo_persistent_loops else None
 			)
 			g2o_path = str(self.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
@@ -469,7 +514,7 @@ class MergePipeline:
 					},
 				)
 		else:
-			pose_graph, _, _ = self.create_pose_graph_from_map(
+			pose_graph, _, _, _ = self.create_pose_graph_from_map(
 				final_map.odom,
 				cur_submap.odom,
 				[]

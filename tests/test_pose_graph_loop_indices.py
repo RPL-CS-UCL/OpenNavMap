@@ -30,9 +30,10 @@ def test_loop_factor_indices_follow_odometry_factors():
 
     merger = MergePipeline.__new__(MergePipeline)
     merger.id_offset = 100
+    merger.loop_edge_registry = {}
 
     inter_edges = [(a0, b0, np.eye(4), 0.8, 0.5)]
-    pose_graph, subgraph_keys, loop_indices = merger.create_pose_graph_from_map(
+    pose_graph, subgraph_keys, loop_indices, loop_keys = merger.create_pose_graph_from_map(
         _Graph([a0, a1]), _Graph([b0, b1]), inter_edges)
 
     assert len(loop_indices) == len(inter_edges)
