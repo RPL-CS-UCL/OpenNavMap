@@ -157,6 +157,26 @@ human faces anonymized). Each dataset maps to one paper experiment:
 - Viewer runs block on the GUI event loop, so `print()` output stays in stdout's block buffer when the
   run is redirected to a file and later killed — the pose result looks missing even though it was
   computed. Use `PYTHONUNBUFFERED=1` when logging a viewer run to a file.
+- **Random `Segmentation fault (core dumped)` in long `run_map_merging.sh` runs** (observed at merge
+  steps 41 and 46 of the same config, i.e. not data-dependent). `dmesg` shows
+  `segfault at 0 ip 0000000000000000` — a jump through a NULL function pointer. Same root cause as the
+  GL issue above: `scripts/run_map_merging.sh` sets `LD_PRELOAD="${LD_PRELOAD:-<conda>/lib/libstdc++.so.6}"`,
+  and `:-` keeps an already-set value, so the shell-level
+  `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGL.so:...libGLEW.so` wins and force-loads the system GL stack
+  (including `libGLdispatch`, a pure function-pointer dispatch table) *before* Python starts, interposing
+  its symbols globally. The process also hosts three BLAS builds (conda MKL plus private OpenBLAS copies
+  inside `opencv_python.libs` and `scipy.libs`) and two OpenMP runtimes (conda `libgomp` plus
+  `scikit_learn.libs/libgomp`), which makes the crash a scheduling race rather than a deterministic fault.
+  It lands in `vpr_match_model.match()` → `compute_diff_matrix()` → `np.dot`, right after the
+  `D_all shape: (...)` log line.
+
+  Launch long runs with the preload cleared so the script falls back to its intended value:
+  ```bash
+  env -u LD_PRELOAD PGO_ROBUST=gnc_gm ... bash scripts/run_map_merging.sh <args>
+  ```
+  Verify with `grep -oE "/[^ ]*libGL[^ ]*" /proc/<pid>/maps` — `libGLEW` must be gone. If crashes persist,
+  add `MKL_THREADING_LAYER=GNU` to collapse the duplicate OpenMP runtimes. This matters because
+  `map_merge_pipeline.py` has **no resume logic**: every crash costs a full re-run from step 0.
 
 ## third_party Dependencies
 
