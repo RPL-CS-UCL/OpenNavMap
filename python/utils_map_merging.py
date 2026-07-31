@@ -19,7 +19,7 @@ REFINE_GV_SCORE_THRESHOLD = 100.0
 MAX_LOSS = 10.0 
 # (local localization) Confidence Map Threshold
 RELIABLE_CONF_THRESHOLD = 0.1
-REFINE_CONF_THRESHOLD = 0.5 # threshold to select good refinement: out-of-range image, wrong coarse localization
+REFINE_CONF_THRESHOLD = 0.6 # threshold to select good refinement: out-of-range image, wrong coarse localization; bad edges cluster just above 0.5 (e.g. merge step 40's 176-deg flip edge at conf 0.519)
 assert RELIABLE_CONF_THRESHOLD < REFINE_CONF_THRESHOLD
 # Same Place Threshold
 TRANS_THRESHOLD = 7.5
@@ -96,7 +96,7 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 	Save visualization of graph-based map with nodes and edges.
 	Plot the trajectory onto the X-Z plane.
 	"""
-	fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+	fig, axes = plt.subplots(1, 4, figsize=(32, 8))
 	# --- Helper to plot base map ---
 	def plot_base(ax):
 		for _, node in db_submap.nodes.items():
@@ -110,18 +110,24 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 				next_node = edge[0]
 				ax.plot([node.trans_gt[0], next_node.trans_gt[0]], [node.trans_gt[1], next_node.trans_gt[1]], 'k-', linewidth=0.5)
 
-	# --- Edge filters for each subplot ---
+	# --- Edge filters for each subplot: edges still alive entering each stage ---
+	# An edge's action holds only its FINAL state, so an edge is alive at a
+	# stage iff it was not removed by that stage or any earlier one. Late
+	# removals (removed_by_pgo, removed_by_low_connectivity) happen after CCM
+	# and must still appear in the first three panels.
 	edge_selector = [
-		lambda value: 'added_by_vpr' in value or 'removed_by_gv' in value or 'removed_by_ccm' in value,
-		lambda value: 'added_by_vpr' in value or 'removed_by_ccm' in value,  # ignore removed_by_gv
-		lambda value: 'added_by_vpr' in value,  # ignore both removed_by_gv and removed_by_ccm
+		lambda action: True,
+		lambda action: action != 'removed_by_gv',
+		lambda action: action not in ('removed_by_gv', 'removed_by_ccm'),
+		lambda action: action == 'added_by_vpr',
 	]
 	sub_titles = [
 		"Edges: VPR",
 		"Edges: VPR -> GV",
-		"Edges: VPR -> GV -> CCM"
+		"Edges: VPR -> GV -> CCM",
+		"Edges: VPR -> GV -> CCM -> PGO"
 	]
-	precision_list, recall_list = [], []
+	precision_list, recall_list, edge_count_list = [], [], []
 	
 	# --- Generate binary labels ---
 	y_true = [0] * len(edge_history)
@@ -159,6 +165,7 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 		recall = recall_score(y_true, y_pred, zero_division=0)
 		precision_list.append(precision)
 		recall_list.append(recall)
+		edge_count_list.append(num_edges)
 
 		ax.grid(ls='--', color='0.7')
 		ax.set_xlabel('X [m]')
@@ -169,8 +176,8 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 	
 	plt.tight_layout()
 	plt.savefig(os.path.join(log_dir, f"edge_history.png"))
-	
-	return precision_list, recall_list
+
+	return precision_list, recall_list, edge_count_list
 
 def save_vis_kf_removal(log_dir, query_id, query_img, prob, db_id=None, db_img=None):
 	(log_dir/"preds/kf_vis").mkdir(parents=True, exist_ok=True)
