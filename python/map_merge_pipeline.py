@@ -453,6 +453,7 @@ class MergePipeline:
 				total_num_edges = len(edge_history)
 				num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
 				num_edge_removed_by_pgo = 0
+				num_edge_removed_by_low_conn = 0
 				for key, value in edge_history.items():
 					db_idx, query_idx = int(key[0]), int(key[1])
 					action = value['action'] if isinstance(value, dict) else value
@@ -464,6 +465,8 @@ class MergePipeline:
 						num_edge_removed_by_ccm += 1
 					elif 'removed_by_pgo' in action:
 						num_edge_removed_by_pgo += 1
+					elif 'removed_by_low_connectivity' in action:
+						num_edge_removed_by_low_conn += 1
 
 				edge_history_path = str(self.log_dir / "preds" / "edge_history.txt")
 				with open(edge_history_path, 'w') as f:
@@ -471,6 +474,7 @@ class MergePipeline:
 					f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges removed by PGO: {num_edge_removed_by_pgo} ({num_edge_removed_by_pgo/total_num_edges*100:.2f}%)\n")
+					f.write(f"Number of edges removed by low connectivity: {num_edge_removed_by_low_conn} ({num_edge_removed_by_low_conn/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
 					f.write(f"Precision: " + ",".join([f"{precision:.2f}" for precision in precision_list]) + "\n")
 					f.write(f"Recall: " + ",".join([f"{recall:.2f}" for recall in recall_list]) + "\n")

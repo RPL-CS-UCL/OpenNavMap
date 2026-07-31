@@ -1,5 +1,7 @@
 # 持久 Loop 因子 PGO 验收结果
 
+**注意（2026-07-31）**：本文档的数值产出于 `optimize_pose_graph_with_GNC` 修复 `relativeCostTol` 提前终止 bug 之前（旧默认 1e-5，增量合并场景下 GNC 可能 0 次迭代直接返回全 1 权重）。修复后（`relative_cost_tol=0.0`）重跑会得到不同数值，本文数据仅作历史记录。
+
 `--pgo_persistent_loops` 让每一步 merge 的 PGO 用**原始测量** `T_AB` 重建历史
 inter-submap 闭环边，而不是从当前位姿把它们重新测量成 odometry 因子。后者的残差
 恒为 0，任何 robust kernel 都看不出它错了——这就是坏边一旦进图就被永久焊死的机制。
