@@ -257,6 +257,12 @@ def parse_arguments():
 		choices=["inverse", "none"],
 		help="How matcher confidence scales a loop factor's sigma: 'inverse' "
 		     "divides by conf (tightens high-confidence edges), 'none' keeps it flat")
+	parser.add_argument("--pgo_seq_inlier_time_gap", type=float, default=0.0,
+		help="Loop edges whose endpoint capture times differ by at most this "
+		     "many seconds are declared GNC known inliers (sequentially "
+		     "adjacent submaps overlap in time and are backed by odometry "
+		     "continuity, while true revisit loops are minutes to days apart). "
+		     "0 disables the exemption")
 	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")
