@@ -440,8 +440,12 @@ class MergePipeline:
 				self.vpr_match_model.viz_diff_matrix(
 					os.path.join(save_dir, 'D_matrix_gv.jpg'), D_matrix, db_query_rows
 				)
-				precision_list, recall_list = save_vis_edge_history(
+				precision_list, recall_list, edge_count_list = save_vis_edge_history(
 					save_dir, final_map.covis, cur_submap.covis, edge_history
+				)
+				logging.info(
+					"Edge survival per stage (VPR/GV/CCM/PGO): "
+					+ "/".join(str(c) for c in edge_count_list)
 				)
 				pose_graph.plot_pose_graph(
 					save_dir, pose_graph.get_factor_graph(),
