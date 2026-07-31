@@ -130,6 +130,33 @@ human faces anonymized). Each dataset maps to one paper experiment:
 - `cannot import name 'cache' from 'functools'`: replace with `functools.lru_cache(maxsize=None)`.
 - `libffi/libtiff` symlink issue (ARM): manually rebuild the `.so` symlinks in the conda environment.
 - `cannot allocate memory in static TLS block`: add `export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libgomp.so.1` to the launch script.
+- `libGL error: MESA-LOADER: failed to open iris/swrast` + `Could not create GL context` when opening a
+  3D viewer (e.g. `show_reconstruction()` in `third_party/pose_estimation_models`). Two causes stack up:
+  1. A shell-level `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGL.so:...libGLEW.so` forces the *system* libGL
+     into a conda process that already loads its own, so Mesa falls back to conda's build-time DRI search
+     path `/usr/lib/dri` — a directory that does not exist. The real drivers live in
+     `/usr/lib/x86_64-linux-gnu/dri/`.
+  2. System Mesa 21.2.6 does not know recent Intel iGPUs (`MESA: warning: Driver does not support the
+     0xa780 PCI ID`), so hardware `iris` cannot start and software rendering is required.
+
+  Run the viewer with the preload masked for that process only (keep `LD_PRELOAD` globally — other
+  components need it):
+  ```bash
+  env -u LD_PRELOAD \
+      LIBGL_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
+      LIBGL_ALWAYS_SOFTWARE=1 \
+      python main_estimator.py --model vggt --scene_root <scene_dir>
+  ```
+  This renders through `llvmpipe` (CPU), which is slow on large point clouds. Upgrading system Mesa to
+  >= 23.x (`ppa:kisak/kisak-mesa`) restores hardware acceleration; `LIBGL_ALWAYS_SOFTWARE` can then be
+  dropped and only `LIBGL_DRIVERS_PATH` kept. Inference and pose estimation are unaffected either way.
+- `Unable to show reconstruction: trimesh.viewer.windowed requires pip install "pyglet<2"`: trimesh's
+  windowed viewer never adopted the pyglet 2.x API. Run `pip install "pyglet<2"` (pins 1.5.31). Nothing
+  else in the environment depends on pyglet, so the downgrade is safe. Surfaces after the GL fix above,
+  since the viewer only gets that far once a GL context can be created.
+- Viewer runs block on the GUI event loop, so `print()` output stays in stdout's block buffer when the
+  run is redirected to a file and later killed — the pose result looks missing even though it was
+  computed. Use `PYTHONUNBUFFERED=1` when logging a viewer run to a file.
 
 ## third_party Dependencies
 
