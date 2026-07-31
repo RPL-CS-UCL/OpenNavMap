@@ -12,7 +12,7 @@ import gtsam
 import matplotlib
 from tqdm import tqdm
 import pathlib
-from typing import List, Tuple, Dict, Optional
+from typing import Callable, List, Tuple, Dict, Optional
 from codetiming import Timer
 
 from utils.utils_vpr_method import initialize_match_model
@@ -353,6 +353,25 @@ class MergePipeline:
 				i for i in range(pose_graph.get_factor_graph().size())
 				if i not in loop_index_set
 			]
+			if args.pgo_seq_inlier_time_gap > 0:
+				def _node_time(node_id: int) -> Optional[float]:
+					if node_id >= self.id_offset:
+						node = cur_submap.odom.get_node(node_id - self.id_offset)
+					else:
+						node = final_map.odom.get_node(node_id)
+					return getattr(node, 'time', None) if node is not None else None
+				seq_inlier_indices = select_seq_inlier_factor_indices(
+					loop_factor_indices, loop_factor_keys,
+					_node_time, args.pgo_seq_inlier_time_gap
+				)
+				if seq_inlier_indices:
+					known_inlier_indices.extend(seq_inlier_indices)
+					logging.warning(
+						f"PGO: exempting {len(seq_inlier_indices)}/"
+						f"{len(loop_factor_indices)} seq-adjacent loop edge(s) "
+						f"(|dt| <= {args.pgo_seq_inlier_time_gap}s) from GNC "
+						"classification"
+					)
 			if args.pgo_robust in ('gnc_tls', 'gnc_gm'):
 				result_pgo, gnc_weights = PoseGraph.optimize_pose_graph_with_GNC(
 					pose_graph.get_factor_graph(),
@@ -915,6 +934,33 @@ def update_edge_history(
 		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
 	if gv_inlier is not None:
 		value['gv_inlier'] = int(gv_inlier)
+
+def select_seq_inlier_factor_indices(
+	loop_factor_indices: List[int],
+	loop_factor_keys: List[Tuple[int, int]],
+	get_node_time: Callable[[int], Optional[float]],
+	max_time_gap: float,
+) -> List[int]:
+	"""Pick loop factors whose endpoint capture times lie within max_time_gap.
+
+	Sequentially adjacent submaps of one recording overlap in time (endpoint
+	gaps of seconds to a minute), while genuine revisit loops are minutes to
+	days apart. Seq-adjacency edges are backed by odometry continuity, so they
+	are declared GNC known inliers: at merge step 42, GNC-GM under the default
+	tight sigma rejected 19/20 of them (GT errors only 0.1-4.7 m), leaving a
+	single-edge mount and a 128 m transient. Endpoints without a timestamp are
+	never selected; max_time_gap <= 0 disables selection.
+	"""
+	if max_time_gap <= 0:
+		return []
+	selected = []
+	for factor_idx, (id_a, id_b) in zip(loop_factor_indices, loop_factor_keys):
+		t_a, t_b = get_node_time(id_a), get_node_time(id_b)
+		if t_a is None or t_b is None:
+			continue
+		if abs(t_a - t_b) <= max_time_gap:
+			selected.append(factor_idx)
+	return selected
 
 def defer_low_connectivity_edges(
 	refined_edges: List[Tuple],

@@ -9,6 +9,7 @@
 #   DATASET_ROOT, OUTPUT_ROOT, DATA_DIR, TRAJ_EVAL_ROOT, EVAL_CONFIG
 #   PGO_ROBUST, PGO_GNC_BARC_PROB, PGO_PERSISTENT_LOOPS
 #   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING, PGO_MIN_LOOP_EDGES
+#   PGO_SEQ_INLIER_TIME_GAP
 #   RERUN_VIZ=1 to enable Rerun visualization recording
 #   RERUN_OUTPUT, RERUN_IMAGE_FORMAT, RERUN_JPEG_QUALITY,
 #   RERUN_DMATRIX_FORMAT, RERUN_AXIS_SCALE, RERUN_VIZ_DIR
@@ -79,6 +80,9 @@ PGO_LOOP_SIGMA_ROT=${PGO_LOOP_SIGMA_ROT:-1.0}
 PGO_LOOP_CONF_SCALING=${PGO_LOOP_CONF_SCALING:-inverse}
 # Below this many refined loop edges the merge is deferred (1 = disabled)
 PGO_MIN_LOOP_EDGES=${PGO_MIN_LOOP_EDGES:-1}
+# Loop edges with endpoint capture times within this gap [s] become GNC known
+# inliers (0 = disabled)
+PGO_SEQ_INLIER_TIME_GAP=${PGO_SEQ_INLIER_TIME_GAP:-0}
 
 PIPELINE_ARGS=(
     --dataset_root "$DATASET_ROOT"
@@ -96,6 +100,7 @@ PIPELINE_ARGS=(
     --pgo_loop_sigma_rot "$PGO_LOOP_SIGMA_ROT"
     --pgo_loop_conf_scaling "$PGO_LOOP_CONF_SCALING"
     --pgo_min_loop_edges "$PGO_MIN_LOOP_EDGES"
+    --pgo_seq_inlier_time_gap "$PGO_SEQ_INLIER_TIME_GAP"
     --viz
 )
 if [[ -n "$DATA_DIR" ]]; then
