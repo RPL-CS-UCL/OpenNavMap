@@ -10,6 +10,7 @@
 #   PGO_ROBUST, PGO_GNC_BARC_PROB, PGO_PERSISTENT_LOOPS
 #   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING, PGO_MIN_LOOP_EDGES
 #   PGO_SEQ_INLIER_TIME_GAP
+#   MERGE_EXTRA_LD_PRELOAD to prepend libraries to the pinned LD_PRELOAD
 #   RERUN_VIZ=1 to enable Rerun visualization recording
 #   RERUN_OUTPUT, RERUN_IMAGE_FORMAT, RERUN_JPEG_QUALITY,
 #   RERUN_DMATRIX_FORMAT, RERUN_AXIS_SCALE, RERUN_VIZ_DIR
@@ -25,7 +26,17 @@ EVAL_CONFIG=${EVAL_CONFIG:-OpenNavMap_map_merge.yaml}
 PYTHON_OPENNAVMAP=${PYTHON_OPENNAVMAP:-/root/miniconda3/envs/opennavmap/bin/python}
 EVAL_PYTHON=${EVAL_PYTHON:-/root/miniconda3/envs/traj_evaluation/bin/python}
 
-export LD_PRELOAD="${LD_PRELOAD:-/root/miniconda3/envs/opennavmap/lib/libstdc++.so.6}"
+# Pin the preload list instead of inheriting it. Desktop sessions often export
+# LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGL.so:...libGLEW.so, and `${VAR:-default}`
+# would keep that value, force-loading the system GL stack (notably libGLdispatch,
+# a pure function-pointer table) ahead of Python and interposing its symbols
+# globally. Combined with the three BLAS builds and two OpenMP runtimes already in
+# this process, that produced random `segfault at 0 ip 0` crashes tens of merge
+# steps into a run. Set MERGE_EXTRA_LD_PRELOAD to prepend libraries deliberately.
+export LD_PRELOAD="${MERGE_EXTRA_LD_PRELOAD:+${MERGE_EXTRA_LD_PRELOAD}:}/root/miniconda3/envs/opennavmap/lib/libstdc++.so.6"
+# Make MKL use the GNU OpenMP runtime that numpy/torch already load, rather than
+# bringing up a second (Intel) one alongside it.
+export MKL_THREADING_LAYER=${MKL_THREADING_LAYER:-GNU}
 export PYTHONPATH="${PROJECT_PATH}/python:${PROJECT_PATH}/third_party/litevloc_code/python:${PROJECT_PATH}/third_party/pose_estimation_models"
 export PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
 
