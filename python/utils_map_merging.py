@@ -19,7 +19,7 @@ REFINE_GV_SCORE_THRESHOLD = 100.0
 MAX_LOSS = 10.0 
 # (local localization) Confidence Map Threshold
 RELIABLE_CONF_THRESHOLD = 0.1
-REFINE_CONF_THRESHOLD = 0.5 # threshold to select good refinement: out-of-range image, wrong coarse localization
+REFINE_CONF_THRESHOLD = 0.6 # threshold to select good refinement: out-of-range image, wrong coarse localization; bad edges cluster just above 0.5 (e.g. merge step 40's 176-deg flip edge at conf 0.519)
 assert RELIABLE_CONF_THRESHOLD < REFINE_CONF_THRESHOLD
 # Same Place Threshold
 TRANS_THRESHOLD = 7.5
