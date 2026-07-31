@@ -309,6 +309,17 @@ class MergePipeline:
 				edge_history
 			)
 
+			edges_nodeAB_refine_covis, deferred_edges = defer_low_connectivity_edges(
+				edges_nodeAB_refine_covis, args.pgo_min_loop_edges, edge_history
+			)
+			if deferred_edges:
+				logging.warning(
+					Fore.RED + f"PGO guard: only {len(deferred_edges)} loop edge(s) "
+					f"connect submap {cur_submap.map_id} (min "
+					f"{args.pgo_min_loop_edges}); deferring merge, submap stays "
+					"anchored by its own prior" + Fore.RESET
+				)
+
 			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
 			_record_stage_annotation(
 				self,
@@ -896,6 +907,29 @@ def update_edge_history(
 		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
 	if gv_inlier is not None:
 		value['gv_inlier'] = int(gv_inlier)
+
+def defer_low_connectivity_edges(
+	refined_edges: List[Tuple],
+	min_edges: int,
+	edge_history: Dict,
+) -> Tuple[List[Tuple], List[Tuple]]:
+	"""Reject this step's loop edges wholesale when there are too few of them.
+
+	With fewer than min_edges constraints between the incoming submap and the
+	final map, PGO can zero every loop residual by rigidly moving the submap,
+	so GNC has no leverage to classify a wrong edge (merge step 40: a single
+	176.7-deg flip edge kept weight 1.0 under a fully annealing GNC). Deferred
+	edges are recorded as 'removed_by_low_connectivity'; the submap then keeps
+	its own anchor prior and later submaps can still connect to it.
+	"""
+	if min_edges <= 1 or not refined_edges or len(refined_edges) >= min_edges:
+		return refined_edges, []
+	for edge in refined_edges:
+		update_edge_history(
+			edge_history, (edge[0].id, edge[1].id),
+			action='removed_by_low_connectivity'
+		)
+	return [], refined_edges
 
 def split_edges_by_gnc_weight(
 	refined_edges: List[Tuple],

@@ -243,6 +243,11 @@ def parse_arguments():
 	parser.add_argument("--pgo_persistent_loops", action="store_true",
 		help="Keep accepted inter-submap loop edges as loop factors across merge "
 		     "steps so GNC can re-classify them instead of welding them into odometry")
+	parser.add_argument("--pgo_min_loop_edges", type=int, default=1,
+		help="Minimum number of refined loop edges required to merge a submap "
+		     "this step; below this the merge is deferred (the submap keeps its "
+		     "own anchor prior). 1 disables the guard. With a single edge PGO "
+		     "zeroes the residual by rigid motion, so GNC cannot reject it")
 	parser.add_argument("--pgo_loop_sigma_trans", type=float, default=0.1,
 		help="Translation std [m] of an inter-submap loop factor; drives the GNC "
 		     "TLS inlier threshold")
