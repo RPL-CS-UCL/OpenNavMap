@@ -9,6 +9,9 @@
 #   DATASET_ROOT, OUTPUT_ROOT, DATA_DIR, TRAJ_EVAL_ROOT, EVAL_CONFIG
 #   PGO_ROBUST, PGO_GNC_BARC_PROB, PGO_PERSISTENT_LOOPS
 #   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING, PGO_MIN_LOOP_EDGES
+#   PGO_SEQ_INLIER_TIME_GAP
+#   MERGE_EXTRA_LD_PRELOAD to prepend libraries to the pinned LD_PRELOAD
+#   MERGE_CPU_LIST to override CPU pinning (empty = no pinning)
 #   RERUN_VIZ=1 to enable Rerun visualization recording
 #   RERUN_OUTPUT, RERUN_IMAGE_FORMAT, RERUN_JPEG_QUALITY,
 #   RERUN_DMATRIX_FORMAT, RERUN_AXIS_SCALE, RERUN_VIZ_DIR
@@ -24,7 +27,43 @@ EVAL_CONFIG=${EVAL_CONFIG:-OpenNavMap_map_merge.yaml}
 PYTHON_OPENNAVMAP=${PYTHON_OPENNAVMAP:-/root/miniconda3/envs/opennavmap/bin/python}
 EVAL_PYTHON=${EVAL_PYTHON:-/root/miniconda3/envs/traj_evaluation/bin/python}
 
-export LD_PRELOAD="${LD_PRELOAD:-/root/miniconda3/envs/opennavmap/lib/libstdc++.so.6}"
+# Pin the preload list instead of inheriting it. Desktop sessions often export
+# LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGL.so:...libGLEW.so, and `${VAR:-default}`
+# would keep that value, force-loading the system GL stack (notably libGLdispatch,
+# a pure function-pointer table) ahead of Python and interposing its symbols
+# globally. Combined with the three BLAS builds and two OpenMP runtimes already in
+# this process, that produced random `segfault at 0 ip 0` crashes tens of merge
+# steps into a run. Set MERGE_EXTRA_LD_PRELOAD to prepend libraries deliberately.
+export LD_PRELOAD="${MERGE_EXTRA_LD_PRELOAD:+${MERGE_EXTRA_LD_PRELOAD}:}/root/miniconda3/envs/opennavmap/lib/libstdc++.so.6"
+# Make MKL use the GNU OpenMP runtime that numpy/torch already load, rather than
+# bringing up a second (Intel) one alongside it.
+export MKL_THREADING_LAYER=${MKL_THREADING_LAYER:-GNU}
+
+# Keep the run off the highest-clocked cores. Intel ITMT parks long
+# single-threaded work on the "favored" cores, which on Raptor Lake (13/14th gen
+# Core i9) are also the first to degrade under the known Vmin-shift defect. On
+# this host all three observed memory-corruption events hit the same ~39 s
+# single-threaded VPR search loop: twice as `segfault at 0 ip 0` on CPU 14 (a
+# 6.0 GHz favored core), once as a `TypeError: 'range_iterator' object is not
+# callable` raised by a plain-dict lookup -- a CPython frame-slot bit flip that
+# no software fault can produce. Memory here is non-ECC, so nothing else catches
+# it. Set MERGE_CPU_LIST= (empty) to disable pinning, or to an explicit list to
+# override the detection.
+detect_non_boost_cpus() {
+    local top=0 freq cpu list=()
+    for f in /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq; do
+        [[ -r "$f" ]] || return 1
+        freq=$(<"$f")
+        (( freq > top )) && top=$freq
+    done
+    for f in /sys/devices/system/cpu/cpu*/cpufreq/cpuinfo_max_freq; do
+        cpu=${f#/sys/devices/system/cpu/cpu}
+        (( $(<"$f") < top )) && list+=("${cpu%%/*}")
+    done
+    (( ${#list[@]} )) || return 1
+    (IFS=,; echo "${list[*]}")
+}
+MERGE_CPU_LIST=${MERGE_CPU_LIST-$(detect_non_boost_cpus || true)}
 export PYTHONPATH="${PROJECT_PATH}/python:${PROJECT_PATH}/third_party/litevloc_code/python:${PROJECT_PATH}/third_party/pose_estimation_models"
 export PYTHONDONTWRITEBYTECODE=${PYTHONDONTWRITEBYTECODE:-1}
 
@@ -79,6 +118,9 @@ PGO_LOOP_SIGMA_ROT=${PGO_LOOP_SIGMA_ROT:-1.0}
 PGO_LOOP_CONF_SCALING=${PGO_LOOP_CONF_SCALING:-inverse}
 # Below this many refined loop edges the merge is deferred (1 = disabled)
 PGO_MIN_LOOP_EDGES=${PGO_MIN_LOOP_EDGES:-1}
+# Loop edges with endpoint capture times within this gap [s] become GNC known
+# inliers (0 = disabled)
+PGO_SEQ_INLIER_TIME_GAP=${PGO_SEQ_INLIER_TIME_GAP:-0}
 
 PIPELINE_ARGS=(
     --dataset_root "$DATASET_ROOT"
@@ -96,6 +138,7 @@ PIPELINE_ARGS=(
     --pgo_loop_sigma_rot "$PGO_LOOP_SIGMA_ROT"
     --pgo_loop_conf_scaling "$PGO_LOOP_CONF_SCALING"
     --pgo_min_loop_edges "$PGO_MIN_LOOP_EDGES"
+    --pgo_seq_inlier_time_gap "$PGO_SEQ_INLIER_TIME_GAP"
     --viz
 )
 if [[ -n "$DATA_DIR" ]]; then
@@ -125,8 +168,15 @@ if [[ "${RERUN_VIZ:-0}" == "1" ]]; then
     fi
 fi
 
+RUN_PREFIX=()
+if [[ -n "$MERGE_CPU_LIST" ]]; then
+    RUN_PREFIX=(taskset -c "$MERGE_CPU_LIST")
+fi
+
 echo "=== Step 1: Map merging ==="
-"$PYTHON_OPENNAVMAP" "${PROJECT_PATH}/python/map_merge_pipeline.py" "${PIPELINE_ARGS[@]}"
+echo "CPU affinity: ${MERGE_CPU_LIST:-<all>}"
+${RUN_PREFIX[@]+"${RUN_PREFIX[@]}"} \
+    "$PYTHON_OPENNAVMAP" "${PROJECT_PATH}/python/map_merge_pipeline.py" "${PIPELINE_ARGS[@]}"
 
 echo ""
 echo "=== Step 2: Convert MapFree poses to TUM ==="

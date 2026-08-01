@@ -157,6 +157,35 @@ human faces anonymized). Each dataset maps to one paper experiment:
 - Viewer runs block on the GUI event loop, so `print()` output stays in stdout's block buffer when the
   run is redirected to a file and later killed — the pose result looks missing even though it was
   computed. Use `PYTHONUNBUFFERED=1` when logging a viewer run to a file.
+- **Random memory corruption in long `run_map_merging.sh` runs — CPU-level, not a software bug.**
+  Three events on the same host, all inside `utils/vpr_dp.py::_perform_graph_search` (a ~39 s
+  single-threaded pure-Python triple loop, reached right after the `D_all shape: (...)` log line):
+  merge step 41 and step 46 died with `segfault at 0 ip 0000000000000000` (a jump through a NULL
+  function pointer), and step 22 raised `TypeError: 'range_iterator' object is not callable` from
+  `next_states.get(...)` where `next_states` is a plain `dict`. That last one is the tell — the
+  iterator built by the `for k in range(...)` on the line above had displaced the local in the
+  CPython frame. No software fault can produce that; it is a bit flip, and this host's memory is
+  non-ECC (`EDAC ie31200: No ECC support`), so nothing detects or corrects it.
+
+  Both segfaults were logged on **CPU 14**. On this i9-14900K, CPUs 12–15 are the 6.0 GHz "favored"
+  cores (the other P-cores cap at 5.7 GHz, E-cores at 4.4 GHz), and Intel ITMT deliberately parks
+  long single-threaded work on them — exactly this loop. Raptor Lake i9 parts are subject to the
+  known Vmin-shift/oxidation degradation, which hits the highest-clocked cores first; microcode
+  0x133 mitigates further degradation but cannot undo damage already done.
+
+  `scripts/run_map_merging.sh` now pins the run away from those cores automatically
+  (`detect_non_boost_cpus`, override via `MERGE_CPU_LIST`, empty to disable). This costs ~12% of CPU
+  throughput. It matters because `map_merge_pipeline.py` has **no resume logic**: every crash costs
+  a full re-run from step 0. If corruption persists after pinning, the degradation has spread beyond
+  the favored cores and the fix is a BIOS-level offset (or an RMA — Intel extended the warranty on
+  these parts to 5 years).
+
+  Two earlier suspects were ruled out as *contributing* rather than causal, but their fixes are worth
+  keeping: the script used to write `LD_PRELOAD="${LD_PRELOAD:-<conda>/lib/libstdc++.so.6}"`, and `:-`
+  keeps an already-set value, so a shell-level `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGL.so:...`
+  force-loaded the system GL stack ahead of Python (same trap as the GL issue above); the process also
+  hosts three BLAS builds and two OpenMP runtimes. The script now pins `LD_PRELOAD` and sets
+  `MKL_THREADING_LAYER=GNU`. Crashes continued after both, which is what pointed at hardware.
 
 ## third_party Dependencies
 
