@@ -28,6 +28,14 @@ ORI_THRESHOLD = 75.0
 # into the merged map. TLS weights are near 0 or near 1, so the midpoint is a
 # safe cut.
 PGO_INLIER_WEIGHT_THRESHOLD = 0.5
+# (pose graph optimization) Chi-squared probability for the GNC inlier cost
+# threshold. Not a CLI flag: the acceptance radius is sigma * sqrt(chi2inv(p, 6)),
+# and sqrt(chi2inv) only spans 2.31..5.75 across the whole (0, 1) range of p,
+# while --pgo_loop_sigma_trans/_rot scale it without bound. A sphere2500 sweep
+# over p in {0.9, 0.99, 0.999} rejected an identical edge set (P = R = 1.0), so
+# this is the weaker and redundant of the two knobs. benchmark_pgo keeps its own
+# --barc-probs flag for studying the threshold in isolation.
+PGO_GNC_BARC_PROB = 0.99
 
 def is_same_place(nodeA, nodeB):
 	dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
@@ -242,15 +250,20 @@ def parse_arguments():
 	parser.add_argument("--use_ig", action="store_true", help="Use information gain in node culling")
 	parser.add_argument("--use_td", action="store_true", help="Use temporal difference in node culling")
 	# Robust pose graph optimization
-	parser.add_argument("--pgo_robust", type=str, default="gnc_tls",
+	parser.add_argument("--pgo_robust", type=str, default="gnc_gm",
 		choices=["none", "huber", "gnc_tls", "gnc_gm"],
-		help="Robust back-end for pose graph optimization")
-	parser.add_argument("--pgo_gnc_barc_prob", type=float, default=0.99,
-		help="Chi-squared probability for the GNC inlier cost threshold")
-	parser.add_argument("--pgo_persistent_loops", action="store_true",
-		help="Keep accepted inter-submap loop edges as loop factors across merge "
-		     "steps so GNC can re-classify them instead of welding them into odometry")
-	parser.add_argument("--pgo_min_loop_edges", type=int, default=1,
+		help="Robust back-end for pose graph optimization. GM is the default "
+		     "because the merge is incremental: each step hands the solver the "
+		     "previous step's fixed point, and TLS's hard cutoff makes a "
+		     "misclassification permanent, while GM's smooth weights let a later "
+		     "step re-admit an edge. 'none' and 'huber' are ablation baselines")
+	parser.add_argument("--pgo_no_persistent_loops", dest="pgo_persistent_loops",
+		action="store_false", default=True,
+		help="Weld accepted inter-submap loop edges into odometry instead of "
+		     "keeping them as loop factors across merge steps. Persistence is on "
+		     "by default so GNC can re-classify an earlier bad edge; re-measuring "
+		     "it as odometry zeroes its residual and welds the error in")
+	parser.add_argument("--pgo_min_loop_edges", type=int, default=2,
 		help="Minimum number of refined loop edges required to merge a submap "
 		     "this step; below this the merge is deferred (the submap keeps its "
 		     "own anchor prior). 1 disables the guard. With a single edge PGO "
@@ -260,10 +273,6 @@ def parse_arguments():
 		     "TLS inlier threshold")
 	parser.add_argument("--pgo_loop_sigma_rot", type=float, default=1.0,
 		help="Rotation std [deg] of an inter-submap loop factor")
-	parser.add_argument("--pgo_loop_conf_scaling", type=str, default="inverse",
-		choices=["inverse", "none"],
-		help="How matcher confidence scales a loop factor's sigma: 'inverse' "
-		     "divides by conf (tightens high-confidence edges), 'none' keeps it flat")
 	parser.add_argument("--pgo_seq_inlier_time_gap", type=float, default=0.0,
 		help="Loop edges whose endpoint capture times differ by at most this "
 		     "many seconds are declared GNC known inliers (sequentially "

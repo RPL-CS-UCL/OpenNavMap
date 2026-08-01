@@ -36,7 +36,6 @@ def test_loop_factor_indices_follow_odometry_factors():
     merger.args = Namespace(
         pgo_loop_sigma_trans=0.1,
         pgo_loop_sigma_rot=1.0,
-        pgo_loop_conf_scaling='inverse',
     )
 
     inter_edges = [(a0, b0, np.eye(4), 0.8, 0.5)]

@@ -88,18 +88,6 @@ class MergePipeline:
 		self.pose_estimator.verbose = False
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
-	def scale_loop_sigma(self, loop_sigma: np.ndarray, conf: float) -> np.ndarray:
-		"""Apply the configured confidence scaling to one loop factor's sigma.
-
-		'inverse' is the historical behaviour: sigma = loop_sigma / conf. It is
-		backwards -- conf > 1 tightens the residual budget, so the edges the
-		matcher was most sure about are the ones GNC judges most harshly.
-		'none' gives every loop factor the same sigma.
-		"""
-		if self.args.pgo_loop_conf_scaling == 'none':
-			return loop_sigma
-		return loop_sigma / conf
-
 	def create_pose_graph_from_map(
 		self,
 		graph_odom_a,     # The odometry graph
@@ -118,10 +106,14 @@ class MergePipeline:
 		# Set basic std for factors
 		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
-		# Loop sigma drives the GNC TLS threshold, so it decides which edges are
+		# Loop sigma drives the GNC inlier threshold, so it decides which edges are
 		# even eligible to be called outliers. Tunable because the 1 deg / 0.1 m
 		# default is tight enough that hundreds of persistent loop factors fight
-		# each other instead of the bad ones standing out.
+		# each other instead of the bad ones standing out. Every loop factor gets
+		# the same sigma: scaling it by matcher confidence used to divide by conf,
+		# which inverts the reliability ordering GNC needs -- conf spans (0.6, 10],
+		# so the edges the matcher was most sure about ended up with a 4 cm
+		# acceptance radius and were the first ones classified as outliers.
 		loop_sigma = np.array(
 			[np.deg2rad(self.args.pgo_loop_sigma_rot)] * 3
 			+ [self.args.pgo_loop_sigma_trans] * 3
@@ -165,17 +157,17 @@ class MergePipeline:
 			loop_factor_indices.append(pose_graph.add_odometry_factor(
 				key_a, I_pose3,
 				key_b, next_pose3,
-				self.scale_loop_sigma(loop_sigma, record['conf'])
+				loop_sigma
 			))
 			loop_factor_keys.append((key_a, key_b))
 		for edge in inter_edges_covis:
-			nodeA, nodeB, T_AB, conf = edge[:4]
+			nodeA, nodeB, T_AB = edge[:3]
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			loop_factor_indices.append(pose_graph.add_odometry_factor(
 				nodeA.id, I_pose3,
 				nodeB.id+self.id_offset, next_pose3,
-				self.scale_loop_sigma(loop_sigma, conf)
+				loop_sigma
 			))
 			loop_factor_keys.append((nodeA.id, nodeB.id + self.id_offset))
 
@@ -378,7 +370,7 @@ class MergePipeline:
 					pose_graph.get_initial_estimate(),
 					known_inlier_indices=known_inlier_indices,
 					loss='TLS' if args.pgo_robust == 'gnc_tls' else 'GM',
-					barc_prob=args.pgo_gnc_barc_prob,
+					barc_prob=PGO_GNC_BARC_PROB,
 				)
 			else:
 				result_pgo = PoseGraph.optimize_pose_graph_with_LM(
@@ -395,7 +387,7 @@ class MergePipeline:
 			num_hist = len(loop_factor_indices) - len(edges_nodeAB_refine_covis)
 			gnc_weights_path = str(self.log_dir / "preds" / "gnc_weights.txt")
 			with open(gnc_weights_path, 'w') as f:
-				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={args.pgo_gnc_barc_prob}\n")
+				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={PGO_GNC_BARC_PROB}\n")
 				f.write("# db_id,query_id are merged global node ids\n")
 				f.write("# db_id,query_id,weight,conf,trans_err,rot_err,origin\n")
 				for i, (factor_idx, key) in enumerate(zip(loop_factor_indices, loop_factor_keys)):

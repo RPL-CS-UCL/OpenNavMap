@@ -7,8 +7,8 @@
 #
 # Environment overrides:
 #   DATASET_ROOT, OUTPUT_ROOT, DATA_DIR, TRAJ_EVAL_ROOT, EVAL_CONFIG
-#   PGO_ROBUST, PGO_GNC_BARC_PROB, PGO_PERSISTENT_LOOPS
-#   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING, PGO_MIN_LOOP_EDGES
+#   PGO_ROBUST, PGO_PERSISTENT_LOOPS
+#   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_MIN_LOOP_EDGES
 #   PGO_SEQ_INLIER_TIME_GAP
 #   MERGE_EXTRA_LD_PRELOAD to prepend libraries to the pinned LD_PRELOAD
 #   MERGE_CPU_LIST to override CPU pinning (empty = no pinning)
@@ -108,16 +108,14 @@ TUM_NAME="${DATASET_NAME}_${SCENE}_${ORDER_TAG}"
 TRAJ_NAME="${METHOD}${SUFFIX}"
 
 # Robust pose graph optimization back-end (none | huber | gnc_tls | gnc_gm)
-PGO_ROBUST=${PGO_ROBUST:-gnc_tls}
-PGO_GNC_BARC_PROB=${PGO_GNC_BARC_PROB:-0.99}
+PGO_ROBUST=${PGO_ROBUST:-gnc_gm}
 # Keep accepted loop edges as loop factors across merge steps (0 | 1)
-PGO_PERSISTENT_LOOPS=${PGO_PERSISTENT_LOOPS:-0}
+PGO_PERSISTENT_LOOPS=${PGO_PERSISTENT_LOOPS:-1}
 # Loop factor noise, which sets the GNC outlier threshold
 PGO_LOOP_SIGMA_TRANS=${PGO_LOOP_SIGMA_TRANS:-0.1}
 PGO_LOOP_SIGMA_ROT=${PGO_LOOP_SIGMA_ROT:-1.0}
-PGO_LOOP_CONF_SCALING=${PGO_LOOP_CONF_SCALING:-inverse}
 # Below this many refined loop edges the merge is deferred (1 = disabled)
-PGO_MIN_LOOP_EDGES=${PGO_MIN_LOOP_EDGES:-1}
+PGO_MIN_LOOP_EDGES=${PGO_MIN_LOOP_EDGES:-2}
 # Loop edges with endpoint capture times within this gap [s] become GNC known
 # inliers (0 = disabled)
 PGO_SEQ_INLIER_TIME_GAP=${PGO_SEQ_INLIER_TIME_GAP:-0}
@@ -133,10 +131,8 @@ PIPELINE_ARGS=(
     --vpr_match_model vpr_dp
     --vpr_match_seq_len 10
     --pgo_robust "$PGO_ROBUST"
-    --pgo_gnc_barc_prob "$PGO_GNC_BARC_PROB"
     --pgo_loop_sigma_trans "$PGO_LOOP_SIGMA_TRANS"
     --pgo_loop_sigma_rot "$PGO_LOOP_SIGMA_ROT"
-    --pgo_loop_conf_scaling "$PGO_LOOP_CONF_SCALING"
     --pgo_min_loop_edges "$PGO_MIN_LOOP_EDGES"
     --pgo_seq_inlier_time_gap "$PGO_SEQ_INLIER_TIME_GAP"
     --viz
@@ -147,8 +143,8 @@ fi
 if [[ -n "$MAX_SUBMAPS" ]]; then
     PIPELINE_ARGS+=(--max_submaps "$MAX_SUBMAPS")
 fi
-if [[ "$PGO_PERSISTENT_LOOPS" == "1" ]]; then
-    PIPELINE_ARGS+=(--pgo_persistent_loops)
+if [[ "$PGO_PERSISTENT_LOOPS" != "1" ]]; then
+    PIPELINE_ARGS+=(--pgo_no_persistent_loops)
 fi
 PIPELINE_ARGS+=("${ABLATION_FLAGS[@]}")
 
