@@ -57,7 +57,7 @@ def test_edge_counts_per_stage_include_late_removals(tmp_path) -> None:
         (0, 0): {'action': 'removed_by_gv'},
         (1, 1): {'action': 'removed_by_ccm'},
         (2, 2): {'action': 'removed_by_pgo'},
-        (3, 3): {'action': 'removed_by_low_connectivity'},
+        (3, 3): {'action': 'removed_by_pgo'},
         (4, 4): {'action': 'added_by_vpr'},
     }
 
@@ -65,8 +65,8 @@ def test_edge_counts_per_stage_include_late_removals(tmp_path) -> None:
         str(tmp_path), db, query, edge_history
     )
 
-    # VPR: all 5; GV survivors: 4; CCM survivors: 3 (pgo/low-connectivity
-    # removals happen after CCM); final survivors: 1.
+    # VPR: all 5; GV survivors: 4; CCM survivors: 3 (PGO removals happen after
+    # CCM); final survivors: 1.
     assert edge_counts == [5, 4, 3, 1]
     assert (tmp_path / "edge_history.png").exists()
 

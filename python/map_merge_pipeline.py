@@ -12,7 +12,7 @@ import gtsam
 import matplotlib
 from tqdm import tqdm
 import pathlib
-from typing import Callable, List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional
 from codetiming import Timer
 
 from utils.utils_vpr_method import initialize_match_model
@@ -312,17 +312,6 @@ class MergePipeline:
 				edge_history
 			)
 
-			edges_nodeAB_refine_covis, deferred_edges = defer_low_connectivity_edges(
-				edges_nodeAB_refine_covis, args.pgo_min_loop_edges, edge_history
-			)
-			if deferred_edges:
-				logging.warning(
-					Fore.RED + f"PGO guard: only {len(deferred_edges)} loop edge(s) "
-					f"connect submap {cur_submap.map_id} (min "
-					f"{args.pgo_min_loop_edges}); deferring merge, submap stays "
-					"anchored by its own prior" + Fore.RESET
-				)
-
 			logging.info(Fore.GREEN + f'Performing PGO for Submap {cur_submap.map_id}' + Fore.RESET)
 			_record_stage_annotation(
 				self,
@@ -336,7 +325,7 @@ class MergePipeline:
 				final_map.odom,
 				cur_submap.odom,
 				edges_nodeAB_refine_covis,
-				loop_registry=self.loop_edge_registry if args.pgo_persistent_loops else None
+				loop_registry=self.loop_edge_registry
 			)
 			g2o_path = str(self.log_dir/"preds/initial_pose_graph.g2o")
 			gtsam.writeG2o(pose_graph.get_factor_graph(), pose_graph.get_initial_estimate(), g2o_path)
@@ -356,25 +345,6 @@ class MergePipeline:
 				i for i in range(pose_graph.get_factor_graph().size())
 				if i not in loop_index_set
 			]
-			if args.pgo_seq_inlier_time_gap > 0:
-				def _node_time(node_id: int) -> Optional[float]:
-					if node_id >= self.id_offset:
-						node = cur_submap.odom.get_node(node_id - self.id_offset)
-					else:
-						node = final_map.odom.get_node(node_id)
-					return getattr(node, 'time', None) if node is not None else None
-				seq_inlier_indices = select_seq_inlier_factor_indices(
-					loop_factor_indices, loop_factor_keys,
-					_node_time, args.pgo_seq_inlier_time_gap
-				)
-				if seq_inlier_indices:
-					known_inlier_indices.extend(seq_inlier_indices)
-					logging.warning(
-						f"PGO: exempting {len(seq_inlier_indices)}/"
-						f"{len(loop_factor_indices)} seq-adjacent loop edge(s) "
-						f"(|dt| <= {args.pgo_seq_inlier_time_gap}s) from GNC "
-						"classification"
-					)
 			if args.pgo_robust in ('gnc_tls', 'gnc_gm'):
 				result_pgo, gnc_weights = PoseGraph.optimize_pose_graph_with_GNC(
 					pose_graph.get_factor_graph(),
@@ -479,7 +449,6 @@ class MergePipeline:
 				total_num_edges = len(edge_history)
 				num_edge_added_by_vpr, num_edge_removed_by_gv, num_edge_removed_by_ccm = 0, 0, 0
 				num_edge_removed_by_pgo = 0
-				num_edge_removed_by_low_conn = 0
 				for key, value in edge_history.items():
 					db_idx, query_idx = int(key[0]), int(key[1])
 					action = value['action'] if isinstance(value, dict) else value
@@ -491,8 +460,6 @@ class MergePipeline:
 						num_edge_removed_by_ccm += 1
 					elif 'removed_by_pgo' in action:
 						num_edge_removed_by_pgo += 1
-					elif 'removed_by_low_connectivity' in action:
-						num_edge_removed_by_low_conn += 1
 
 				edge_history_path = str(self.log_dir / "preds" / "edge_history.txt")
 				with open(edge_history_path, 'w') as f:
@@ -500,7 +467,6 @@ class MergePipeline:
 					f.write(f"Number of edges removed by GV: {num_edge_removed_by_gv} ({num_edge_removed_by_gv/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges removed by CCM: {num_edge_removed_by_ccm} ({num_edge_removed_by_ccm/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges removed by PGO: {num_edge_removed_by_pgo} ({num_edge_removed_by_pgo/total_num_edges*100:.2f}%)\n")
-					f.write(f"Number of edges removed by low connectivity: {num_edge_removed_by_low_conn} ({num_edge_removed_by_low_conn/total_num_edges*100:.2f}%)\n")
 					f.write(f"Number of edges retained: {num_edge_added_by_vpr} ({num_edge_added_by_vpr/total_num_edges*100:.2f}%)\n")
 					f.write(f"Precision: " + ",".join([f"{precision:.2f}" for precision in precision_list]) + "\n")
 					f.write(f"Recall: " + ",".join([f"{recall:.2f}" for recall in recall_list]) + "\n")
@@ -611,15 +577,14 @@ class MergePipeline:
 				dst_edges = final_map.update_edges(src_edges, dst_graph_type)
 				final_map.graphs[dst_graph_type].add_inter_edges(dst_edges, weight_func)
 
-			if args.pgo_persistent_loops:
-				self.update_loop_registry(
-					loop_factor_keys, loop_factor_indices, gnc_weights,
-					edges_nodeAB_refine_covis, num_hist, self.runtime_merge_step
-				)
-				self.save_loop_registry(str(self.log_dir / "preds" / "loop_registry.txt"))
-				logging.info(
-					f"Loop registry: {len(self.loop_edge_registry)} persistent loop edges"
-				)
+			self.update_loop_registry(
+				loop_factor_keys, loop_factor_indices, gnc_weights,
+				edges_nodeAB_refine_covis, num_hist, self.runtime_merge_step
+			)
+			self.save_loop_registry(str(self.log_dir / "preds" / "loop_registry.txt"))
+			logging.info(
+				f"Loop registry: {len(self.loop_edge_registry)} persistent loop edges"
+			)
 
 			logging.info(f"Final map info:\n{final_map}")
 			if self.runtime_viz_recorder is not None:
@@ -937,56 +902,6 @@ def update_edge_history(
 		logging.warning(f"Update Edge history: DB {key[0]} -> Query {key[1]}: {value}")
 	if gv_inlier is not None:
 		value['gv_inlier'] = int(gv_inlier)
-
-def select_seq_inlier_factor_indices(
-	loop_factor_indices: List[int],
-	loop_factor_keys: List[Tuple[int, int]],
-	get_node_time: Callable[[int], Optional[float]],
-	max_time_gap: float,
-) -> List[int]:
-	"""Pick loop factors whose endpoint capture times lie within max_time_gap.
-
-	Sequentially adjacent submaps of one recording overlap in time (endpoint
-	gaps of seconds to a minute), while genuine revisit loops are minutes to
-	days apart. Seq-adjacency edges are backed by odometry continuity, so they
-	are declared GNC known inliers: at merge step 42, GNC-GM under the default
-	tight sigma rejected 19/20 of them (GT errors only 0.1-4.7 m), leaving a
-	single-edge mount and a 128 m transient. Endpoints without a timestamp are
-	never selected; max_time_gap <= 0 disables selection.
-	"""
-	if max_time_gap <= 0:
-		return []
-	selected = []
-	for factor_idx, (id_a, id_b) in zip(loop_factor_indices, loop_factor_keys):
-		t_a, t_b = get_node_time(id_a), get_node_time(id_b)
-		if t_a is None or t_b is None:
-			continue
-		if abs(t_a - t_b) <= max_time_gap:
-			selected.append(factor_idx)
-	return selected
-
-def defer_low_connectivity_edges(
-	refined_edges: List[Tuple],
-	min_edges: int,
-	edge_history: Dict,
-) -> Tuple[List[Tuple], List[Tuple]]:
-	"""Reject this step's loop edges wholesale when there are too few of them.
-
-	With fewer than min_edges constraints between the incoming submap and the
-	final map, PGO can zero every loop residual by rigidly moving the submap,
-	so GNC has no leverage to classify a wrong edge (merge step 40: a single
-	176.7-deg flip edge kept weight 1.0 under a fully annealing GNC). Deferred
-	edges are recorded as 'removed_by_low_connectivity'; the submap then keeps
-	its own anchor prior and later submaps can still connect to it.
-	"""
-	if min_edges <= 1 or not refined_edges or len(refined_edges) >= min_edges:
-		return refined_edges, []
-	for edge in refined_edges:
-		update_edge_history(
-			edge_history, (edge[0].id, edge[1].id),
-			action='removed_by_low_connectivity'
-		)
-	return [], refined_edges
 
 def split_edges_by_gnc_weight(
 	refined_edges: List[Tuple],

@@ -131,10 +131,11 @@ human faces anonymized). Each dataset maps to one paper experiment:
   ```bash
   bash scripts/run_map_merging.sh s00000 0 <method_tag> master 1 1 1
   ```
-  It resolves to `--pgo_robust gnc_gm`, persistent loop factors on, `--pgo_loop_sigma_trans 0.1`
-  / `--pgo_loop_sigma_rot 1.0`, `--pgo_loop_conf_scaling inverse`, `--pgo_min_loop_edges 1`,
-  `--pgo_seq_inlier_time_gap 0`, with `REFINE_CONF_THRESHOLD = 0.5`
-  (`python/utils_map_merging.py`). Change one knob at a time and re-run the full sequence —
+  It resolves to `--pgo_robust gnc_gm`, `--pgo_loop_sigma_trans 0.1` / `--pgo_loop_sigma_rot 1.0`,
+  `--pgo_loop_conf_scaling inverse`, with `REFINE_CONF_THRESHOLD = 0.5`
+  (`python/utils_map_merging.py`). Persistent loop factors are unconditional: accepted
+  inter-submap edges stay loop factors across merge steps so GNC can re-classify an earlier
+  bad edge. Change one knob at a time and re-run the full sequence —
   the merge is incremental and path-dependent, so replaying only the final step does not
   predict what a different setting would have produced.
 

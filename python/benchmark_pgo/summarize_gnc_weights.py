@@ -53,8 +53,8 @@ def summarize(rows: List[Dict[str, float]]) -> Dict[str, float]:
     """Rejection counts plus how many rejections the GT error backs up.
 
     Counts cover this step's new edges only; historical loop factors re-judged
-    under --pgo_persistent_loops are reported separately, since they carry no
-    GT error (lloc_history holds only the step that first accepted them).
+    from the loop registry are reported separately, since they carry no GT
+    error (lloc_history holds only the step that first accepted them).
     """
     new_rows = [r for r in rows if r["origin"] == "new"]
     hist_rows = [r for r in rows if r["origin"] == "hist"]
