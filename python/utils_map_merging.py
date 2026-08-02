@@ -108,8 +108,8 @@ def save_vis_edge_history(log_dir, db_submap, query_submap, edge_history):
 	# --- Edge filters for each subplot: edges still alive entering each stage ---
 	# An edge's action holds only its FINAL state, so an edge is alive at a
 	# stage iff it was not removed by that stage or any earlier one. Late
-	# removals (removed_by_pgo, removed_by_low_connectivity) happen after CCM
-	# and must still appear in the first three panels.
+	# removals (removed_by_pgo) happen after CCM and must still appear in the
+	# first three panels.
 	edge_selector = [
 		lambda action: True,
 		lambda action: action != 'removed_by_gv',
@@ -244,20 +244,6 @@ def parse_arguments():
 		     "previous step's fixed point, and TLS's hard cutoff makes a "
 		     "misclassification permanent, while GM's smooth weights let a later "
 		     "step re-admit an edge. 'none' and 'huber' are ablation baselines")
-	parser.add_argument("--pgo_no_persistent_loops", dest="pgo_persistent_loops",
-		action="store_false", default=True,
-		help="Weld accepted inter-submap loop edges into odometry instead of "
-		     "keeping them as loop factors across merge steps. Persistence is on "
-		     "by default so GNC can re-classify an earlier bad edge; re-measuring "
-		     "it as odometry zeroes its residual and welds the error in")
-	parser.add_argument("--pgo_min_loop_edges", type=int, default=1,
-		help="Minimum number of refined loop edges required to merge a submap "
-		     "this step; below this the merge is deferred (the submap keeps its "
-		     "own anchor prior). 1 disables the guard, which is the default "
-		     "because the guard counts CANDIDATE edges, before GNC intake: on the "
-		     "full sequence it fires only a handful of times and leaves the "
-		     "trajectory bit-identical. The selection that matters happens in "
-		     "split_edges_by_gnc_weight")
 	parser.add_argument("--pgo_loop_sigma_trans", type=float, default=0.1,
 		help="Translation std [m] of an inter-submap loop factor; with "
 		     "--pgo_loop_conf_scaling it sets the GNC intake radius")
@@ -274,12 +260,6 @@ def parse_arguments():
 		     "have never been separated from --pgo_loop_sigma_trans in a full "
 		     "run, so this is 'keep the verified combination', not a proof that "
 		     "scaling is required")
-	parser.add_argument("--pgo_seq_inlier_time_gap", type=float, default=0.0,
-		help="Loop edges whose endpoint capture times differ by at most this "
-		     "many seconds are declared GNC known inliers (sequentially "
-		     "adjacent submaps overlap in time and are backed by odometry "
-		     "continuity, while true revisit loops are minutes to days apart). "
-		     "0 disables the exemption")
 	# Logging and visualization flags
 	parser.add_argument("--warning", action="store_true", help="Logging level")
 	parser.add_argument("--viz", action="store_true", help="Flag to plot results")
