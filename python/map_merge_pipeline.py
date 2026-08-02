@@ -91,10 +91,10 @@ class MergePipeline:
 	def scale_loop_sigma(self, loop_sigma: np.ndarray, conf: float) -> np.ndarray:
 		"""Apply the configured confidence scaling to one loop factor's sigma.
 
-		'inverse' is the historical behaviour: sigma = loop_sigma / conf. It is
-		backwards -- conf > 1 tightens the residual budget, so the edges the
-		matcher was most sure about are the ones GNC judges most harshly.
-		'none' gives every loop factor the same sigma.
+		'inverse' divides by the matcher confidence, so a more confident match
+		gets a tighter residual budget and a smaller GNC acceptance radius.
+		'none' gives every loop factor the same sigma, which loosens the radius
+		for every edge whose conf is above 1.
 		"""
 		if self.args.pgo_loop_conf_scaling == 'none':
 			return loop_sigma
@@ -118,10 +118,13 @@ class MergePipeline:
 		# Set basic std for factors
 		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
-		# Loop sigma drives the GNC TLS threshold, so it decides which edges are
-		# even eligible to be called outliers. Tunable because the 1 deg / 0.1 m
-		# default is tight enough that hundreds of persistent loop factors fight
-		# each other instead of the bad ones standing out.
+		# Loop sigma, together with --pgo_loop_conf_scaling, sets the acceptance
+		# radius sigma * sqrt(chi2inv(PGO_GNC_BARC_PROB, 6)) that decides which
+		# new edges enter the merged map at all. That intake radius is the single
+		# most consequential PGO knob: once an edge is admitted it is rebuilt as a
+		# factor at every later step, and GNC reclassifies only a small fraction of
+		# the accumulated history, so a wrong edge admitted early is effectively
+		# permanent. Loosen these only with a full-sequence run to back it up.
 		loop_sigma = np.array(
 			[np.deg2rad(self.args.pgo_loop_sigma_rot)] * 3
 			+ [self.args.pgo_loop_sigma_trans] * 3
@@ -378,7 +381,7 @@ class MergePipeline:
 					pose_graph.get_initial_estimate(),
 					known_inlier_indices=known_inlier_indices,
 					loss='TLS' if args.pgo_robust == 'gnc_tls' else 'GM',
-					barc_prob=args.pgo_gnc_barc_prob,
+					barc_prob=PGO_GNC_BARC_PROB,
 				)
 			else:
 				result_pgo = PoseGraph.optimize_pose_graph_with_LM(
@@ -395,7 +398,7 @@ class MergePipeline:
 			num_hist = len(loop_factor_indices) - len(edges_nodeAB_refine_covis)
 			gnc_weights_path = str(self.log_dir / "preds" / "gnc_weights.txt")
 			with open(gnc_weights_path, 'w') as f:
-				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={args.pgo_gnc_barc_prob}\n")
+				f.write(f"# pgo_robust={args.pgo_robust} barc_prob={PGO_GNC_BARC_PROB}\n")
 				f.write("# db_id,query_id are merged global node ids\n")
 				f.write("# db_id,query_id,weight,conf,trans_err,rot_err,origin\n")
 				for i, (factor_idx, key) in enumerate(zip(loop_factor_indices, loop_factor_keys)):

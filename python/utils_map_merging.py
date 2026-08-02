@@ -17,9 +17,13 @@ from sklearn.metrics import precision_score, recall_score
 # (global localization) Geometric Verification Threshold
 REFINE_GV_SCORE_THRESHOLD = 100.0
 MAX_LOSS = 10.0 
-# (local localization) Confidence Map Threshold
-RELIABLE_CONF_THRESHOLD = 0.1
-REFINE_CONF_THRESHOLD = 0.6 # threshold to select good refinement: out-of-range image, wrong coarse localization; bad edges cluster just above 0.5 (e.g. merge step 40's 176-deg flip edge at conf 0.519)
+# (local localization) Confidence Map Threshold. Raising this past 0.5 does not
+# suppress the catastrophic merges: the same submaps fail at the same step, and
+# every extra 0.05 only discards good edges in the well-behaved region. The
+# variable that actually gates which edges enter the map is the PGO intake
+# radius (see --pgo_loop_sigma_trans / --pgo_loop_conf_scaling), not this.
+REFINE_CONF_THRESHOLD = 0.5 # For accepting loop edges
+RELIABLE_CONF_THRESHOLD = 0.1 # For node culling
 assert RELIABLE_CONF_THRESHOLD < REFINE_CONF_THRESHOLD
 # Same Place Threshold
 TRANS_THRESHOLD = 7.5
@@ -28,6 +32,14 @@ ORI_THRESHOLD = 75.0
 # into the merged map. TLS weights are near 0 or near 1, so the midpoint is a
 # safe cut.
 PGO_INLIER_WEIGHT_THRESHOLD = 0.5
+# (pose graph optimization) Chi-squared probability for the GNC inlier cost
+# threshold. Not a CLI flag: the acceptance radius is sigma * sqrt(chi2inv(p, 6)),
+# and sqrt(chi2inv) only spans 2.31..5.75 across the whole (0, 1) range of p,
+# while --pgo_loop_sigma_trans/_rot scale it without bound. A sphere2500 sweep
+# over p in {0.9, 0.99, 0.999} rejected an identical edge set (P = R = 1.0), so
+# this is the weaker and redundant of the two knobs. benchmark_pgo keeps its own
+# --barc-probs flag for studying the threshold in isolation.
+PGO_GNC_BARC_PROB = 0.99
 
 def is_same_place(nodeA, nodeB):
 	dis_tsl, dis_angle = nodeA.compute_gt_distance(nodeB)
@@ -50,24 +62,7 @@ def setup_log_environment(out_dir: pathlib.Path, args):
 	out_dir.mkdir(parents=True, exist_ok=True)
 	(out_dir / "seq").mkdir(parents=True, exist_ok=True)
 	(out_dir / "preds").mkdir(parents=True, exist_ok=True)
-	# start_time = datetime.now()
-	# log_dir = os.path.join(out_dir, f"outputs_{args.pose_estimation_method}", start_time.strftime("%Y-%m-%d_%H-%M-%S"))
-	# setup_logging(log_dir, stdout_level="info")
-	# logging.info(" ".join(sys.argv))
-	# logging.info(f"Arguments: {args}")
-	# logging.info(f"Testing with {args.pose_estimation_method} with image size {args.image_size}")
-	# logging.info(f"The outputs are being saved in {log_dir}")
-	# os.makedirs(os.path.join(log_dir, "preds"))
-	# os.system(f"rm {os.path.join(out_dir, f'outputs_{args.pose_estimation_method}', 'latest')}")
-	# os.system(f"ln -s {log_dir} {os.path.join(out_dir, f'outputs_{args.pose_estimation_method}', 'latest')}")
 	return out_dir
-
-##### NOTE(gogojjh): This is not used in the map merging pipeline
-def initialize_vpr_model(method, backbone, descriptors_dimension, device):
-	# """Initialize and return the model."""
-	# model = vpr_models.get_model(method, backbone, descriptors_dimension)
-	# return model.eval().to(device)
-	pass
 
 def initialize_pose_estimator(model, device):
 	"""Initialize and return the model."""
@@ -242,28 +237,43 @@ def parse_arguments():
 	parser.add_argument("--use_ig", action="store_true", help="Use information gain in node culling")
 	parser.add_argument("--use_td", action="store_true", help="Use temporal difference in node culling")
 	# Robust pose graph optimization
-	parser.add_argument("--pgo_robust", type=str, default="gnc_tls",
+	parser.add_argument("--pgo_robust", type=str, default="gnc_gm",
 		choices=["none", "huber", "gnc_tls", "gnc_gm"],
-		help="Robust back-end for pose graph optimization")
-	parser.add_argument("--pgo_gnc_barc_prob", type=float, default=0.99,
-		help="Chi-squared probability for the GNC inlier cost threshold")
-	parser.add_argument("--pgo_persistent_loops", action="store_true",
-		help="Keep accepted inter-submap loop edges as loop factors across merge "
-		     "steps so GNC can re-classify them instead of welding them into odometry")
+		help="Robust back-end for pose graph optimization. GM is the default "
+		     "because the merge is incremental: each step hands the solver the "
+		     "previous step's fixed point, and TLS's hard cutoff makes a "
+		     "misclassification permanent, while GM's smooth weights let a later "
+		     "step re-admit an edge. 'none' and 'huber' are ablation baselines")
+	parser.add_argument("--pgo_no_persistent_loops", dest="pgo_persistent_loops",
+		action="store_false", default=True,
+		help="Weld accepted inter-submap loop edges into odometry instead of "
+		     "keeping them as loop factors across merge steps. Persistence is on "
+		     "by default so GNC can re-classify an earlier bad edge; re-measuring "
+		     "it as odometry zeroes its residual and welds the error in")
 	parser.add_argument("--pgo_min_loop_edges", type=int, default=1,
 		help="Minimum number of refined loop edges required to merge a submap "
 		     "this step; below this the merge is deferred (the submap keeps its "
-		     "own anchor prior). 1 disables the guard. With a single edge PGO "
-		     "zeroes the residual by rigid motion, so GNC cannot reject it")
+		     "own anchor prior). 1 disables the guard, which is the default "
+		     "because the guard counts CANDIDATE edges, before GNC intake: on the "
+		     "full sequence it fires only a handful of times and leaves the "
+		     "trajectory bit-identical. The selection that matters happens in "
+		     "split_edges_by_gnc_weight")
 	parser.add_argument("--pgo_loop_sigma_trans", type=float, default=0.1,
-		help="Translation std [m] of an inter-submap loop factor; drives the GNC "
-		     "TLS inlier threshold")
+		help="Translation std [m] of an inter-submap loop factor; with "
+		     "--pgo_loop_conf_scaling it sets the GNC intake radius")
 	parser.add_argument("--pgo_loop_sigma_rot", type=float, default=1.0,
 		help="Rotation std [deg] of an inter-submap loop factor")
 	parser.add_argument("--pgo_loop_conf_scaling", type=str, default="inverse",
 		choices=["inverse", "none"],
 		help="How matcher confidence scales a loop factor's sigma: 'inverse' "
-		     "divides by conf (tightens high-confidence edges), 'none' keeps it flat")
+		     "divides by conf (tightens high-confidence edges), 'none' keeps it "
+		     "flat. 'inverse' is the default because it is the only setting that "
+		     "has been validated end-to-end on the full sequence; since the "
+		     "observed conf is mostly above 1, 'none' widens the intake radius, "
+		     "and a wrongly admitted edge is effectively permanent. Note the two "
+		     "have never been separated from --pgo_loop_sigma_trans in a full "
+		     "run, so this is 'keep the verified combination', not a proof that "
+		     "scaling is required")
 	parser.add_argument("--pgo_seq_inlier_time_gap", type=float, default=0.0,
 		help="Loop edges whose endpoint capture times differ by at most this "
 		     "many seconds are declared GNC known inliers (sequentially "

@@ -122,6 +122,14 @@ def test_conf_scaling_none_leaves_sigma_flat():
     assert flat[3:] == pytest.approx([0.1] * 3)
 
 
+def test_conf_scaling_is_the_default_and_narrows_the_intake_radius():
+    """'inverse' is the default, and for conf > 1 it is strictly tighter."""
+    default = _loop_sigmas(_merger(), conf=2.0)
+    flat = _loop_sigmas(_merger(conf_scaling='none'), conf=2.0)
+    assert default[3:] == pytest.approx([0.05] * 3)
+    assert all(d < f for d, f in zip(default, flat))
+
+
 def _rot_z(deg):
     c, s = np.cos(np.deg2rad(deg)), np.sin(np.deg2rad(deg))
     R = np.eye(4)

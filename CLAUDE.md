@@ -125,6 +125,27 @@ human faces anonymized). Each dataset maps to one paper experiment:
   bash run_evaluation.sh --config map_merge.yaml                     # run evaluation standalone
   ```
 
+- **Reference merge configuration.** `scripts/run_map_merging.sh` now defaults to the
+  configuration validated end-to-end on the full 55-submap sequence, so the reference run needs
+  no overrides:
+  ```bash
+  bash scripts/run_map_merging.sh s00000 0 <method_tag> master 1 1 1
+  ```
+  It resolves to `--pgo_robust gnc_gm`, persistent loop factors on, `--pgo_loop_sigma_trans 0.1`
+  / `--pgo_loop_sigma_rot 1.0`, `--pgo_loop_conf_scaling inverse`, `--pgo_min_loop_edges 1`,
+  `--pgo_seq_inlier_time_gap 0`, with `REFINE_CONF_THRESHOLD = 0.5`
+  (`python/utils_map_merging.py`). Change one knob at a time and re-run the full sequence —
+  the merge is incremental and path-dependent, so replaying only the final step does not
+  predict what a different setting would have produced.
+
+- **Comparing ATE across runs.** Different runs keep different node counts, and the merged
+  `poses.txt` renumbers frames, so frame names are *not* comparable between runs. Join on the
+  absolute GT pose in `poses_abs_gt.txt` and evaluate on the frame set the runs share;
+  also report each run's node count and its number of `submap_disc_*` components, since a run
+  whose final map split into several components is not directly comparable to one that did not.
+  Merge runs are also not bit-reproducible (GPU non-determinism diverges the intermediate
+  trajectory), so read trends and final values, not per-step spikes.
+
 ## Known Issues
 
 - `cannot import name 'cache' from 'functools'`: replace with `functools.lru_cache(maxsize=None)`.
