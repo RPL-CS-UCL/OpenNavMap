@@ -26,7 +26,7 @@ def _translation(dx, dy=0.0, dz=0.0):
     return T
 
 
-def _merger(id_offset=100, sigma_trans=0.1, sigma_rot=1.0):
+def _merger(id_offset=100, sigma_trans=0.1, sigma_rot=1.0, conf_scaling='inverse'):
     from argparse import Namespace
 
     from map_merge_pipeline import MergePipeline
@@ -37,6 +37,7 @@ def _merger(id_offset=100, sigma_trans=0.1, sigma_rot=1.0):
     merger.args = Namespace(
         pgo_loop_sigma_trans=sigma_trans,
         pgo_loop_sigma_rot=sigma_rot,
+        pgo_loop_conf_scaling=conf_scaling,
     )
     return merger
 
@@ -113,18 +114,20 @@ def test_loop_sigma_is_configurable():
     assert sigmas[:3] == pytest.approx([np.deg2rad(3.0)] * 3)
 
 
-def test_loop_sigma_is_independent_of_matcher_confidence():
-    """Matcher confidence must not scale a loop factor's sigma.
+def test_conf_scaling_none_leaves_sigma_flat():
+    """'inverse' tightens a conf>1 edge; 'none' must not touch it."""
+    inverse = _loop_sigmas(_merger(conf_scaling='inverse'), conf=2.0)
+    flat = _loop_sigmas(_merger(conf_scaling='none'), conf=2.0)
+    assert inverse[3:] == pytest.approx([0.05] * 3)
+    assert flat[3:] == pytest.approx([0.1] * 3)
 
-    The old 'inverse' scaling divided sigma by conf. conf spans (0.6, 10], so a
-    high-confidence edge ended up with a 4 cm acceptance radius -- inverting the
-    reliability ordering GNC classifies on, making the most trustworthy matches
-    the first ones called outliers.
-    """
-    for conf in (0.6, 1.0, 2.0, 10.0):
-        sigmas = _loop_sigmas(_merger(), conf=conf)
-        assert sigmas[3:] == pytest.approx([0.1] * 3)
-        assert sigmas[:3] == pytest.approx([np.deg2rad(1.0)] * 3)
+
+def test_conf_scaling_is_the_default_and_narrows_the_intake_radius():
+    """'inverse' is the default, and for conf > 1 it is strictly tighter."""
+    default = _loop_sigmas(_merger(), conf=2.0)
+    flat = _loop_sigmas(_merger(conf_scaling='none'), conf=2.0)
+    assert default[3:] == pytest.approx([0.05] * 3)
+    assert all(d < f for d, f in zip(default, flat))
 
 
 def _rot_z(deg):

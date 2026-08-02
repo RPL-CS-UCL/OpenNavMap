@@ -88,6 +88,18 @@ class MergePipeline:
 		self.pose_estimator.verbose = False
 		logging.info(f"Pose Estimator: {self.args.pose_estimation_method}")
 
+	def scale_loop_sigma(self, loop_sigma: np.ndarray, conf: float) -> np.ndarray:
+		"""Apply the configured confidence scaling to one loop factor's sigma.
+
+		'inverse' divides by the matcher confidence, so a more confident match
+		gets a tighter residual budget and a smaller GNC acceptance radius.
+		'none' gives every loop factor the same sigma, which loosens the radius
+		for every edge whose conf is above 1.
+		"""
+		if self.args.pgo_loop_conf_scaling == 'none':
+			return loop_sigma
+		return loop_sigma / conf
+
 	def create_pose_graph_from_map(
 		self,
 		graph_odom_a,     # The odometry graph
@@ -106,14 +118,13 @@ class MergePipeline:
 		# Set basic std for factors
 		prior_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 100
 		odom_sigma = np.array([np.deg2rad(1.0)] * 3 + [0.1] * 3) / 10
-		# Loop sigma drives the GNC inlier threshold, so it decides which edges are
-		# even eligible to be called outliers. Tunable because the 1 deg / 0.1 m
-		# default is tight enough that hundreds of persistent loop factors fight
-		# each other instead of the bad ones standing out. Every loop factor gets
-		# the same sigma: scaling it by matcher confidence used to divide by conf,
-		# which inverts the reliability ordering GNC needs -- conf spans (0.6, 10],
-		# so the edges the matcher was most sure about ended up with a 4 cm
-		# acceptance radius and were the first ones classified as outliers.
+		# Loop sigma, together with --pgo_loop_conf_scaling, sets the acceptance
+		# radius sigma * sqrt(chi2inv(PGO_GNC_BARC_PROB, 6)) that decides which
+		# new edges enter the merged map at all. That intake radius is the single
+		# most consequential PGO knob: once an edge is admitted it is rebuilt as a
+		# factor at every later step, and GNC reclassifies only a small fraction of
+		# the accumulated history, so a wrong edge admitted early is effectively
+		# permanent. Loosen these only with a full-sequence run to back it up.
 		loop_sigma = np.array(
 			[np.deg2rad(self.args.pgo_loop_sigma_rot)] * 3
 			+ [self.args.pgo_loop_sigma_trans] * 3
@@ -157,17 +168,17 @@ class MergePipeline:
 			loop_factor_indices.append(pose_graph.add_odometry_factor(
 				key_a, I_pose3,
 				key_b, next_pose3,
-				loop_sigma
+				self.scale_loop_sigma(loop_sigma, record['conf'])
 			))
 			loop_factor_keys.append((key_a, key_b))
 		for edge in inter_edges_covis:
-			nodeA, nodeB, T_AB = edge[:3]
+			nodeA, nodeB, T_AB, conf = edge[:4]
 			trans, quat = convert_matrix_to_vec(T_AB)
 			next_pose3 = convert_vec_gtsam_pose3(trans, quat)
 			loop_factor_indices.append(pose_graph.add_odometry_factor(
 				nodeA.id, I_pose3,
 				nodeB.id+self.id_offset, next_pose3,
-				loop_sigma
+				self.scale_loop_sigma(loop_sigma, conf)
 			))
 			loop_factor_keys.append((nodeA.id, nodeB.id + self.id_offset))
 
