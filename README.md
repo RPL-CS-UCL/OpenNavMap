@@ -1,8 +1,6 @@
 <div align="center">
 
-# OpenNavMap
-
-**OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation**
+# OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Webpage](https://img.shields.io/badge/Webpage-Link-green)](https://rpl-cs-ucl.github.io/OpenNavMap_page/)
