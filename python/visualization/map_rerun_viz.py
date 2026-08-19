@@ -81,7 +81,16 @@ _OBB_SIGNS = np.array([
     [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
 ], dtype=float)
 _OBB_STROKE = [0, 1, 2, 3, 0, 4, 5, 1, 5, 6, 2, 6, 7, 3, 7, 4]
-# Distinct overlay colors cycled per visible object (bright on rgb).
+# The 12 box edges as corner-index pairs. Used by the near-plane clipper, which
+# has to treat each edge on its own instead of drawing one single stroke.
+_OBB_EDGES = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+              (0, 4), (1, 5), (2, 6), (3, 7)]
+# Near plane (metres). Anything closer is behind/at the camera: u = fx*x/z blows
+# up to tens of thousands of pixels there, which draws a line straight across the
+# frame -- worse than drawing nothing. Edges get cut at this depth instead.
+_NEAR_PLANE = 0.05
+# Distinct overlay colors, picked by object id so one object keeps its color
+# across every keyframe it appears in (bright on rgb).
 _OBB_PALETTE = np.array([
     [255, 214, 0], [0, 229, 255], [124, 252, 0], [255, 105, 180],
     [255, 128, 0], [0, 255, 128], [180, 120, 255], [255, 80, 80],
@@ -199,20 +208,76 @@ def _obb_world_corners(obb) -> np.ndarray:
     return center + (_OBB_SIGNS * half) @ rot.T
 
 
-def _project_corners(world_corners: np.ndarray, node) -> "np.ndarray | None":
-    """Project world corners into a keyframe's CV image plane. Returns 8x2 pixel
-    coords, or None if any corner is at/behind the camera (skip partial boxes)."""
+def _corners_in_camera(world_corners: np.ndarray, node) -> np.ndarray:
+    """World corners -> this keyframe's camera frame (CV: x right, y down, z fwd)."""
     from scipy.spatial.transform import Rotation as R
 
     rot = R.from_quat(np.asarray(node.quat, float).reshape(4)).as_matrix()  # cam->world
     trans = np.asarray(node.trans, float).reshape(3)
-    cam = (world_corners - trans) @ rot  # world->cam == R^T @ (p - t)
-    z = cam[:, 2]
-    if np.any(z <= 1e-3):
-        return None
+    return (world_corners - trans) @ rot  # world->cam == R^T @ (p - t)
+
+
+def _project_points(cam_points: np.ndarray, node) -> np.ndarray:
+    """Camera-frame points (all with z > 0) -> Nx2 pixel coords."""
     K = np.asarray(node.K, float).reshape(3, 3)
-    uv = (K @ cam.T).T
+    uv = (K @ np.asarray(cam_points, float).T).T
     return uv[:, :2] / uv[:, 2:3]
+
+
+def _clip_obb_edges(world_corners: np.ndarray, node,
+                    near: float = _NEAR_PLANE) -> "list[np.ndarray]":
+    """Project an OBB's 12 edges, clipping each one at the near plane.
+
+    Returns a list of 2x2 arrays (one per surviving edge, endpoints in pixels).
+    Each edge is handled independently, so a box that is only partly in front of
+    the camera still draws its visible portion instead of vanishing:
+
+      both endpoints in front  -> drawn as is
+      one in front, one behind -> the behind end is moved to where the edge
+                                  crosses z = near, and the edge is drawn
+      both behind              -> dropped
+
+    Sideways overrun (past the left/right/top/bottom borders) needs no handling
+    here: cv2.polylines clips to the image by itself, so the drawing stays inside
+    the original WxH.
+    """
+    cam = _corners_in_camera(world_corners, node)
+    z = cam[:, 2]
+    segments = []
+    for i, j in _OBB_EDGES:
+        a, b = cam[i], cam[j]
+        in_a, in_b = z[i] > near, z[j] > near
+        if not in_a and not in_b:
+            continue
+        if not in_a or not in_b:
+            # Walk from the visible end towards the hidden one and stop at z = near
+            src, dst = (a, b) if in_a else (b, a)
+            t = (near - src[2]) / (dst[2] - src[2])
+            clipped = src + t * (dst - src)
+            a, b = (src, clipped)
+        segments.append(_project_points(np.stack([a, b]), node))
+    return segments
+
+
+def _project_corners(world_corners: np.ndarray, node) -> "np.ndarray | None":
+    """All 8 corners as 8x2 pixel coords, or None if any is at/behind the camera.
+
+    Kept for callers that need the full corner set (e.g. a 2D bounding box). To
+    draw a wireframe use _clip_obb_edges, which survives partial visibility.
+    """
+    cam = _corners_in_camera(world_corners, node)
+    if np.any(cam[:, 2] <= 1e-3):
+        return None
+    return _project_points(cam, node)
+
+
+def _object_color(obj, fallback: int = 0) -> tuple:
+    """Overlay color for an object, keyed on its id so it stays the same in every
+    keyframe. Ids look like ``obj_12``; anything unparseable falls back to the
+    caller's index."""
+    digits = "".join(ch for ch in str(getattr(obj, "id", "")) if ch.isdigit())
+    key = int(digits) if digits else int(fallback)
+    return tuple(int(c) for c in _OBB_PALETTE[key % len(_OBB_PALETTE)])
 
 
 def _visible_objects(manager) -> dict:
@@ -227,23 +292,40 @@ def _visible_objects(manager) -> dict:
     return visible
 
 
-def _draw_obb_on_image(rgb: np.ndarray, objs: list, node) -> np.ndarray:
-    """Draw each object's projected 3D OBB wireframe + type label onto a copy of
-    the rgb (OpenCV clips to the image, keeping the original WxH). ``rgb`` is RGB
-    uint8; colors are passed as RGB so channels stay correct in ``rr.Image``."""
+def _draw_obb_on_image(rgb: np.ndarray, objs: list, node, label_fn=None,
+                       font_scale: float = 0.4, outline: bool = False) -> np.ndarray:
+    """Draw each object's projected 3D OBB wireframe + label onto a copy of the rgb.
+
+    Edges are near-plane clipped per edge, so a box the camera is standing inside
+    of still shows the part that is in front of it. OpenCV clips the rest to the
+    image, keeping the original WxH. ``rgb`` is RGB uint8; colors are passed as
+    RGB so channels stay correct in ``rr.Image``.
+
+    label_fn  optional obj -> str; defaults to the bare class name
+    outline    draw the text twice (thick black underneath) so it stays readable
+               on light backgrounds like white walls
+    """
     if not objs:
         return rgb
     img = np.ascontiguousarray(rgb).copy()
     for i, obj in enumerate(objs):
-        uv = _project_corners(_obb_world_corners(obj.obb), node)
-        if uv is None:
+        segments = _clip_obb_edges(_obb_world_corners(obj.obb), node)
+        if not segments:
             continue
-        color = tuple(int(c) for c in _OBB_PALETTE[i % len(_OBB_PALETTE)])
-        pts = uv[_OBB_STROKE].round().astype(np.int32)
-        cv2.polylines(img, [pts], isClosed=False, color=color, thickness=2, lineType=cv2.LINE_AA)
+        color = _object_color(obj, i)
+        for seg in segments:
+            pts = seg.round().astype(np.int32)
+            cv2.polylines(img, [pts], isClosed=False, color=color, thickness=2,
+                          lineType=cv2.LINE_AA)
+        uv = np.concatenate(segments, axis=0)
         top = uv[int(np.argmin(uv[:, 1]))]
         org = (int(round(top[0])), max(10, int(round(top[1])) - 4))
-        cv2.putText(img, obj.label, org, cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+        text = obj.label if label_fn is None else label_fn(obj)
+        if outline:
+            cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, font_scale,
+                        (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, font_scale, color,
+                    1, cv2.LINE_AA)
     return img
 
 
