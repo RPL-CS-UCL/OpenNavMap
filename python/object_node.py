@@ -12,6 +12,11 @@ Changes in v2.1:
 - ``best_crop``: ``(keyframe_id, (x0, y0, x1, y1))`` source image for that caption,
   picked by ``ObjectGraph.select_best_crops`` (full-frame fallback for now).
 
+Changes in v2.2:
+- room layer side-car: ``rooms.json`` + ``edges_room.txt`` (see room_node.py /
+  room_graph.py); objects may carry an optional ``room_id`` (absent = unknown,
+  ``from_dict`` tolerates both directions).
+
 Any field change must bump SCHEMA_VERSION and update the round-trip test.
 """
 import os
@@ -24,7 +29,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from utils.base_node import BaseNode  # litevloc read-only base
 
-SCHEMA_VERSION = "2.1"
+SCHEMA_VERSION = "2.2"
 
 
 def _R_about(up_axis: int, yaw: float) -> np.ndarray:

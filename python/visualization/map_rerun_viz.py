@@ -20,6 +20,11 @@ Entities:
                              it as always-on 3D text, not a hover-only marker; timeless)
 - ``map/objects/points/{id}``: per-object detected point cloud (timeless)
 - ``map/objects/vis_edges/*``: object-center -> keyframe visibility edges (timeless, red)
+- ``map/rooms/labels/{id}``  : room-layer node (v2.2): one single-instance Points3D
+                             per room, lifted 2 m above its member-keyframe centroid
+                             with an always-on "label (id)" text (timeless)
+- ``map/rooms/hier_edges/*`` : room node -> member keyframe hierarchy edges (timeless)
+- ``map/rooms/adj_edges/*``  : room <-> room adjacency edges (timeless)
 - ``camera/color`` / ``camera/depth`` : current keyframe rgb/depth (2D horizontal window);
                              rgb has visible objects' projected 3D OBB wireframes + type
                              labels drawn on it via OpenCV (clipped to the original WxH)
@@ -66,6 +71,12 @@ _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
 _OBJ_PCD_COLOR = np.array([[255, 152, 150]], dtype=np.uint8)
 _OBJ_VIS_COLOR = np.array([[255, 0, 0]], dtype=np.uint8)  # object->keyframe edges (red)
 _EDGE_COLORS = {"covis": [44, 160, 44], "odom": [31, 119, 180], "trav": [255, 127, 14]}
+_ROOM_RAISE = 2.0  # room node height above its member-kf centroid (visual "upper layer")
+_ROOM_PALETTE = np.array([
+    [148, 103, 189], [140, 86, 75], [227, 119, 194], [127, 127, 127],
+    [188, 189, 34], [23, 190, 207], [214, 39, 40], [31, 119, 180],
+], dtype=np.uint8)
+_ROOM_ADJ_COLOR = np.array([[148, 103, 189]], dtype=np.uint8)  # room<->room (purple)
 _FRONTIER_COLOR = np.array([[255, 200, 0]], dtype=np.uint8)  # P3 T3.5: frontier candidates (yellow)
 _PATH_EXPLORE_COLOR = [31, 119, 180]  # P3 T3.5: go_to_frontier path segments (blue)
 _PATH_CONVERGE_COLOR = [44, 160, 44]  # P3 T3.5: go_to_target path segments (green)
@@ -347,6 +358,54 @@ def log_object_visibility_edges(manager) -> None:
                                    radii=0.0015, colors=_OBJ_VIS_COLOR), static=True)
 
 
+def log_map_rooms(manager) -> None:
+    """Room layer (v2.2) as a simple hierarchy: one 3D node per room with an
+    always-on room-type label, edges down to its member keyframes, plus
+    room<->room adjacency edges. All timeless.
+
+    The room node is anchored ``_ROOM_RAISE`` m above its member-keyframe
+    position centroid (fallback: the stored room centroid), so the rooms read
+    as an upper layer floating over the keyframe graph. Single-instance
+    Points3D per room = persistent 3D text in rerun 0.17 (same trick as
+    ``map/objects/labels/{id}``).
+    """
+    room_graph = manager.graphs.get("room")
+    covis = manager.covis
+    if room_graph is None or room_graph.get_num_node() == 0:
+        return
+    anchors = {}
+    for idx, node in enumerate(room_graph.nodes.values()):
+        member_pos = []
+        if covis is not None:
+            member_pos = [np.asarray(covis.get_node(k).trans, float).reshape(3)
+                          for k in node.member_keyframes if covis.get_node(k) is not None]
+        base = np.mean(member_pos, axis=0) if member_pos else np.asarray(node.trans, float).reshape(3)
+        anchor = base + np.array([0.0, 0.0, _ROOM_RAISE])
+        anchors[node.id] = anchor
+        color = _ROOM_PALETTE[idx % len(_ROOM_PALETTE)][None, :]
+        rr.log(f"map/rooms/labels/{node.id}",
+               rr.Points3D([anchor], colors=color, radii=0.08,
+                           labels=[f"{node.label} ({node.id})"]), static=True)
+        for kf_id in node.member_keyframes:
+            if covis is None or covis.get_node(kf_id) is None:
+                continue
+            kf_pos = np.asarray(covis.get_node(kf_id).trans, float).reshape(3)
+            rr.log(f"map/rooms/hier_edges/{node.id}-{kf_id}",
+                   rr.LineStrips3D(strips=[np.array([anchor, kf_pos], dtype=np.float32)],
+                                   radii=0.004, colors=color), static=True)
+    seen = set()
+    for node in room_graph.nodes.values():
+        for neighbor, _w in node.edges.values():
+            key = tuple(sorted((str(node.id), str(neighbor.id))))
+            if key in seen or neighbor.id not in anchors:
+                continue
+            seen.add(key)
+            rr.log(f"map/rooms/adj_edges/{key[0]}-{key[1]}",
+                   rr.LineStrips3D(
+                       strips=[np.array([anchors[node.id], anchors[neighbor.id]], dtype=np.float32)],
+                       radii=0.02, colors=_ROOM_ADJ_COLOR), static=True)
+
+
 def log_frontier_candidates(frontiers: list, timestamp) -> None:
     """P3 T3.5: log frontier candidates as points at ``map/explore/frontiers``.
 
@@ -427,6 +486,7 @@ def visualize_map(
             log_map_edges(graph, edge_type)
     log_map_objects(manager)
     log_object_visibility_edges(manager)
+    log_map_rooms(manager)
     if frontiers:
         log_frontier_candidates(frontiers, explore_timestamp)
     if decision_positions:

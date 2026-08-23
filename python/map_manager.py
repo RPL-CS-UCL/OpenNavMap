@@ -10,6 +10,7 @@ from pathlib import Path
 from point_graph import PointGraph, PointGraphLoader
 from image_graph import ImageGraph, ImageGraphLoader
 from object_graph import ObjectGraph, ObjectGraphLoader
+from room_graph import RoomGraph, RoomGraphLoader
 from utils.utils_geom import convert_matrix_to_vec
 
 class MapManager:
@@ -33,6 +34,8 @@ class MapManager:
 				self.graphs[graph_type] = ImageGraph(self.map_root, graph_type)
 			elif graph_type == 'object':
 				self.graphs[graph_type] = ObjectGraph(self.map_root, graph_type)
+			elif graph_type == 'room':
+				self.graphs[graph_type] = RoomGraph(self.map_root, graph_type)
 			else:
 				raise ValueError(f"Unknown graph type: {graph_type}")
 
@@ -52,6 +55,8 @@ class MapManager:
 				self._load_image_graph(graph_type, config)
 			elif graph_type == 'object':
 				self.graphs[graph_type] = ObjectGraphLoader.load_data(self.map_root, graph_type)
+			elif graph_type == 'room':
+				self.graphs[graph_type] = RoomGraphLoader.load_data(self.map_root, graph_type)
 			else:
 				raise ValueError(f"Unknown graph type: {graph_type}")
 
@@ -104,6 +109,9 @@ class MapManager:
 
 		if 'object' in self.graphs:
 			self.object.save_to_file(edge_only=False)
+
+		if 'room' in self.graphs:
+			self.room.save_to_file(edge_only=False)
 
 	def _load_point_graph(self, graph_type: str, config):
 		"""Helper method for loading point-based graphs"""
@@ -169,6 +177,11 @@ class MapManager:
 		return self._graphs.get('object')
 
 	@property
+	def room(self):
+		"""Access room-layer graph (v2.2)"""
+		return self._graphs.get('room')
+
+	@property
 	def is_empty(self) -> bool:
 		"""Check if any graphs are loaded"""
 		num_node = sum([graph.get_num_node() for graph in self._graphs.values()])
@@ -189,6 +202,8 @@ def load_map(map_root: Path) -> 'MapManager':
 			'load_rgb': False, 'load_depth': False, 'normalized': False}
 	if (map_root / 'objects.json').exists():
 		configs['object'] = {}
+	if (map_root / 'rooms.json').exists():
+		configs['room'] = {}
 	manager.load_graphs(configs)
 	return manager
 
