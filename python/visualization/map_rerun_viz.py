@@ -121,12 +121,14 @@ def _node_time(node, fallback) -> float:
     return float(getattr(node, "time", fallback))
 
 
-def log_map_nodes(covis, visible: "dict | None" = None) -> None:
-    """Per-keyframe frustum + body cube + rgb/depth panels, on the node_time timeline.
+def log_map_nodes(covis, visible: "dict | None" = None, images: bool = True) -> None:
+    """Per-keyframe frustum + body cube (+ rgb/depth panels if ``images``), on the node_time timeline.
 
-    If ``visible`` (kf_id -> [object node, ...]) is given, each visible object's 3D
-    OBB is projected and drawn onto the rgb with OpenCV (clipped to the image, so
-    the logged rgb keeps its original size) before logging."""
+    If ``visible`` (kf_id -> [object node, ...]) is given and ``images`` is True, each visible
+    object's 3D OBB is projected and drawn onto the rgb with OpenCV (clipped to the image, so
+    the logged rgb keeps its original size) before logging. Callers that log rgb/depth on their
+    own timeline (e.g. per-raw-frame instead of per-keyframe) should pass ``images=False`` here
+    to avoid two writers racing for the same ``camera/color`` / ``camera/depth`` entities."""
     from scipy.spatial.transform import Rotation as R
 
     visible = visible or {}
@@ -143,6 +145,8 @@ def log_map_nodes(covis, visible: "dict | None" = None) -> None:
             image_from_camera=np.asarray(node.K, float).reshape(3, 3),
             width=width, height=height, image_plane_distance=_FRUSTUM_DIST))
         rr.log(entity + "/body", rr.Boxes3D(half_sizes=[_BODY_HALF], colors=_NODE_COLOR))
+        if not images:
+            continue
         rgb = _load_rgb(root / node.rgb_img_name)
         if rgb is not None:
             rgb = _draw_obb_on_image(rgb, visible.get(nid, []), node)
@@ -235,9 +239,35 @@ def _project_points(cam_points: np.ndarray, node) -> np.ndarray:
     return uv[:, :2] / uv[:, 2:3]
 
 
+def _clip_segment_to_image(p0: np.ndarray, p1: np.ndarray,
+                           width: int, height: int) -> "np.ndarray | None":
+    """Liang-Barsky: clip a pixel-space segment to [0,width] x [0,height].
+
+    Returns the (possibly shortened) 2x2 endpoint array, or None if the whole
+    segment falls outside the image. Unlike a plain clamp, this keeps the
+    surviving portion on the original line (no direction distortion)."""
+    dx, dy = float(p1[0] - p0[0]), float(p1[1] - p0[1])
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, p0[0]), (dx, width - p0[0]), (-dy, p0[1]), (dy, height - p0[1])):
+        if p == 0:
+            if q < 0:
+                return None
+            continue
+        t = q / p
+        if p < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 > t1:
+            return None
+    delta = np.array([dx, dy])
+    return np.stack([p0 + t0 * delta, p0 + t1 * delta])
+
+
 def _clip_obb_edges(world_corners: np.ndarray, node,
                     near: float = _NEAR_PLANE) -> "list[np.ndarray]":
-    """Project an OBB's 12 edges, clipping each one at the near plane.
+    """Project an OBB's 12 edges, clipping each one at the near plane and at the
+    image border.
 
     Returns a list of 2x2 arrays (one per surviving edge, endpoints in pixels).
     Each edge is handled independently, so a box that is only partly in front of
@@ -248,12 +278,16 @@ def _clip_obb_edges(world_corners: np.ndarray, node,
                                   crosses z = near, and the edge is drawn
       both behind              -> dropped
 
-    Sideways overrun (past the left/right/top/bottom borders) needs no handling
-    here: cv2.polylines clips to the image by itself, so the drawing stays inside
-    the original WxH.
+    The projected segment is then clipped to [0,width] x [0,height] (the node's
+    own image size). cv2.polylines used to do this step implicitly for the
+    OpenCV overlay caller, but callers that hand these pixel coords to something
+    else (e.g. rerun's LineStrips2D) get raw, unclipped coordinates back — an
+    edge that projects far outside the frame (nearby box, oblique angle) can
+    otherwise blow up a viewer's auto-fit range and shrink the image to a speck.
     """
     cam = _corners_in_camera(world_corners, node)
     z = cam[:, 2]
+    width, height = int(node.img_size[0]), int(node.img_size[1])
     segments = []
     for i, j in _OBB_EDGES:
         a, b = cam[i], cam[j]
@@ -266,7 +300,10 @@ def _clip_obb_edges(world_corners: np.ndarray, node,
             t = (near - src[2]) / (dst[2] - src[2])
             clipped = src + t * (dst - src)
             a, b = (src, clipped)
-        segments.append(_project_points(np.stack([a, b]), node))
+        pix = _project_points(np.stack([a, b]), node)
+        seg = _clip_segment_to_image(pix[0], pix[1], width, height)
+        if seg is not None:
+            segments.append(seg)
     return segments
 
 
