@@ -10,8 +10,9 @@ helper), with two project-specific tweaks:
 Entities:
 - ``world/axes``            : XYZ world-frame axes (log_world_frame_axes, timeless)
 - ``map/nodes/{id}``        : per-keyframe Transform3D (on node_time)
-- ``map/nodes/{id}/camera`` : Pinhole camera frustum (no rgb texture)
-- ``map/nodes/{id}/body``   : small green cube marking the keyframe
+- ``map/nodes/{id}/heading``: red fixed-size triangle outline whose apex points along the
+                             camera's forward (+z) axis, marking which way it was looking
+- ``map/nodes/{id}/point``  : a point marking the keyframe's position
 - ``map/edges/{type}/{a}-{b}`` : color-coded edges appearing at the later endpoint
 - ``map/objects/boxes``     : L4 object graph OBBs (timeless)
 - ``map/objects/centers``   : object OBB geometric centers (timeless)
@@ -65,8 +66,24 @@ for _p in (_ONM_PY, _LITEVLOC):
 
 from utils.utils_rerun import log_world_frame_axes  # litevloc rerun utils
 
-_BODY_HALF = np.array([0.03, 0.03, 0.03], dtype=np.float32)
+_HEAD_FWD = 0.27    # heading triangle: how far forward its apex reaches (metres)
+_HEAD_HALF_W = 0.1125  # heading triangle: half-width of its base (metres)
+_POINT_RADIUS = 0.05  # keyframe position marker radius (metres)
 _NODE_COLOR = np.array([[0, 180, 100]], dtype=np.uint8)
+_HEADING_COLOR = np.array([[255, 0, 0]], dtype=np.uint8)  # heading triangle outline (red)
+# Heading triangle outline in the keyframe's own local frame (CV convention: z
+# forward): apex out at the camera's forward axis, base hugging the origin, so
+# the pointed end is what shows which way the camera was looking. Closed loop
+# (apex -> base-right -> base-left -> apex) so a single LineStrips3D strip draws
+# the full outline. Fixed size -- unlike a Pinhole frustum it doesn't scale with
+# each keyframe's image aspect ratio, so it stays small and consistent no matter
+# how many keyframes are logged.
+_HEADING_TRIANGLE = np.array([
+    [0.0, 0.0, _HEAD_FWD],
+    [_HEAD_HALF_W, 0.0, 0.0],
+    [-_HEAD_HALF_W, 0.0, 0.0],
+    [0.0, 0.0, _HEAD_FWD],
+], dtype=np.float32)
 _OBJ_COLOR = np.array([[214, 39, 40]], dtype=np.uint8)
 _OBJ_PCD_COLOR = np.array([[255, 152, 150]], dtype=np.uint8)
 _OBJ_VIS_COLOR = np.array([[255, 0, 0]], dtype=np.uint8)  # object->keyframe edges (red)
@@ -80,7 +97,6 @@ _ROOM_ADJ_COLOR = np.array([[148, 103, 189]], dtype=np.uint8)  # room<->room (pu
 _FRONTIER_COLOR = np.array([[255, 200, 0]], dtype=np.uint8)  # P3 T3.5: frontier candidates (yellow)
 _PATH_EXPLORE_COLOR = [31, 119, 180]  # P3 T3.5: go_to_frontier path segments (blue)
 _PATH_CONVERGE_COLOR = [44, 160, 44]  # P3 T3.5: go_to_target path segments (green)
-_FRUSTUM_DIST = 0.75   # enlarged camera-frustum image-plane distance
 _DEPTH_METER = 1000.0  # stored depth png is uint16 millimetres
 _TIMELINE = "node_time"
 
@@ -122,7 +138,7 @@ def _node_time(node, fallback) -> float:
 
 
 def log_map_nodes(covis, visible: "dict | None" = None, images: bool = True) -> None:
-    """Per-keyframe frustum + body cube (+ rgb/depth panels if ``images``), on the node_time timeline.
+    """Per-keyframe heading triangle + position point (+ rgb/depth panels if ``images``), on the node_time timeline.
 
     If ``visible`` (kf_id -> [object node, ...]) is given and ``images`` is True, each visible
     object's 3D OBB is projected and drawn onto the rgb with OpenCV (clipped to the image, so
@@ -137,14 +153,13 @@ def log_map_nodes(covis, visible: "dict | None" = None, images: bool = True) -> 
         node = covis.get_node(nid)
         rr.set_time_seconds(_TIMELINE, _node_time(node, nid))
         entity = f"map/nodes/{nid}"
-        width, height = int(node.img_size[0]), int(node.img_size[1])
         rot = R.from_quat(np.asarray(node.quat, float).reshape(4)).as_matrix()
         rr.log(entity, rr.Transform3D(
             translation=np.asarray(node.trans, float).reshape(3).tolist(), mat3x3=rot.tolist()))
-        rr.log(entity + "/camera", rr.Pinhole(
-            image_from_camera=np.asarray(node.K, float).reshape(3, 3),
-            width=width, height=height, image_plane_distance=_FRUSTUM_DIST))
-        rr.log(entity + "/body", rr.Boxes3D(half_sizes=[_BODY_HALF], colors=_NODE_COLOR))
+        rr.log(entity + "/heading", rr.LineStrips3D(
+            strips=[_HEADING_TRIANGLE], radii=0.005, colors=_HEADING_COLOR))
+        rr.log(entity + "/point", rr.Points3D(
+            [[0.0, 0.0, 0.0]], colors=_NODE_COLOR, radii=_POINT_RADIUS))
         if not images:
             continue
         rgb = _load_rgb(root / node.rgb_img_name)

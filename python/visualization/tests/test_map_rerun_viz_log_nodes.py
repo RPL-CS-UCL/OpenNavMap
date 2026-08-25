@@ -1,6 +1,6 @@
 """log_map_nodes 的 images 开关(增量可视化第 4 步):逐帧那条路接管
 camera/color / camera/depth 之后,这里必须能只关掉图像那部分,
-关键帧本身的位姿/视锥/包体框照常写。"""
+关键帧本身的位姿/朝向三角形/位置点照常写。"""
 from dataclasses import dataclass
 
 import numpy as np
@@ -23,12 +23,12 @@ class FakeRerun:
         return ("transform3d", translation, mat3x3)
 
     @staticmethod
-    def Pinhole(image_from_camera, width, height, image_plane_distance):
-        return ("pinhole", width, height)
+    def LineStrips3D(strips, radii=None, colors=None):
+        return ("linestrips3d", strips, radii, colors)
 
     @staticmethod
-    def Boxes3D(half_sizes, colors):
-        return ("boxes3d", half_sizes, colors)
+    def Points3D(positions, colors=None, radii=None):
+        return ("points3d", positions, colors, radii)
 
     @staticmethod
     def Image(data):
@@ -95,7 +95,7 @@ def test_log_map_nodes_images_false_skips_rgb_and_depth(monkeypatch) -> None:
     paths = [entity for entity, _ in fake.logged]
     assert "camera/color" not in paths
     assert "camera/depth" not in paths
-    # 关键帧本身的位姿/视锥/包体框不受这个开关影响,照常写
+    # 关键帧本身的位姿/朝向三角形/位置点不受这个开关影响,照常写
     assert "map/nodes/0" in paths
-    assert "map/nodes/0/camera" in paths
-    assert "map/nodes/0/body" in paths
+    assert "map/nodes/0/heading" in paths
+    assert "map/nodes/0/point" in paths
