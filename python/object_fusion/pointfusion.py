@@ -171,8 +171,9 @@ class PointFusionGraph(ObjectGraph):
     def _refresh_obb(self, node: ObjectNode) -> None:
         """从这个物体当前的全部点云重算包围盒。
 
-        点云只增不减，所以框只会长大不会缩小——"只看到一半时把框平均小了"
-        这个毛病在这里从构造上就不存在，不需要额外的"禁止缩小"判断。
+        原来点云只增不减，框只会长大不会缩小；调用方（apexnav-ros1 的在线整理）
+        接入去噪之后点云会被剔掉飘出来的零散点，框跟着可能缩小，这里不用理会——
+        重算的框如实反映"当前点云长什么样"就是对的，不需要额外的"禁止缩小"判断。
         """
         cloud = self.clouds.get(node.id)
         if cloud is None or len(cloud) == 0:

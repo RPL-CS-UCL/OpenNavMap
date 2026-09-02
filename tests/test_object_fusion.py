@@ -241,6 +241,69 @@ def test_dbscan_separates_two_far_apart_blobs():
     assert len([s for _, s in sizes if s >= 50]) == 2, "两团离得很远的点应该分成两簇"
 
 
+def _reference_dbscan(pts, eps, min_samples):
+    """课本写法的 DBSCAN（KD 树 + 并查集，全 python）。
+
+    只在测试里留着当参照：`dbscan` 为了快换成了 scipy 的连通分量，这个函数保证
+    "换实现"没有换掉聚类结果。慢，所以别在生产路径上叫它。
+    """
+    from scipy.spatial import cKDTree
+
+    pts = np.asarray(pts, dtype=np.float32).reshape(-1, 3)
+    n = pts.shape[0]
+    nbrs = [np.asarray(x, dtype=np.int64) for x in
+            cKDTree(pts).query_ball_point(pts, eps, return_sorted=False)]
+    is_core = np.array([nb.size >= min_samples for nb in nbrs])
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in np.nonzero(is_core)[0]:
+        for j in nbrs[i]:
+            if is_core[j]:
+                ri, rj = find(int(i)), find(int(j))
+                if ri != rj:
+                    parent[rj] = ri
+    labels = np.full(n, -1, dtype=np.int64)
+    roots = {}
+    for i in np.nonzero(is_core)[0]:
+        labels[i] = roots.setdefault(find(int(i)), len(roots))
+    for i in np.nonzero(~is_core)[0]:
+        for j in nbrs[i]:
+            if is_core[j]:
+                labels[i] = labels[j]
+                break
+    return labels
+
+
+def _partition(labels):
+    """把簇号列表变成"哪些点在同一簇"的集合。簇的编号顺序不参与比较。"""
+    return {frozenset(np.nonzero(labels == c)[0].tolist())
+            for c in np.unique(labels) if c >= 0}
+
+
+def test_dbscan_partition_matches_reference():
+    """换成 scipy 连通分量之后，分组结果要跟课本写法一致。
+
+    比的不是簇号数值（编号顺序变了，那是实现细节），而是三件事：
+    哪些点被判成噪声、每个簇多大、哪些点被分到同一簇。
+    """
+    rng = np.random.default_rng(11)
+    pts = np.vstack([
+        rng.normal(0.0, 0.03, size=(300, 3)),          # 一坨密点
+        rng.normal(2.0, 0.03, size=(300, 3)),          # 离得很远的另一坨
+        rng.uniform(-3.0, 3.0, size=(40, 3)),          # 一撮飘点，大部分该是噪声
+    ]).astype(np.float32)
+    got, ref = dbscan(pts, 0.1, 10), _reference_dbscan(pts, 0.1, 10)
+    assert set(np.nonzero(got < 0)[0]) == set(np.nonzero(ref < 0)[0]), "噪声点集合要一致"
+    assert [s for _, s in cluster_sizes(got)] == [s for _, s in cluster_sizes(ref)]
+    assert _partition(got) == _partition(ref), "同簇关系要一致（簇号本身可以不同）"
+
+
 def test_intervals_overlap_respects_slack():
     assert intervals_overlap((0.0, 1.0), (0.5, 1.5))
     assert not intervals_overlap((0.0, 1.0), (1.2, 2.0))
