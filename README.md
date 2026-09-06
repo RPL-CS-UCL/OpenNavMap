@@ -1,6 +1,6 @@
 <div align="center">
 
-# OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation (IEEE TRO)
+# OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Webpage](https://img.shields.io/badge/Webpage-Link-green)](https://rpl-cs-ucl.github.io/OpenNavMap_page/)
@@ -263,8 +263,8 @@ If this work is helpful to your research, please consider citing OpenNavMap or o
 @article{jiao2025opennavmap,
   title={OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation},
   author={Jiao, Jianhao and Liu, Changkun and Yu, Jingwen and Liu, Boyi and Zhang, Qianyi and Wang, Yue and Kanoulas, Dimitrios},
-  journal={Under Review},
-  year={2025}
+  journal={IEEE Transactions on Robotics},
+  year={2026}
 }
 ```
 
