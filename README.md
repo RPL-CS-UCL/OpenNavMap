@@ -1,6 +1,6 @@
 <div align="center">
 
-# OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation
+# OpenNavMap: Multi-Session Appearance-Based Topometric Mapping for Scalable Visual Navigation (IEEE TRO)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Webpage](https://img.shields.io/badge/Webpage-Link-green)](https://rpl-cs-ucl.github.io/OpenNavMap_page/)
@@ -45,6 +45,7 @@ The repository consists of three main lines:
 
 | Time | Update |
 |---------|--------|
+| 2026/09 | OpenNavMap was accepted to IEEE T-RO! |
 | 2026/07 | 📦 Evaluation datasets released on [Google Drive](https://drive.google.com/drive/folders/1Tpl3Leu0uo1b4iolLFpdfI5LO8CYCRe-) (map-free relocalization, VPR, and multi-session mapping; faces anonymized). See [Testing Data](#-testing-data). |
 | 2026/07 | Full codebase released: multi-session mapping, submap merging, and benchmark. |
 | | Third-party libraries also published: |
