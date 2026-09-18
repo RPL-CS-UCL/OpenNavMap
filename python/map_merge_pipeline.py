@@ -1558,35 +1558,93 @@ def perform_keyframe_culling(
 
 	return nodes_query_to_cull + nodes_db_to_cull, nodes_to_cull_info, nodes_to_not_cull_info
 
-def run_incremental_merge(merger: MergePipeline, args):
-	"""Read scene order and merge submaps incrementally.
-
-	Models must be initialized before calling.
-	"""
+def resolve_result_dir(args) -> pathlib.Path:
+	"""--result_dir wins; otherwise derive <output_root>/<scene>_results_<order>_<method><suffix>."""
+	if getattr(args, 'result_dir', None):
+		return pathlib.Path(args.result_dir)
 	dataset_root = pathlib.Path(args.dataset_root)
 	output_root = pathlib.Path(args.output_root) if args.output_root else dataset_root
-
-	orders_file = dataset_root / f"{args.scene}_orders.txt"
-	with open(orders_file) as f:
-		lines = f.readlines()
-	if args.order_index >= len(lines):
-		raise ValueError(f"order_index {args.order_index} out of range (0-{len(lines)-1})")
-	submap_ids = lines[args.order_index].strip().split()
-	order_tag = ORDER_TAGS[args.order_index] if args.order_index < len(ORDER_TAGS) else str(args.order_index)
-	if args.max_submaps:
-		submap_ids = submap_ids[:args.max_submaps]
-
 	suffix = ""
 	if args.use_iqa: suffix += "iqa"
 	if args.use_ig:  suffix += "ig"
 	if args.use_td:  suffix += "td"
 	if suffix: suffix = f"_{suffix}"
+	order_tag = ORDER_TAGS[args.order_index] if args.order_index < len(ORDER_TAGS) else str(args.order_index)
+	return output_root / f"{args.scene}_results_{order_tag}_{args.method}{suffix}"
 
-	result_name = f"{args.scene}_results_{order_tag}_{args.method}{suffix}"
-	result_dir = output_root / result_name
+
+def resolve_submap_dirs(args) -> List[Tuple[str, pathlib.Path]]:
+	"""Ordered (submap_id, directory) pairs; every directory must exist."""
+	if getattr(args, 'submap_list', None):
+		dirs = []
+		with open(args.submap_list) as f:
+			for line in f:
+				line = line.strip()
+				if line and not line.startswith('#'):
+					p = pathlib.Path(line)
+					dirs.append((p.name, p))
+	else:
+		dataset_root = pathlib.Path(args.dataset_root)
+		with open(dataset_root / f"{args.scene}_orders.txt") as f:
+			lines = f.readlines()
+		if args.order_index >= len(lines):
+			raise ValueError(f"order_index {args.order_index} out of range (0-{len(lines)-1})")
+		submap_base = dataset_root / (args.data_dir or f"{args.scene}_aria_data_390")
+		dirs = [(sid, submap_base / sid) for sid in lines[args.order_index].strip().split()]
+	if args.max_submaps:
+		dirs = dirs[:args.max_submaps]
+	missing = [str(p) for _, p in dirs if not p.is_dir()]
+	if missing:
+		raise FileNotFoundError("submap directories not found: " + ", ".join(missing))
+	return dirs
+
+
+def step_dir_name(style: str, prev_name: str, step_index: int, sid: str) -> str:
+	"""cumulative: merge_0_1_2 (legacy); indexed: merge_007_<sid> (bounded length for long lineages)."""
+	if style == "indexed":
+		return f"merge_{step_index:03d}_{sid}"
+	return f"{prev_name}_{sid}"
+
+
+def validate_append_map_dir(map_dir: pathlib.Path) -> None:
+	"""A map we continue from must reload losslessly: consecutive frame names and one image per covis node.
+
+	ImageGraphLoader silently drops nodes whose image is missing, which would
+	shift node ids and invalidate the loop registry keys.
+	"""
+	problems = []
+	with open(map_dir / "poses.txt") as f:
+		for i, line in enumerate(l for l in f if l.strip()):
+			name = line.split()[0]
+			if name != f"seq/{i:06d}.color.jpg":
+				problems.append(f"poses.txt line {i}: {name} != seq/{i:06d}.color.jpg")
+	with open(map_dir / "intrinsics.txt") as f:
+		for line in f:
+			if line.strip() and not (map_dir / line.split()[0]).is_file():
+				problems.append(f"missing image {line.split()[0]}")
+	if problems:
+		raise ValueError(f"{map_dir} cannot be appended to: " + "; ".join(problems[:5])
+						 + (f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""))
+
+
+def update_finalmap_link(result_dir: pathlib.Path, target: pathlib.Path) -> None:
+	"""Point <result_dir>/merge_finalmap at the latest fully saved step."""
+	link = result_dir / "merge_finalmap"
+	if link.is_symlink() or link.exists():
+		link.unlink()
+	link.symlink_to(target)
+
+
+def run_incremental_merge(merger: MergePipeline, args):
+	"""Merge submaps one by one, optionally continuing from an existing consolidated map.
+
+	Models must be initialized before calling.
+	"""
+	result_dir = resolve_result_dir(args)
 	result_dir.mkdir(parents=True, exist_ok=True)
+	submap_dirs = resolve_submap_dirs(args)
 	logging.info(f"Result directory: {result_dir}")
-	logging.info(f"Submaps to merge ({len(submap_ids)}): {submap_ids}")
+	logging.info(f"Submaps to merge ({len(submap_dirs)}): {[sid for sid, _ in submap_dirs]}")
 
 	if args.rerun_viz:
 		rerun_viz_dir = pathlib.Path(args.rerun_viz_dir) if args.rerun_viz_dir else result_dir / "rerun_viz"
@@ -1600,6 +1658,10 @@ def run_incremental_merge(merger: MergePipeline, args):
 				"vpr_match_model": args.vpr_match_model,
 				"vpr_match_seq_len": args.vpr_match_seq_len,
 				"pose_estimation_method": args.pose_estimation_method,
+				"result_dir": str(result_dir),
+				"submap_list": [str(p) for _, p in submap_dirs],
+				"base_map": args.append_from,
+				"start_step": args.start_step,
 			}
 		)
 		merger.runtime_viz_recorder.record_event(
@@ -1611,19 +1673,27 @@ def run_incremental_merge(merger: MergePipeline, args):
 			payload={"output_dir": str(rerun_viz_dir)},
 		)
 
-	final_map = MapManager(result_dir)
-	final_map.init_graphs(merger.graph_configs)
+	if args.append_from:
+		base_dir = pathlib.Path(args.append_from)
+		validate_append_map_dir(base_dir)
+		final_map = MapManager(base_dir)
+		final_map.load_graphs(merger.graph_configs)
+		registry_path = base_dir / "preds" / "loop_registry.txt"
+		if registry_path.is_file():
+			merger.loop_edge_registry = merger.load_loop_registry(str(registry_path))
+			logging.info(f"Loaded {len(merger.loop_edge_registry)} loop edges from {registry_path}")
+		else:
+			merger.loop_edge_registry = {}
+			logging.warning(f"{registry_path} not found: earlier loop edges stay plain odometry factors")
+		logging.info(f"Appending to {base_dir}: {final_map}")
+	else:
+		final_map = MapManager(result_dir)
+		final_map.init_graphs(merger.graph_configs)
 
-	data_dir_name = args.data_dir or f"{args.scene}_aria_data_390"
-	submap_base = dataset_root / data_dir_name
-	base_name = "merge"
-	for i, sid in enumerate(submap_ids):
-		submap_path = submap_base / sid
-		if not submap_path.exists():
-			logging.warning(f"Submap directory not found: {submap_path}, skipping.")
-			break
-
-		new_name = f"{base_name}_{sid}"
+	prev_name = "merge"
+	for k, (sid, submap_path) in enumerate(submap_dirs):
+		i = args.start_step + k
+		new_name = step_dir_name(args.step_dir_style, prev_name, i, sid)
 		output_dir = result_dir / new_name
 		setup_log_environment(output_dir, args)
 		merger.log_dir = output_dir
@@ -1660,16 +1730,20 @@ def run_incremental_merge(merger: MergePipeline, args):
 		merger.merge_single_submap(final_map, cur_submap, args)
 
 		final_map.save_to_file()
+		update_finalmap_link(result_dir, output_dir)
 		logging.info(f"Saved intermediate result: {output_dir}")
+		# Machine-readable per-step summary line (parsed by the console job runner).
+		logging.info(
+			f"STEP_DONE index={i} sid={sid} dir={output_dir} id_offset={merger.id_offset} "
+			f"odom_nodes={final_map.odom.get_num_node()} covis_nodes={final_map.covis.get_num_node()} "
+			f"components={len(final_map.odom.find_connected_components())} "
+			f"registry={len(merger.loop_edge_registry)}"
+		)
 
 		del cur_submap
-		base_name = new_name
+		prev_name = new_name
 
-	finalmap_link = result_dir / "merge_finalmap"
-	if finalmap_link.is_symlink() or finalmap_link.exists():
-		finalmap_link.unlink()
-	finalmap_link.symlink_to(result_dir / base_name)
-	logging.info(f"Created symlink: {finalmap_link} -> {result_dir / base_name}")
+	logging.info(f"merge_finalmap -> {result_dir / prev_name}")
 
 	if merger.runtime_viz_recorder is not None:
 		merger.runtime_viz_recorder.record_event(
@@ -1694,16 +1768,7 @@ if __name__ == '__main__':
 		handlers=[logging.StreamHandler()]
 	)
 
-	dataset_root = pathlib.Path(args.dataset_root)
-	output_root = pathlib.Path(args.output_root) if args.output_root else dataset_root
-	suffix = ""
-	if args.use_iqa: suffix += "iqa"
-	if args.use_ig:  suffix += "ig"
-	if args.use_td:  suffix += "td"
-	if suffix: suffix = f"_{suffix}"
-	order_tag = ORDER_TAGS[args.order_index] if args.order_index < len(ORDER_TAGS) else str(args.order_index)
-	result_name = f"{args.scene}_results_{order_tag}_{args.method}{suffix}"
-	result_dir = output_root / result_name
+	result_dir = resolve_result_dir(args)
 	result_dir.mkdir(parents=True, exist_ok=True)
 
 	merger = MergePipeline(args, result_dir)
