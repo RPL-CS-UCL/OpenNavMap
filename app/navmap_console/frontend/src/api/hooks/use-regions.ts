@@ -35,3 +35,16 @@ export function useDeleteRegion() {
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.regions.all }),
   });
 }
+
+// Point the region's final map at a specific step of a run (the backend re-links `map` and rewrites `head`).
+export function usePromoteHead(rid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { run_id: string; step_index: number }) =>
+      apiSend<Region>("POST", `/api/regions/${rid}/map/promote`, body, regionSchema),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.regions.one(rid) });
+      qc.invalidateQueries({ queryKey: qk.regions.all });
+    },
+  });
+}

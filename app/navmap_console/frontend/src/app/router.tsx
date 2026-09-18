@@ -3,16 +3,18 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { EmptyState } from "@/components/common/EmptyState";
 import { RouteError } from "@/components/common/RouteError";
-import { RegionCrumb, SessionCrumb } from "@/components/layout/crumbs";
+import { RegionCrumb, RunCrumb, SessionCrumb } from "@/components/layout/crumbs";
 import { JobDetailPage } from "@/features/jobs/JobDetailPage";
 import { JobsPage } from "@/features/jobs/JobsPage";
 import { RegionDetailPage } from "@/features/regions/RegionDetailPage";
 import { RegionsPage } from "@/features/regions/RegionsPage";
 import { RunWizardPage } from "@/features/run-wizard/RunWizardPage";
+import { RunDetailPage } from "@/features/runs/RunDetailPage";
 import { NewSessionPage } from "@/features/sessions/NewSessionPage";
 import { SessionDetailPage } from "@/features/sessions/SessionDetailPage";
+import { SettingsPage } from "@/features/settings/SettingsPage";
 import { t } from "@/i18n";
-import { Inbox, Settings } from "lucide-react";
+import { Inbox } from "lucide-react";
 
 export type RouteParams = Record<string, string | undefined>;
 export interface CrumbHandle {
@@ -56,6 +58,12 @@ export const router = createBrowserRouter([
                 errorElement: <RouteError />,
                 handle: crumb(() => t("wizard.title")),
               },
+              {
+                path: "runs/:runId",
+                element: <RunDetailPage />,
+                errorElement: <RouteError />,
+                handle: crumb((p) => <RunCrumb rid={p.rid ?? ""} runId={p.runId ?? ""} />),
+              },
             ],
           },
         ],
@@ -71,7 +79,8 @@ export const router = createBrowserRouter([
       {
         path: "settings",
         handle: crumb(() => t("nav.settings")),
-        element: <EmptyState icon={Settings} title={t("nav.settings")} body={t("settings.placeholder")} />,
+        element: <SettingsPage />,
+        errorElement: <RouteError />,
       },
       { path: "*", element: <EmptyState icon={Inbox} title={t("common.notFound")} /> },
     ],

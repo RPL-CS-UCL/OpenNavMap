@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { errorDetail } from "@/api/client";
 import { useDeleteRegion, useRegion } from "@/api/hooks/use-regions";
 import { useDeleteSession, useSessions } from "@/api/hooks/use-sessions";
+import { useRuns } from "@/api/hooks/use-runs";
 import type { Session } from "@/api/types";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -14,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { JobStatusBadge } from "@/features/jobs/job-status";
 import { t } from "@/i18n";
+import { formatDateTime } from "@/lib/format";
 
 export function SessionStatusBadge({ session }: { session: Session }) {
   if (!session.validation) return <StatusBadge tone="muted" icon={HelpCircle}>{t("sessions.status.unknown")}</StatusBadge>;
@@ -39,6 +42,7 @@ export function RegionDetailPage() {
   const navigate = useNavigate();
   const region = useRegion(rid);
   const sessions = useSessions(rid);
+  const runs = useRuns(rid);
   const deleteRegion = useDeleteRegion();
   const deleteSession = useDeleteSession(rid);
   const [confirmRegion, setConfirmRegion] = useState(false);
@@ -133,7 +137,43 @@ export function RegionDetailPage() {
 
           <section>
             <h2 className="mb-2 text-sm font-semibold">{t("region.runs")}</h2>
-            <EmptyState title={t("region.runs.empty")} />
+            {runs.isPending && <Skeleton className="h-20 w-full" />}
+            {runs.data && runs.data.length === 0 && <EmptyState title={t("region.runs.empty")} />}
+            {runs.data && runs.data.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("runs.col.name")}</TableHead>
+                    <TableHead>{t("runs.col.kind")}</TableHead>
+                    <TableHead>{t("runs.col.status")}</TableHead>
+                    <TableHead className="text-right">{t("runs.col.steps")}</TableHead>
+                    <TableHead>{t("runs.col.created")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {runs.data.map((run) => (
+                    <TableRow key={run.id} aria-label={run.name || run.id}>
+                      <TableCell>
+                        <Link to={`/regions/${rid}/runs/${run.id}`} className="font-medium hover:underline">
+                          {run.name || run.id}
+                        </Link>
+                        <div className="font-mono text-[11px] text-muted-foreground">{run.id}</div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge tone="muted">{run.kind}</StatusBadge>
+                      </TableCell>
+                      <TableCell>
+                        <JobStatusBadge status={run.status} />
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {`${run.last_step_index === null ? "-" : run.last_step_index + 1} / ${run.num_steps_expected}`}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDateTime(run.created_at)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </section>
         </div>
 
@@ -144,9 +184,9 @@ export function RegionDetailPage() {
           <CardContent className="text-xs text-muted-foreground">
             {r.head ? (
               <div className="space-y-1">
-                <div className="font-mono text-foreground">
+                <Link to={`/regions/${rid}/runs/${r.head.run_id}`} className="block font-mono text-foreground hover:underline">
                   {t("regions.map.head", { run: r.head.run_id, step: r.head.step_index })}
-                </div>
+                </Link>
                 <div>{t("region.finalMap.sessions", { count: r.head.session_ids.length })}</div>
               </div>
             ) : (

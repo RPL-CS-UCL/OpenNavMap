@@ -1,4 +1,5 @@
 import { useRegion } from "@/api/hooks/use-regions";
+import { useRunDetail } from "@/api/hooks/use-runs";
 import { useSession } from "@/api/hooks/use-sessions";
 
 // Breadcrumb labels that need data: fall back to the raw id until it loads.
@@ -10,4 +11,9 @@ export function RegionCrumb({ rid }: { rid: string }) {
 export function SessionCrumb({ rid, sid }: { rid: string; sid: string }) {
   const { data } = useSession(rid, sid);
   return <>{data?.name ?? sid}</>;
+}
+
+export function RunCrumb({ rid, runId }: { rid: string; runId: string }) {
+  const { data } = useRunDetail(rid, runId);
+  return <>{data ? data.run.name || data.run.id : runId}</>;
 }
