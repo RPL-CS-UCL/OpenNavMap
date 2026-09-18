@@ -31,11 +31,12 @@ def health(request: Request) -> Dict[str, Any]:
     settings = request.app.state.settings
     usage = shutil.disk_usage(str(settings.data_root))
     cpu_list = settings.cpu_list if settings.cpu_list is not None else detect_non_boost_cpus()
+    runner = getattr(request.app.state, "runner", None)
     return {
         "version": __version__,
         "data_root": str(settings.data_root),
         "repo_root": str(settings.repo_root),
-        "queues": {"gpu": 0, "cpu": 0},
+        "queues": runner.queue_lengths() if runner is not None else {"gpu": 0, "cpu": 0},
         "gpu": query_gpu(),
         "disk": {"total": usage.total, "free": usage.free},
         "cpu_list": cpu_list or "",

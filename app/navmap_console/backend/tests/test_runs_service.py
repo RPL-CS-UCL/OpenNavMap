@@ -115,7 +115,7 @@ def test_region_busy_and_bad_inputs(world):
             service.create(region.id, RunCreate(kind="append", session_ids=sids))
         with pytest.raises(KeyError):
             service.create("reg_missing", RunCreate(session_ids=sids))
-        cancelled = service.cancel(region.id, first.id)
+        cancelled = await service.cancel(region.id, first.id)
         done = await _wait_run(service, region.id, first.id)
         await runner.stop()
         return cancelled, done

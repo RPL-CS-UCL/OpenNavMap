@@ -167,10 +167,11 @@ class RunService:
                 sources.append(run_dir / "output" / s.dir_name)
         return sources
 
-    def cancel(self, rid: str, run_id: str) -> Run:
+    async def cancel(self, rid: str, run_id: str) -> Run:
+        """Ask the runner to stop the job; the run itself is finalised by the on_finished hook."""
         run = self.runs.get(rid, run_id)
         if run.job_id and run.status in ("queued", "running"):
-            asyncio.ensure_future(self.runner.cancel(run.job_id))
+            await self.runner.cancel(run.job_id)
         return run
 
     # ---- called by hooks -------------------------------------------------
