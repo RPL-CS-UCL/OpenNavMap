@@ -13,3 +13,10 @@ def test_data_root_is_created_on_startup(client, settings):
     assert (settings.data_root / "regions").is_dir()
     assert (settings.data_root / "jobs").is_dir()
     assert (settings.data_root / "uploads").is_dir()
+
+
+def test_unknown_api_path_is_not_served_as_spa(client, settings):
+    """The SPA fallback must not swallow /api and /ws paths, or a typo'd endpoint returns HTML with 200."""
+    r = client.get("/api/nope")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")

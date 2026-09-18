@@ -3,7 +3,7 @@ import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -62,6 +62,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str) -> FileResponse:
+            if path.startswith("api/") or path == "ws":  # unknown endpoints must not become index.html
+                raise HTTPException(status_code=404, detail="Not Found")
             candidate = dist / path
             if path and candidate.is_file():
                 return FileResponse(str(candidate))

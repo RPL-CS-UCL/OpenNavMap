@@ -182,20 +182,36 @@ class JobRunner:
         await self._finish(self.store.get(job.id), returncode=returncode)
 
     async def _adopt(self, job: Job) -> None:
-        """Re-attach to a subprocess that outlived the previous backend process, or mark it orphaned."""
-        alive = False
-        if job.pid and job.process_create_time is not None:
-            try:
-                alive = abs(psutil.Process(job.pid).create_time() - job.process_create_time) < 1.0
-            except psutil.Error:
-                alive = False
-        if not alive:
-            await self._finish(job, returncode=None, error="backend restarted and the process was gone",
-                               status="orphaned")
+        """Re-attach to a subprocess that outlived the previous backend process.
+
+        Whatever the process wrote while no backend was watching is replayed from ``job.log_offset``
+        first, so step completions are not lost; a process that has already exited is then judged
+        by its log tail instead of being written off as orphaned.
+        """
+        self._line_counts[job.id] = self._lines_before(Path(job.log_path), job.log_offset)
+        if not self._process_alive(job):
+            await self._tail(job, lambda: True, start_offset=job.log_offset)
+            await self._finish_adopted(self.store.get(job.id), gone_at_start=True)
             return
-        self._line_counts[job.id] = len(read_log_lines(Path(job.log_path)))
         self._active[job.queue] = job.id
         self._watchers[job.id] = asyncio.ensure_future(self._watch_adopted(job))
+
+    @staticmethod
+    def _process_alive(job: Job) -> bool:
+        if not job.pid or job.process_create_time is None:
+            return False
+        try:
+            return abs(psutil.Process(job.pid).create_time() - job.process_create_time) < 1.0
+        except psutil.Error:
+            return False
+
+    @staticmethod
+    def _lines_before(path: Path, offset: int) -> int:
+        """Number of log lines in the first ``offset`` bytes (``offset`` always ends on a newline)."""
+        if offset <= 0 or not path.is_file():
+            return 0
+        with open(path, "rb") as f:
+            return f.read(offset).count(b"\n")
 
     async def _watch_adopted(self, job: Job) -> None:
         pid = job.pid or 0
@@ -205,15 +221,22 @@ class JobRunner:
             return not psutil.pid_exists(pid)
 
         try:
-            await self._tail(job, gone, start_offset=path.stat().st_size if path.exists() else 0)
+            await self._tail(job, gone, start_offset=job.log_offset)
         finally:
             self._active.pop(job.queue, None)
             self._watchers.pop(job.id, None)
-        # Exit status is unknowable for an adopted process; infer from the log tail.
-        tail = read_log_lines(path)[-ERROR_TAIL_LINES:]
-        ok = any("merge_finalmap ->" in l or "STEP_DONE" in l for l in tail[-3:])
-        await self._finish(self.store.get(job.id), returncode=0 if ok else None,
-                           error=None if ok else "adopted process ended without a completion marker")
+        await self._finish_adopted(self.store.get(job.id), gone_at_start=False)
+
+    async def _finish_adopted(self, job: Job, *, gone_at_start: bool) -> None:
+        """Exit status is unknowable for an adopted process; infer success from the log tail."""
+        tail = read_log_lines(Path(job.log_path))[-3:]
+        if any("merge_finalmap ->" in l or "STEP_DONE" in l for l in tail):
+            await self._finish(job, returncode=0)
+        elif gone_at_start:
+            await self._finish(job, returncode=None, error="backend restarted and the process was gone",
+                               status="orphaned")
+        else:
+            await self._finish(job, returncode=None, error="adopted process ended without a completion marker")
 
     async def _tail(self, job: Job, is_done: Callable[[], bool], start_offset: int = 0) -> None:
         tailer = LineTailer()
@@ -232,6 +255,7 @@ class JobRunner:
                 last = tailer.flush()
                 if last is not None:
                     lines.append(last)
+            job.log_offset = offset - tailer.pending  # saved with the next progress change
             if lines:
                 await self._handle_lines(job, lines)
             if done:
@@ -277,8 +301,10 @@ class JobRunner:
 
     async def _finish(self, job: Job, *, returncode: Optional[int], error: Optional[str] = None,
                       status: Optional[str] = None) -> None:
-        tail = read_log_lines(Path(job.log_path))[-ERROR_TAIL_LINES:]
+        log_path = Path(job.log_path)
+        tail = read_log_lines(log_path)[-ERROR_TAIL_LINES:]
         job.returncode, job.finished_at = returncode, now_iso()
+        job.log_offset = log_path.stat().st_size if log_path.is_file() else job.log_offset
         if status:
             job.status = status
         elif job.id in self._cancel_requested:

@@ -201,3 +201,45 @@ def test_runner_adopts_or_orphans_on_start(tmp_path: Path):
     d, a, n = run(go())
     assert d.status == "orphaned" and d.finished_at
     assert a.status == "running" and n == 1
+    assert a.progress.step == 4  # lines before the offset were replayed on adoption
+
+
+def test_runner_adoption_replays_log_written_while_down(tmp_path: Path):
+    """Lines the subprocess wrote after the old backend died must still drive progress and completion."""
+    from navmap_console.models import Job, JobProgress
+
+    events: List[Dict[str, Any]] = []
+
+    class Hooks:
+        async def on_progress(self, job, event):
+            events.append(event)
+
+        async def on_finished(self, job):
+            pass
+
+    settings, bus, runner = _make(tmp_path, Hooks())
+    jid = "job_20260918_000002_gone"
+    log_path = Path(runner.store.log_path(jid))
+    seen = b"$ x\n--- Merging submap 0: a ---\n"
+    unseen = (b"PGO: final error: 0.5\n"
+              b"STEP_DONE index=0 sid=a dir=/tmp/m0 id_offset=0 odom_nodes=1 covis_nodes=1 components=1 registry=0\n"
+              b"--- Merging submap 1: b ---\n"
+              b"STEP_DONE index=1 sid=b dir=/tmp/m1 id_offset=1 odom_nodes=2 covis_nodes=2 components=1 registry=0\n"
+              b"merge_finalmap -> /tmp/m1\n")
+    log_path.write_bytes(seen + unseen)
+    job = Job(id=jid, kind="merge", queue="gpu", status="running", argv=["x"], cwd=".", log_path=str(log_path),
+              pid=2 ** 22 - 2, process_create_time=1.0, log_offset=len(seen), progress=JobProgress(step=0))
+    runner.store.save(job)
+
+    async def go():
+        await runner.start()
+        await asyncio.sleep(0.1)
+        got = runner.store.get(jid), runner.line_count(jid)
+        await runner.stop()
+        return got
+
+    done, n = run(go())
+    assert done.status == "succeeded" and done.returncode == 0
+    assert done.progress.completed_steps == 2 and done.log_offset == len(seen) + len(unseen)
+    assert [e["index"] for e in events if e["kind"] == "step_done"] == [0, 1]
+    assert n == 7  # seq numbering continues from the lines before log_offset

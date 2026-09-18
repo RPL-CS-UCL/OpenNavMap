@@ -34,6 +34,11 @@ class LineTailer:
         self._buf = parts.pop()
         return [_last_segment(p.decode("utf-8", errors="replace")) for p in parts]
 
+    @property
+    def pending(self) -> int:
+        """Bytes of an incomplete last line still buffered."""
+        return len(self._buf)
+
     def flush(self) -> Optional[str]:
         if not self._buf:
             return None

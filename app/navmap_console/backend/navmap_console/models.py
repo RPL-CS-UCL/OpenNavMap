@@ -118,6 +118,7 @@ class Job(BaseModel):
     log_path: str
     pid: Optional[int] = None
     process_create_time: Optional[float] = None
+    log_offset: int = 0  # bytes of the log already parsed for progress; adoption resumes from here
     created_at: str = Field(default_factory=now_iso)
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
