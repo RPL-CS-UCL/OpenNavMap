@@ -1,0 +1,13 @@
+# Already present in conda env opennavmap (Python 3.8). Version ceilings are the last 3.8-compatible releases.
+fastapi==0.124.4
+starlette==0.44.*
+uvicorn==0.33.*
+pydantic==2.10.6
+python-multipart>=0.0.20
+aiofiles
+websockets==12.*
+psutil==6.*
+Pillow==10.4.*
+PyYAML==6.*
+httpx
+pytest
