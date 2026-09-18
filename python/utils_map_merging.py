@@ -4,6 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../VPR-methods-evaluation/third_party/deep-image-retrieval'))
 
 import argparse
+from typing import List, Optional
 # from datetime import datetime
 import logging
 import numpy as np
@@ -206,26 +207,40 @@ def save_vis_kf_replacement(log_dir, db_id, query_id, db_img, query_img, prob):
 	plt.savefig(str(log_dir/"preds/kf_vis"/f"kf_replacement_{db_id}_{query_id}_{prob:.3f}.jpg"))
 	plt.close()
 
-def parse_arguments():
+def build_argument_parser() -> argparse.ArgumentParser:
 	parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-	parser.add_argument("--dataset_root", type=str, required=True,
+	parser.add_argument("--dataset_root", type=str, default=None,
 						help="Dataset root directory containing submap data and orders file")
 	parser.add_argument("--output_root", type=str, default=None,
 						help="Output root directory for merged results (default: same as dataset_root)")
-	parser.add_argument("--scene", type=str, required=True,
+	parser.add_argument("--scene", type=str, default=None,
 						help="Scene name, e.g. s00000")
 	parser.add_argument("--data_dir", type=str, default=None,
 						help="Submap data directory name under dataset-root (default: <scene>_aria_data_390)")
-	parser.add_argument("--order_index", type=int, required=True,
+	parser.add_argument("--order_index", type=int, default=None,
 						help="Order index in orders file (0=in, 1=r0, ...)")
-	parser.add_argument("--method", type=str, required=True,
+	parser.add_argument("--method", type=str, default=None,
 						help="Method name for result directory naming, e.g. spgo_cc_seqmatch_master")
 	parser.add_argument("--max_submaps", type=int, default=None,
 						help="Maximum number of submaps to merge (default: all)")
 	parser.add_argument("--image_size", type=int, default=None, nargs="+",
 										help="Resizing shape for images (WxH). If a single int is passed, set the"
 											 "longest edge of all images to this value, while keeping aspect ratio")
+
+	# Explicit input/output (console mode). When --submap_list is given, the
+	# --dataset_root/--scene/--order_index derivation is bypassed entirely.
+	parser.add_argument("--submap_list", type=str, default=None,
+						help="Text file with one submap directory (absolute path) per line, in merge order. "
+							 "Replaces --dataset_root/--data_dir/--scene/--order_index; requires --result_dir")
+	parser.add_argument("--result_dir", type=str, default=None,
+						help="Absolute output directory for merge_* step directories (used with --submap_list)")
+	parser.add_argument("--step_dir_style", type=str, default="cumulative", choices=["cumulative", "indexed"],
+						help="Step directory naming: cumulative=merge_0_1_2 (legacy), indexed=merge_007_<submap_id>")
+	parser.add_argument("--append_from", type=str, default=None,
+						help="Consolidated map directory to continue merging from (every covis node must have its image)")
+	parser.add_argument("--start_step", type=int, default=0,
+						help="Global step index of the first submap in this run (>= 1 when --append_from is given)")
 
 	parser.add_argument("--vpr_match_model", type=str, default="vpr_dp",
 						help="single_match, seqslam, vpr_dp")
@@ -271,6 +286,21 @@ def parse_arguments():
 	parser.add_argument("--rerun-dmatrix-format", type=str, default="png", choices=["png"])
 	parser.add_argument("--rerun-max-match-images-per-step", type=int, default=200)
 	parser.add_argument("--rerun-axis-scale", type=str, default="auto", choices=["auto"])
-	args = parser.parse_args()
+	return parser
 
+
+def parse_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
+	"""Parse CLI arguments and enforce the mode-dependent required options."""
+	parser = build_argument_parser()
+	args = parser.parse_args(argv)
+	if args.submap_list is None:
+		missing = [name for name in ("dataset_root", "scene", "order_index") if getattr(args, name) is None]
+		if missing:
+			parser.error("without --submap_list you must pass: " + ", ".join(f"--{m}" for m in missing))
+	elif args.result_dir is None:
+		parser.error("--submap_list requires --result_dir")
+	if args.append_from is not None and args.start_step < 1:
+		parser.error("--append_from requires --start_step >= 1 (step 0 is the reference map)")
+	if args.method is None:
+		args.method = "console"
 	return args
