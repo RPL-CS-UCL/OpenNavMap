@@ -32,7 +32,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Map processing with covisibility edges')
     parser.add_argument('--dataset_dir', type=str, required=True, help='Path to dataset directory')
     parser.add_argument('--scenes', type=str, required=True, nargs="+", help='Scenes')
-    parser.add_argument('--matcher', type=str, default='sift', help=f"{available_models}")
+    parser.add_argument('--matcher', type=str, default='sift-nn', help=f"{available_models}")
     parser.add_argument('--output', type=str, default=None, help='Output directory for processed map')
     parser.add_argument('--n_kpts', type=int, default=2048, help='Number of keypoints to extract')
     parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'], help='Device for processing')
