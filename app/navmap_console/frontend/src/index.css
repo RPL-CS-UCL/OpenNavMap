@@ -1,3 +1,8 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource-variable/jetbrains-mono";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -24,6 +29,22 @@
     --input: 0 0% 89.8%;
     --ring: 0 0% 3.9%;
     --radius: 2px;
+    --series-1: 215 80% 48%;
+    --series-2: 28 90% 50%;
+    --series-3: 180 55% 38%;
+    --series-4: 270 55% 55%;
+    --series-5: 45 85% 45%;
+    --series-6: 330 60% 52%;
+    --series-7: 240 50% 55%;
+    --series-8: 20 40% 45%;
+    --seq-100: 212 90% 92%;
+    --seq-200: 212 85% 82%;
+    --seq-300: 212 80% 70%;
+    --seq-400: 212 75% 58%;
+    --seq-500: 212 75% 46%;
+    --seq-600: 212 75% 36%;
+    --seq-700: 212 75% 26%;
+    --scene-bg: 40 20% 94%;
   }
 
   .dark {
@@ -46,6 +67,22 @@
     --border: 0 0% 14.9%;
     --input: 0 0% 14.9%;
     --ring: 0 0% 83.1%;
+    --series-1: 215 85% 65%;
+    --series-2: 28 90% 62%;
+    --series-3: 180 55% 55%;
+    --series-4: 270 60% 70%;
+    --series-5: 45 85% 60%;
+    --series-6: 330 65% 68%;
+    --series-7: 240 60% 72%;
+    --series-8: 20 45% 60%;
+    --seq-100: 212 40% 22%;
+    --seq-200: 212 45% 30%;
+    --seq-300: 212 55% 40%;
+    --seq-400: 212 65% 50%;
+    --seq-500: 212 75% 60%;
+    --seq-600: 212 80% 70%;
+    --seq-700: 212 85% 82%;
+    --scene-bg: 60 5% 7%;
   }
 }
 
@@ -55,5 +92,10 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 13px;
+  }
+  .font-mono {
+    font-family: "JetBrains Mono Variable", ui-monospace, monospace;
   }
 }
