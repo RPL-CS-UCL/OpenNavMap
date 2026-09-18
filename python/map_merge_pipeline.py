@@ -24,6 +24,7 @@ from utils.utils_image import to_numpy
 from utils.utils_image_matching_method import save_visualization
 from benchmark_kf_selection.metric.landmark_selector import LandmarkSelector
 
+from map_merge_pack import read_loop_registry, write_loop_registry
 from map_manager import MapManager
 from image_graph import ImageGraph
 from image_node import ImageNode
@@ -239,14 +240,20 @@ class MergePipeline:
 			}
 
 	def save_loop_registry(self, path: str) -> None:
-		"""Dump the registry so a run can be audited step by step."""
-		with open(path, 'w') as f:
-			f.write("# a_id,b_id,conf,first_step,reject_count,last_weight\n")
-			for (key_a, key_b), record in self.loop_edge_registry.items():
-				f.write(
-					f"{key_a},{key_b},{record['conf']:.3f},{record['first_step']},"
-					f"{record['reject_count']},{record['last_weight']:.6f}\n"
-				)
+		"""Dump the registry (13 columns incl. T_AB) so a run can be audited and resumed."""
+		write_loop_registry(pathlib.Path(path), self.loop_edge_registry)
+
+	def load_loop_registry(self, path: str) -> Dict[Tuple[int, int], Dict[str, object]]:
+		"""Load a registry written by save_loop_registry (or recovered from g2o)."""
+		registry = read_loop_registry(pathlib.Path(path))
+		missing = [key for key, rec in registry.items() if rec.get('T_AB') is None]
+		if missing:
+			raise ValueError(
+				f"{path}: {len(missing)} loop edge(s) have no T_AB (legacy 6-column file). "
+				f"Recover it first: python python/map_merge_pack.py recover-registry "
+				f"{path} <same_step>/preds/initial_pose_graph.g2o {path}"
+			)
+		return registry
 
 	def merge_and_update_submaps(
 		self, 
