@@ -45,6 +45,9 @@ roslaunch litevloc run_vloc_online_anymal.launch
 
 # Map merging
 bash scripts/run_map_merging.sh
+
+# Rosbag -> simulated multi-session submaps -> merge (per-bag settings in the YAML)
+bash scripts/run_rosbag_to_multisession.sh python/rosbag_convert/config/cmt_szs_odin1.yaml
 ```
 
 ## Directory Structure
@@ -55,6 +58,7 @@ python/
 ├── map_manager.py          # multi-graph coordination/management
 ├── utils_map_merging.py    # map-merging utilities (OpenNavMap-specific)
 ├── gen_covis_trav_edges.py # covis/trav edge generation script (OpenNavMap-specific)
+├── rosbag_convert/         # ROS-free rosbag -> multi-session map converter (see docs/instruction_rosbag_conversion.md)
 ├── benchmark_mms/          # multi-session mapping benchmark
 ├── benchmark_vpr/          # VPR evaluation
 ├── benchmark_kf_selection/ # keyframe-selection evaluation
