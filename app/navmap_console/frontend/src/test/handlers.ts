@@ -1,21 +1,31 @@
 import { HttpResponse, http } from "msw";
-import type { Region, Session } from "@/api/types";
-import { region, session, sessionInvalid } from "./fixtures";
+import type { Job, Region, Run, Session, StepRecord } from "@/api/types";
+import { job, paramSpecs, region, run, session, sessionInvalid, steps } from "./fixtures";
 
 // In-memory state shared by all handlers; call resetState() between tests.
 let regions: Region[] = [];
 let sessions: Session[] = [];
+let jobs: Job[] = [];
+let runs: Run[] = [];
+let runSteps: Record<string, StepRecord[]> = {};
 let counter = 0;
 
 export function resetState(): void {
   regions = [structuredClone(region)];
   sessions = [structuredClone(session), structuredClone(sessionInvalid)];
+  jobs = [structuredClone(job)];
+  runs = [structuredClone(run)];
+  runSteps = { [run.id]: structuredClone(steps) };
   counter = 0;
 }
 resetState();
 
 function withCounts(r: Region): Region {
-  return { ...r, session_count: sessions.filter((s) => s.region_id === r.id).length, run_count: 0 };
+  return {
+    ...r,
+    session_count: sessions.filter((s) => s.region_id === r.id).length,
+    run_count: runs.filter((x) => x.region_id === r.id).length,
+  };
 }
 
 const notFound = (what: string) => HttpResponse.json({ detail: `${what} not found` }, { status: 404 });
@@ -132,5 +142,80 @@ export const handlers = [
       });
     }
     return notFound("path");
+  }),
+
+  // ---- jobs / runs / params (M3) ----
+  http.get("/api/params/merge", () => HttpResponse.json(paramSpecs)),
+  http.get("/api/jobs", ({ request }) => {
+    const status = new URL(request.url).searchParams.get("status");
+    return HttpResponse.json(status ? jobs.filter((j) => status.split(",").includes(j.status)) : jobs);
+  }),
+  http.get("/api/jobs/:jid", ({ params }) => {
+    const j = jobs.find((x) => x.id === params.jid);
+    return j ? HttpResponse.json(j) : notFound("job");
+  }),
+  http.post("/api/jobs/:jid/cancel", ({ params }) => {
+    const j = jobs.find((x) => x.id === params.jid);
+    if (!j) return notFound("job");
+    j.status = "cancelled";
+    return HttpResponse.json(j);
+  }),
+  http.get("/api/jobs/:jid/log", ({ request }) => {
+    const after = Number(new URL(request.url).searchParams.get("after") ?? 0);
+    const all = [
+      "$ python map_merge_pipeline.py",
+      "--- Merging submap 0: ses_1 ---",
+      "PGO: final error: 0.456",
+      "STEP_DONE index=0 sid=ses_1",
+    ];
+    const lines = all.slice(after);
+    return HttpResponse.json({ lines, next: after + lines.length, total: all.length });
+  }),
+  http.get("/api/regions/:rid/runs", ({ params }) =>
+    HttpResponse.json(runs.filter((r) => r.region_id === params.rid)),
+  ),
+  http.post("/api/regions/:rid/runs", async ({ params, request }) => {
+    const body = (await request.json()) as {
+      name?: string;
+      kind: "merge" | "append";
+      session_ids: string[];
+      params: Record<string, unknown>;
+    };
+    if (runs.some((r) => r.region_id === params.rid && (r.status === "queued" || r.status === "running")))
+      return HttpResponse.json({ detail: "region busy" }, { status: 409 });
+    counter += 1;
+    const created: Run = {
+      ...structuredClone(run),
+      id: `run_new_${counter}`,
+      region_id: String(params.rid),
+      name: body.name ?? "",
+      kind: body.kind,
+      session_ids: body.session_ids,
+      params: body.params,
+      status: "queued",
+      job_id: `job_new_${counter}`,
+      last_step_index: null,
+    };
+    runs.push(created);
+    runSteps[created.id] = [];
+    return HttpResponse.json(created, { status: 201 });
+  }),
+  http.get("/api/regions/:rid/runs/:runId", ({ params }) => {
+    const r = runs.find((x) => x.id === params.runId);
+    if (!r) return notFound("run");
+    return HttpResponse.json({ run: r, steps: runSteps[r.id] ?? [], job: jobs.find((j) => j.id === r.job_id) ?? null });
+  }),
+  http.post("/api/regions/:rid/runs/:runId/cancel", ({ params }) => {
+    const r = runs.find((x) => x.id === params.runId);
+    if (!r) return notFound("run");
+    r.status = "cancelled";
+    return HttpResponse.json(r);
+  }),
+  http.post("/api/regions/:rid/map/promote", async ({ params, request }) => {
+    const body = (await request.json()) as { run_id: string; step_index: number };
+    const reg = regions.find((x) => x.id === params.rid);
+    if (!reg) return notFound("region");
+    reg.head = { run_id: body.run_id, step_index: body.step_index, session_ids: [], lineage: [body.run_id] };
+    return HttpResponse.json(withCounts(reg));
   }),
 ];
