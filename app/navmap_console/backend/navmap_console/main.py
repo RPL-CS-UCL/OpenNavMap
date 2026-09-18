@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, load_settings
-from .routers import health
+from .routers import health, regions
 
 
 def _ensure_layout(settings: Settings) -> None:
@@ -28,6 +28,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     )
     app.state.settings = settings
     app.include_router(health.router)
+    app.include_router(regions.router)
 
     dist = settings.frontend_dist
     if dist.is_dir():
