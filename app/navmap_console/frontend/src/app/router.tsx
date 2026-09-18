@@ -8,6 +8,7 @@ import { JobDetailPage } from "@/features/jobs/JobDetailPage";
 import { JobsPage } from "@/features/jobs/JobsPage";
 import { RegionDetailPage } from "@/features/regions/RegionDetailPage";
 import { RegionsPage } from "@/features/regions/RegionsPage";
+import { RunWizardPage } from "@/features/run-wizard/RunWizardPage";
 import { NewSessionPage } from "@/features/sessions/NewSessionPage";
 import { SessionDetailPage } from "@/features/sessions/SessionDetailPage";
 import { t } from "@/i18n";
@@ -48,6 +49,12 @@ export const router = createBrowserRouter([
                 element: <SessionDetailPage />,
                 errorElement: <RouteError />,
                 handle: crumb((p) => <SessionCrumb rid={p.rid ?? ""} sid={p.sid ?? ""} />),
+              },
+              {
+                path: "runs/new",
+                element: <RunWizardPage />,
+                errorElement: <RouteError />,
+                handle: crumb(() => t("wizard.title")),
               },
             ],
           },

@@ -3,28 +3,32 @@ import type { Job, Region, Run, Session, StepRecord } from "@/api/types";
 import { job, paramSpecs, region, run, session, sessionInvalid, steps } from "./fixtures";
 
 // In-memory state shared by all handlers; call resetState() between tests.
-let regions: Region[] = [];
-let sessions: Session[] = [];
-let jobs: Job[] = [];
-let runs: Run[] = [];
-let runSteps: Record<string, StepRecord[]> = {};
-let counter = 0;
+// Exported as one object so tests can tweak fixtures in place (e.g. state.runs[0].status = ...).
+interface HandlerState {
+  regions: Region[];
+  sessions: Session[];
+  jobs: Job[];
+  runs: Run[];
+  runSteps: Record<string, StepRecord[]>;
+  counter: number;
+}
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, counter: 0 };
 
 export function resetState(): void {
-  regions = [structuredClone(region)];
-  sessions = [structuredClone(session), structuredClone(sessionInvalid)];
-  jobs = [structuredClone(job)];
-  runs = [structuredClone(run)];
-  runSteps = { [run.id]: structuredClone(steps) };
-  counter = 0;
+  state.regions = [structuredClone(region)];
+  state.sessions = [structuredClone(session), structuredClone(sessionInvalid)];
+  state.jobs = [structuredClone(job)];
+  state.runs = [structuredClone(run)];
+  state.runSteps = { [run.id]: structuredClone(steps) };
+  state.counter = 0;
 }
 resetState();
 
 function withCounts(r: Region): Region {
   return {
     ...r,
-    session_count: sessions.filter((s) => s.region_id === r.id).length,
-    run_count: runs.filter((x) => x.region_id === r.id).length,
+    session_count: state.sessions.filter((s) => s.region_id === r.id).length,
+    run_count: state.runs.filter((x) => x.region_id === r.id).length,
   };
 }
 
@@ -43,12 +47,12 @@ export const handlers = [
     }),
   ),
 
-  http.get("/api/regions", () => HttpResponse.json(regions.map(withCounts))),
+  http.get("/api/regions", () => HttpResponse.json(state.regions.map(withCounts))),
   http.post("/api/regions", async ({ request }) => {
     const body = (await request.json()) as Partial<Region>;
-    counter += 1;
+    state.counter += 1;
     const created: Region = {
-      id: `reg_new_${counter}`,
+      id: `reg_new_${state.counter}`,
       name: body.name ?? "",
       description: body.description ?? "",
       vpr: body.vpr ?? { method: "cosplace", backbone: "ResNet18", dim: 256 },
@@ -56,34 +60,34 @@ export const handlers = [
       created_at: new Date().toISOString(),
       head: null,
     };
-    regions.push(created);
+    state.regions.push(created);
     return HttpResponse.json(withCounts(created), { status: 201 });
   }),
   http.get("/api/regions/:rid", ({ params }) => {
-    const r = regions.find((x) => x.id === params.rid);
+    const r = state.regions.find((x) => x.id === params.rid);
     return r ? HttpResponse.json(withCounts(r)) : notFound("region");
   }),
   http.delete("/api/regions/:rid", ({ params }) => {
-    regions = regions.filter((x) => x.id !== params.rid);
+    state.regions = state.regions.filter((x) => x.id !== params.rid);
     return new HttpResponse(null, { status: 204 });
   }),
 
   http.get("/api/regions/:rid/sessions", ({ params }) =>
-    HttpResponse.json(sessions.filter((s) => s.region_id === params.rid)),
+    HttpResponse.json(state.sessions.filter((s) => s.region_id === params.rid)),
   ),
   http.post("/api/regions/:rid/sessions/register", async ({ params, request }) => {
     const body = (await request.json()) as { path: string; name?: string };
     if (!body.path.startsWith("/")) return HttpResponse.json({ detail: "outside allowed roots" }, { status: 400 });
-    counter += 1;
+    state.counter += 1;
     const created: Session = {
       ...structuredClone(session),
-      id: `ses_new_${counter}`,
+      id: `ses_new_${state.counter}`,
       region_id: String(params.rid),
       name: body.name ?? body.path.split("/").filter(Boolean).pop() ?? "",
       path: body.path,
       source: "path",
     };
-    sessions.push(created);
+    state.sessions.push(created);
     return HttpResponse.json(created, { status: 201 });
   }),
   http.post("/api/regions/:rid/sessions/upload", async ({ params, request }) => {
@@ -92,28 +96,28 @@ export const handlers = [
     if (!(file instanceof File) || !/\.(zip|7z)$/i.test(file.name)) {
       return HttpResponse.json({ detail: "unsupported archive type" }, { status: 400 });
     }
-    counter += 1;
+    state.counter += 1;
     const created: Session = {
       ...structuredClone(session),
-      id: `ses_new_${counter}`,
+      id: `ses_new_${state.counter}`,
       region_id: String(params.rid),
       name: String(form.get("name") ?? "") || file.name.replace(/\.(zip|7z)$/i, ""),
-      path: `/tmp/console/regions/${String(params.rid)}/sessions/ses_new_${counter}/data`,
+      path: `/tmp/console/regions/${String(params.rid)}/sessions/ses_new_${state.counter}/data`,
       source: "upload",
     };
-    sessions.push(created);
+    state.sessions.push(created);
     return HttpResponse.json(created, { status: 201 });
   }),
   http.get("/api/regions/:rid/sessions/:sid", ({ params }) => {
-    const s = sessions.find((x) => x.id === params.sid && x.region_id === params.rid);
+    const s = state.sessions.find((x) => x.id === params.sid && x.region_id === params.rid);
     return s ? HttpResponse.json(s) : notFound("session");
   }),
   http.post("/api/regions/:rid/sessions/:sid/validate", ({ params }) => {
-    const s = sessions.find((x) => x.id === params.sid);
+    const s = state.sessions.find((x) => x.id === params.sid);
     return s ? HttpResponse.json(s) : notFound("session");
   }),
   http.delete("/api/regions/:rid/sessions/:sid", ({ params }) => {
-    sessions = sessions.filter((x) => x.id !== params.sid);
+    state.sessions = state.sessions.filter((x) => x.id !== params.sid);
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -144,18 +148,18 @@ export const handlers = [
     return notFound("path");
   }),
 
-  // ---- jobs / runs / params (M3) ----
+  // ---- state.jobs / state.runs / params (M3) ----
   http.get("/api/params/merge", () => HttpResponse.json(paramSpecs)),
   http.get("/api/jobs", ({ request }) => {
     const status = new URL(request.url).searchParams.get("status");
-    return HttpResponse.json(status ? jobs.filter((j) => status.split(",").includes(j.status)) : jobs);
+    return HttpResponse.json(status ? state.jobs.filter((j) => status.split(",").includes(j.status)) : state.jobs);
   }),
   http.get("/api/jobs/:jid", ({ params }) => {
-    const j = jobs.find((x) => x.id === params.jid);
+    const j = state.jobs.find((x) => x.id === params.jid);
     return j ? HttpResponse.json(j) : notFound("job");
   }),
   http.post("/api/jobs/:jid/cancel", ({ params }) => {
-    const j = jobs.find((x) => x.id === params.jid);
+    const j = state.jobs.find((x) => x.id === params.jid);
     if (!j) return notFound("job");
     j.status = "cancelled";
     return HttpResponse.json(j);
@@ -172,7 +176,7 @@ export const handlers = [
     return HttpResponse.json({ lines, next: after + lines.length, total: all.length });
   }),
   http.get("/api/regions/:rid/runs", ({ params }) =>
-    HttpResponse.json(runs.filter((r) => r.region_id === params.rid)),
+    HttpResponse.json(state.runs.filter((r) => r.region_id === params.rid)),
   ),
   http.post("/api/regions/:rid/runs", async ({ params, request }) => {
     const body = (await request.json()) as {
@@ -181,39 +185,39 @@ export const handlers = [
       session_ids: string[];
       params: Record<string, unknown>;
     };
-    if (runs.some((r) => r.region_id === params.rid && (r.status === "queued" || r.status === "running")))
+    if (state.runs.some((r) => r.region_id === params.rid && (r.status === "queued" || r.status === "running")))
       return HttpResponse.json({ detail: "region busy" }, { status: 409 });
-    counter += 1;
+    state.counter += 1;
     const created: Run = {
       ...structuredClone(run),
-      id: `run_new_${counter}`,
+      id: `run_new_${state.counter}`,
       region_id: String(params.rid),
       name: body.name ?? "",
       kind: body.kind,
       session_ids: body.session_ids,
       params: body.params,
       status: "queued",
-      job_id: `job_new_${counter}`,
+      job_id: `job_new_${state.counter}`,
       last_step_index: null,
     };
-    runs.push(created);
-    runSteps[created.id] = [];
+    state.runs.push(created);
+    state.runSteps[created.id] = [];
     return HttpResponse.json(created, { status: 201 });
   }),
   http.get("/api/regions/:rid/runs/:runId", ({ params }) => {
-    const r = runs.find((x) => x.id === params.runId);
+    const r = state.runs.find((x) => x.id === params.runId);
     if (!r) return notFound("run");
-    return HttpResponse.json({ run: r, steps: runSteps[r.id] ?? [], job: jobs.find((j) => j.id === r.job_id) ?? null });
+    return HttpResponse.json({ run: r, steps: state.runSteps[r.id] ?? [], job: state.jobs.find((j) => j.id === r.job_id) ?? null });
   }),
   http.post("/api/regions/:rid/runs/:runId/cancel", ({ params }) => {
-    const r = runs.find((x) => x.id === params.runId);
+    const r = state.runs.find((x) => x.id === params.runId);
     if (!r) return notFound("run");
     r.status = "cancelled";
     return HttpResponse.json(r);
   }),
   http.post("/api/regions/:rid/map/promote", async ({ params, request }) => {
     const body = (await request.json()) as { run_id: string; step_index: number };
-    const reg = regions.find((x) => x.id === params.rid);
+    const reg = state.regions.find((x) => x.id === params.rid);
     if (!reg) return notFound("region");
     reg.head = { run_id: body.run_id, step_index: body.step_index, session_ids: [], lineage: [body.run_id] };
     return HttpResponse.json(withCounts(reg));

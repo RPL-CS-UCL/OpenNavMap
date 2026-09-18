@@ -14,7 +14,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { t } from "@/i18n";
 
 export function SessionStatusBadge({ session }: { session: Session }) {
@@ -63,16 +62,9 @@ export function RegionDetailPage() {
                 {t("region.newSession")}
               </Link>
             </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button size="sm" disabled>
-                    {t("region.newRun")}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t("region.newRun.soon")}</TooltipContent>
-            </Tooltip>
+            <Button asChild size="sm">
+              <Link to={`/regions/${rid}/runs/new`}>{t("region.newRun")}</Link>
+            </Button>
             <Button size="sm" variant="ghost" aria-label={t("common.delete")} onClick={() => setConfirmRegion(true)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -141,7 +133,7 @@ export function RegionDetailPage() {
 
           <section>
             <h2 className="mb-2 text-sm font-semibold">{t("region.runs")}</h2>
-            <EmptyState title={t("region.runs.empty")} body={t("region.newRun.soon")} />
+            <EmptyState title={t("region.runs.empty")} />
           </section>
         </div>
 
