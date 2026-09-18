@@ -46,7 +46,10 @@ def test_append_requires_start_step(tmp_path: Path):
 # --- run_incremental_merge helpers (Task 12) -------------------------------
 
 import argparse  # noqa: E402
+import json  # noqa: E402
 import shutil  # noqa: E402
+
+import numpy as np  # noqa: E402
 
 SYNTHETIC = REPO / "python" / "visualization" / "example_data" / "synthetic_map"
 
@@ -116,3 +119,14 @@ def test_update_finalmap_link(pipeline, tmp_path: Path):
     pipeline.update_finalmap_link(tmp_path, tmp_path / "merge_000_a")
     pipeline.update_finalmap_link(tmp_path, tmp_path / "merge_001_b")
     assert (tmp_path / "merge_finalmap").resolve() == (tmp_path / "merge_001_b").resolve()
+
+
+def test_save_dmatrix_raw(pipeline, tmp_path: Path):
+    D = np.random.rand(3, 5).astype(np.float32)
+    pipeline.save_dmatrix_raw(tmp_path, D, [10, 11, 12], [100, 101, 102, 103, 104])
+    back = np.load(tmp_path / "D_matrix.npy")
+    assert back.dtype == np.float16 and back.shape == (3, 5)
+    assert np.allclose(back.astype(np.float32), D, atol=1e-3)
+    axes = json.loads((tmp_path / "D_matrix_axes.json").read_text())
+    assert axes == {"rows": "db", "row_node_ids": [10, 11, 12], "cols": "query",
+                    "col_node_ids": [100, 101, 102, 103, 104]}

@@ -6,6 +6,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 import pathlib
+import json
 import numpy as np
 import logging
 import gtsam
@@ -302,6 +303,13 @@ class MergePipeline:
 				cur_submap.map_id,
 				edge_history
 			)
+			if D_matrix is not None:
+				# Local ids of cur_submap are not offset yet (adjust_all_ids runs later).
+				save_dmatrix_raw(
+					self.log_dir / "preds", D_matrix,
+					[node.id for node in final_map.covis.nodes.values()],
+					[node.id + self.id_offset for node in cur_submap.covis.nodes.values()],
+				)
 			_record_stage_annotation(
 				self,
 				merge_step=self.runtime_merge_step,
@@ -1557,6 +1565,22 @@ def perform_keyframe_culling(
 			})
 
 	return nodes_query_to_cull + nodes_db_to_cull, nodes_to_cull_info, nodes_to_not_cull_info
+
+def save_dmatrix_raw(save_dir: pathlib.Path, D_matrix, row_node_ids: List[int], col_node_ids: List[int]) -> None:
+	"""Store the raw VPR distance matrix (one cell per db/query pair) for the console.
+
+	Rows are reference (db) nodes, columns are query nodes, both as global node ids.
+	"""
+	save_dir = pathlib.Path(save_dir)
+	save_dir.mkdir(parents=True, exist_ok=True)
+	D = np.asarray(to_numpy(D_matrix), dtype=np.float32)
+	if D.shape != (len(row_node_ids), len(col_node_ids)):
+		logging.warning(f"D_matrix shape {D.shape} != axes ({len(row_node_ids)}, {len(col_node_ids)})")
+	np.save(str(save_dir / "D_matrix.npy"), D.astype(np.float16))
+	with open(save_dir / "D_matrix_axes.json", "w") as f:
+		json.dump({"rows": "db", "row_node_ids": [int(x) for x in row_node_ids],
+				   "cols": "query", "col_node_ids": [int(x) for x in col_node_ids]}, f)
+
 
 def resolve_result_dir(args) -> pathlib.Path:
 	"""--result_dir wins; otherwise derive <output_root>/<scene>_results_<order>_<method><suffix>."""
