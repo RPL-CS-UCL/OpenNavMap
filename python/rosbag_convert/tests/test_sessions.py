@@ -38,3 +38,21 @@ def test_empty_session_raises():
     pos = np.zeros((5, 3))  # robot never moves: no distance to split on
     with pytest.raises(ValueError):
         split_by_distance(pos, 3)
+
+
+def test_build_sessions_assigns_contiguous_names():
+    from rosbag_convert.bag_reader import Trajectory
+    from rosbag_convert.config import BagConversionConfig
+    from rosbag_convert.convert_rosbag_to_multisession import build_sessions
+
+    n = 300
+    stamps = np.arange(n) * 0.0692
+    poses = np.tile(np.eye(4), (n, 1, 1))
+    poses[:, 0, 3] = np.arange(n) * 0.1  # 30 m straight line
+    cfg = BagConversionConfig(bag_path="x", output_root="y", kf_trans_thresh_m=1.0, num_sessions=3)
+    sessions = build_sessions(cfg, Trajectory(stamps, poses), Trajectory(stamps, poses),
+                              (stamps * 1e9).astype(np.int64))
+    assert len(sessions) == 3
+    assert [f.name for f in sessions[1]][:2] == ["seq/000000.color.jpg", "seq/000001.color.jpg"]
+    assert all(len(s) >= 3 for s in sessions)
+    assert sessions[0][-1].stamp_ns < sessions[1][0].stamp_ns
