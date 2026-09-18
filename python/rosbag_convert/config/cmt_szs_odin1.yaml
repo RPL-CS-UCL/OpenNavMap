@@ -1,0 +1,26 @@
+# Odin1 recording on the Go2 robot (cmt_szs). Camera pose comes from the
+# odom->camera_0 TF; the static extrinsic below is only the fallback.
+bag_path: /Titan/dataset/data_opennavmap/raw_vps_data/cmt_szs/go2-record-20260917.bag
+output_root: /Titan/dataset/data_opennavmap/map_multisession_eval/cmt_szs
+scene: s00000
+sensor_tag: odin
+
+image_topic: /odin1/image/undistorted
+camera_info_topic: /odin1/camera_info
+odometry_topic: /odin1/odometry
+tf_topic: /tf
+odom_frame: odom
+body_frame: imu
+camera_frame: camera_0
+camera_pose_source: tf
+# Mean imu->camera_0 measured from /tf over the whole bag (fallback only)
+T_body_camera_translation: [-0.01188, 0.06451, 0.02173]
+T_body_camera_quat_xyzw: [-0.497092, 0.501607, -0.497531, 0.503740]
+
+sync_tolerance_s: 0.02
+kf_trans_thresh_m: 3.9
+kf_rot_thresh_deg: 60.0
+num_sessions: 3
+split_mode: equal_distance
+anchor_to_first_body: true
+jpeg_quality: 95
