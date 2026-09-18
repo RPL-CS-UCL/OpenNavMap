@@ -7,6 +7,7 @@
 #
 # Environment overrides:
 #   DATASET_ROOT, OUTPUT_ROOT, DATA_DIR, TRAJ_EVAL_ROOT, EVAL_CONFIG
+#   IMAGE_SIZE ("W H", default "512 288")
 #   PGO_ROBUST
 #   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING
 #   MERGE_EXTRA_LD_PRELOAD to prepend libraries to the pinned LD_PRELOAD
@@ -23,6 +24,9 @@ OUTPUT_ROOT=${OUTPUT_ROOT:-$DATASET_ROOT}
 TRAJ_EVAL_ROOT=${TRAJ_EVAL_ROOT:-/Titan/dataset/data_opennavmap/traj_eval_data/test_eval_data}
 DATA_DIR=${DATA_DIR:-}
 EVAL_CONFIG=${EVAL_CONFIG:-OpenNavMap_map_merge.yaml}
+# Image size (W H) fed to VPR / MASt3R; keep 512 288 for 16:9 sensors,
+# use e.g. "512 416" for 4:3-ish sensors so the frame is not squashed
+IMAGE_SIZE=${IMAGE_SIZE:-512 288}
 PYTHON_OPENNAVMAP=${PYTHON_OPENNAVMAP:-/root/miniconda3/envs/opennavmap/bin/python}
 EVAL_PYTHON=${EVAL_PYTHON:-/root/miniconda3/envs/traj_evaluation/bin/python}
 
@@ -121,7 +125,7 @@ PIPELINE_ARGS=(
     --order_index "$ORDER"
     --method "$METHOD"
     --pose_estimation_method "$POSE_EST"
-    --image_size 512 288
+    --image_size ${IMAGE_SIZE}
     --vpr_match_model vpr_dp
     --vpr_match_seq_len 10
     --pgo_robust "$PGO_ROBUST"

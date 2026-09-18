@@ -36,6 +36,8 @@ def parse_arguments():
     parser.add_argument('--output', type=str, default=None, help='Output directory for processed map')
     parser.add_argument('--n_kpts', type=int, default=2048, help='Number of keypoints to extract')
     parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'], help='Device for processing')
+    parser.add_argument('--image_size', type=int, nargs=2, default=[512, 288], metavar=('W', 'H'),
+                        help='Resize images to W H before matching')
     return parser.parse_args()
 
 def process_map(args):   
@@ -44,7 +46,7 @@ def process_map(args):
         'odom': {},
         'trav': {},
         'covis': {
-            'resize': [512, 288],
+            'resize': args.image_size,
             'depth_scale': 0.0,
             'load_rgb': True,
             'load_depth': False,
