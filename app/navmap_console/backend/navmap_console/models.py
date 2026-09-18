@@ -1,6 +1,6 @@
 """Pydantic models shared by routers and services (API schema = disk schema)."""
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 from typing_extensions import Literal
@@ -86,3 +86,96 @@ class Session(BaseModel):
 class RegisterSessionRequest(BaseModel):
     path: str
     name: Optional[str] = None
+
+
+# --- jobs and runs (spec §5.3 / §5.4) --------------------------------------
+
+JobKind = Literal["merge", "append", "consolidate", "official_eval", "import_results", "export", "export_verify"]
+JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "orphaned"]
+QueueName = Literal["gpu", "cpu"]
+
+
+class JobProgress(BaseModel):
+    step: Optional[int] = None          # global step index currently being merged
+    total: Optional[int] = None         # steps this job will produce
+    stage_index: Optional[int] = None   # 1..8, see jobs/progress.py STAGE_NAMES
+    stage: Optional[str] = None
+    completed_steps: int = 0
+    detail: str = ""
+
+
+class Job(BaseModel):
+    id: str
+    kind: JobKind
+    queue: QueueName
+    status: JobStatus = "queued"
+    region_id: Optional[str] = None
+    run_id: Optional[str] = None
+    argv: List[str]
+    cwd: str
+    env: Dict[str, str] = Field(default_factory=dict)  # overrides applied on top of os.environ
+    cpu_list: Optional[str] = None
+    log_path: str
+    pid: Optional[int] = None
+    process_create_time: Optional[float] = None
+    created_at: str = Field(default_factory=now_iso)
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    returncode: Optional[int] = None
+    crash_kind: Optional[str] = None
+    error: Optional[str] = None
+    progress: JobProgress = Field(default_factory=JobProgress)
+
+
+class StepRecord(BaseModel):
+    index: int
+    session_id: str
+    dir_name: str = ""
+    status: Literal["running", "done", "failed"] = "running"
+    id_offset: Optional[int] = None
+    odom_nodes: Optional[int] = None
+    covis_nodes: Optional[int] = None
+    components: Optional[int] = None
+    registry_edges: Optional[int] = None
+    pgo_error_initial: Optional[float] = None
+    pgo_error_final: Optional[float] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
+class RunParent(BaseModel):
+    run_id: str
+    step_index: int
+
+
+RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "orphaned"]
+
+
+class Run(BaseModel):
+    id: str
+    region_id: str
+    name: str
+    kind: Literal["merge", "append", "imported"] = "merge"
+    parent: Optional[RunParent] = None
+    start_step: int = 0
+    session_ids: List[str] = Field(default_factory=list)
+    params: Dict[str, Any] = Field(default_factory=dict)
+    meta: Dict[str, Any] = Field(default_factory=dict)  # free-form: order preset, seed, notes
+    status: RunStatus = "queued"
+    job_id: Optional[str] = None
+    git_commit: Optional[str] = None
+    num_steps_expected: int = 0
+    last_step_index: Optional[int] = None
+    final_dir: Optional[str] = None
+    final_error: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    finished_at: Optional[str] = None
+
+
+class RunCreate(BaseModel):
+    name: Optional[str] = None
+    kind: Literal["merge", "append"] = "merge"
+    parent: Optional[RunParent] = None
+    session_ids: List[str] = Field(min_length=1)
+    params: Dict[str, Any] = Field(default_factory=dict)
+    meta: Dict[str, Any] = Field(default_factory=dict)

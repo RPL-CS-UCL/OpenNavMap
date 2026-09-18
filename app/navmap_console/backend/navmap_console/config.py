@@ -19,6 +19,7 @@ class Settings:
     allowed_roots: List[Path]
     cpu_list: Optional[str]
     cuda_visible_devices: Optional[str]
+    fake_pipeline: bool = False
 
     @property
     def frontend_dist(self) -> Path:
@@ -53,4 +54,5 @@ def load_settings(env: Optional[Mapping[str, str]] = None) -> Settings:
         allowed_roots=roots,
         cpu_list=cpu_list,
         cuda_visible_devices=e.get("CUDA_VISIBLE_DEVICES"),
+        fake_pipeline=e.get("NAVMAP_CONSOLE_FAKE_PIPELINE", "").lower() in ("1", "true", "yes"),
     )
