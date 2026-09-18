@@ -7,8 +7,15 @@ Usable as a library (navmap_console backend) and as a CLI:
     python python/map_merge_pack.py consolidate <step_dir> <out_dir> --images <dir> [--images <dir> ...]
     python python/map_merge_pack.py recover-registry <registry_txt> <g2o_path> <out_txt>
 """
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -77,3 +84,150 @@ def write_loop_registry(path: Path, registry: Registry) -> None:
 			f"{float(rec['last_weight']):.6f}," + ",".join(f"{v:.9f}" for v in (*t, *q))
 		)
 	path.write_text("\n".join(lines) + "\n")
+
+
+def _frame_id(name: str) -> Optional[int]:
+	stem = Path(name).name
+	if not stem.endswith(".color.jpg"):
+		return None
+	digits = stem[: -len(".color.jpg")]
+	return int(digits) if digits.isdigit() else None
+
+
+def build_image_index(source_dirs: Sequence[Path]) -> Dict[int, Path]:
+	"""node id -> image path; later directories override earlier ones."""
+	index: Dict[int, Path] = {}
+	for d in source_dirs:
+		seq = Path(d) / "seq"
+		if not seq.is_dir():
+			continue
+		for img in seq.glob("*.color.jpg"):
+			nid = _frame_id(img.name)
+			if nid is not None:
+				index[nid] = img
+	return index
+
+
+def recover_registry_from_g2o(registry: Registry, g2o_path: Path) -> Registry:
+	"""Fill T_AB for legacy registry rows from the EDGE_SE3:QUAT lines of the same step's g2o."""
+	edges: Dict[Tuple[int, int], np.ndarray] = {}
+	with open(g2o_path) as f:
+		for line in f:
+			parts = line.split()
+			if len(parts) >= 10 and parts[0] == "EDGE_SE3:QUAT":
+				a, b = int(parts[1]), int(parts[2])
+				vals = [float(x) for x in parts[3:10]]
+				edges[(a, b)] = vec_to_pose(vals[:3], vals[3:])
+	out: Registry = {}
+	missing: List[Tuple[int, int]] = []
+	for key, rec in registry.items():
+		new_rec = dict(rec)
+		if new_rec.get("T_AB") is None:
+			if key in edges:
+				new_rec["T_AB"] = edges[key]
+			else:
+				missing.append(key)
+		out[key] = new_rec
+	if missing:
+		raise ValueError(f"{g2o_path}: no EDGE_SE3:QUAT for registry keys {missing[:10]}"
+						 + (f" (+{len(missing) - 10} more)" if len(missing) > 10 else ""))
+	return out
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
+	"""Hard link (zero extra space); fall back to a copy across filesystems."""
+	if dst.exists():
+		dst.unlink()
+	try:
+		os.link(str(src), str(dst))
+	except OSError:
+		shutil.copy2(str(src), str(dst))
+
+
+def _keys_of(path: Path) -> List[str]:
+	with open(path) as f:
+		return [line.split()[0] for line in f if line.strip()]
+
+
+def consolidate_map(step_dir: Path, image_source_dirs: Sequence[Path], out_dir: Path,
+					meta: Optional[Dict[str, object]] = None) -> Dict[str, object]:
+	"""Turn one merge_* step directory into a self-contained, reloadable map.
+
+	Copies the map text files (not preds/ or submap_disc_*), gathers every covis
+	node's image from the lineage directories and writes a 13-column loop registry.
+	"""
+	step_dir, out_dir = Path(step_dir), Path(out_dir)
+	pose_keys = _keys_of(step_dir / "poses.txt")
+	bad = [f"line {i}: {k}" for i, k in enumerate(pose_keys) if k != f"seq/{i:06d}.color.jpg"]
+	if bad:
+		raise ValueError(f"{step_dir}/poses.txt frame names are not consecutive: " + "; ".join(bad[:5]))
+
+	index = build_image_index(image_source_dirs)
+	covis_keys = _keys_of(step_dir / "intrinsics.txt")
+	missing = [k for k in covis_keys if _frame_id(k) not in index]
+	if missing:
+		raise FileNotFoundError(f"no image found for {len(missing)} covis node(s): "
+								+ ", ".join(str(_frame_id(k)) for k in missing[:10]))
+
+	(out_dir / "seq").mkdir(parents=True, exist_ok=True)
+	(out_dir / "preds").mkdir(parents=True, exist_ok=True)
+	for name in MAP_FILES + OPTIONAL_MAP_FILES:
+		src = step_dir / name
+		if src.is_file():
+			shutil.copy2(str(src), str(out_dir / name))
+	for k in covis_keys:
+		_link_or_copy(index[_frame_id(k)], out_dir / k)
+
+	registry_src = step_dir / "preds" / "loop_registry.txt"
+	registry: Registry = read_loop_registry(registry_src) if registry_src.is_file() else {}
+	if any(rec.get("T_AB") is None for rec in registry.values()):
+		registry = recover_registry_from_g2o(registry, step_dir / "preds" / "initial_pose_graph.g2o")
+	write_loop_registry(out_dir / "preds" / "loop_registry.txt", registry)
+
+	result: Dict[str, object] = {
+		"source_step_dir": str(step_dir),
+		"num_nodes": len(pose_keys),
+		"num_covis_nodes": len(covis_keys),
+		"num_images": len(covis_keys),
+		"registry_edges": len(registry),
+		"created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+	}
+	result.update(meta or {})
+	with open(out_dir / "merge_meta.json", "w") as f:
+		json.dump(result, f, indent=2, sort_keys=True)
+	return result
+
+
+def git_commit_of(repo: Path) -> Optional[str]:
+	try:
+		return subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+							  check=True, capture_output=True, text=True).stdout.strip()
+	except (OSError, subprocess.CalledProcessError):
+		return None
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+	parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+	sub = parser.add_subparsers(dest="cmd", required=True)
+	c = sub.add_parser("consolidate", help="make a merge_* step self-contained (images hard-linked)")
+	c.add_argument("step_dir", type=Path)
+	c.add_argument("out_dir", type=Path)
+	c.add_argument("--images", type=Path, action="append", default=[],
+				   help="directories holding seq/*.color.jpg, in lineage order (later wins); step_dir is always last")
+	r = sub.add_parser("recover-registry", help="add T_AB columns to a legacy 6-column loop_registry.txt")
+	r.add_argument("registry_txt", type=Path)
+	r.add_argument("g2o_path", type=Path)
+	r.add_argument("out_txt", type=Path)
+	args = parser.parse_args(argv)
+	if args.cmd == "consolidate":
+		meta = consolidate_map(args.step_dir, list(args.images) + [args.step_dir], args.out_dir)
+		print(json.dumps(meta, indent=2))
+	elif args.cmd == "recover-registry":
+		fixed = recover_registry_from_g2o(read_loop_registry(args.registry_txt), args.g2o_path)
+		write_loop_registry(args.out_txt, fixed)
+		print(f"wrote {len(fixed)} edges to {args.out_txt}")
+	return 0
+
+
+if __name__ == "__main__":
+	sys.exit(main())
