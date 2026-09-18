@@ -5,6 +5,8 @@ import { Link, useMatches } from "react-router-dom";
 import type { CrumbHandle } from "@/app/router";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n";
+import { cn } from "@/lib/utils";
+import { useSocketStatus } from "@/ws/use-socket";
 
 function hasCrumb(handle: unknown): handle is CrumbHandle {
   return typeof handle === "object" && handle !== null && "crumb" in handle;
@@ -14,6 +16,9 @@ export function TopBar() {
   const matches = useMatches();
   const crumbs = matches.filter((m) => hasCrumb(m.handle));
   const { resolvedTheme, setTheme } = useTheme();
+  const status = useSocketStatus();
+  const dot = status === "open" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-500" : "bg-muted-foreground/50";
+  const label = status === "open" ? t("ws.connected") : status === "connecting" ? t("ws.connecting") : t("ws.disconnected");
 
   return (
     <header className="flex items-center justify-between border-b px-3">
@@ -36,11 +41,7 @@ export function TopBar() {
         })}
       </nav>
       <div className="flex items-center gap-2">
-        <span
-          className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50"
-          title={t("ws.disconnected")}
-          aria-label={t("ws.disconnected")}
-        />
+        <span className={cn("inline-block h-2 w-2 rounded-full", dot)} title={label} aria-label={label} />
         <Button
           variant="ghost"
           size="icon"

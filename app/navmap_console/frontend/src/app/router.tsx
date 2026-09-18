@@ -4,12 +4,14 @@ import { AppShell } from "@/components/layout/AppShell";
 import { EmptyState } from "@/components/common/EmptyState";
 import { RouteError } from "@/components/common/RouteError";
 import { RegionCrumb, SessionCrumb } from "@/components/layout/crumbs";
+import { JobDetailPage } from "@/features/jobs/JobDetailPage";
+import { JobsPage } from "@/features/jobs/JobsPage";
 import { RegionDetailPage } from "@/features/regions/RegionDetailPage";
 import { RegionsPage } from "@/features/regions/RegionsPage";
 import { NewSessionPage } from "@/features/sessions/NewSessionPage";
 import { SessionDetailPage } from "@/features/sessions/SessionDetailPage";
 import { t } from "@/i18n";
-import { Inbox, ListChecks, Settings } from "lucide-react";
+import { Inbox, Settings } from "lucide-react";
 
 export type RouteParams = Record<string, string | undefined>;
 export interface CrumbHandle {
@@ -54,7 +56,10 @@ export const router = createBrowserRouter([
       {
         path: "jobs",
         handle: crumb(() => t("nav.jobs")),
-        element: <EmptyState icon={ListChecks} title={t("nav.jobs")} body={t("jobs.placeholder")} />,
+        children: [
+          { index: true, element: <JobsPage />, errorElement: <RouteError /> },
+          { path: ":jid", element: <JobDetailPage />, errorElement: <RouteError />, handle: crumb((p) => p.jid ?? "") },
+        ],
       },
       {
         path: "settings",
