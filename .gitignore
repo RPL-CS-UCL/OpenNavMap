@@ -44,3 +44,12 @@ third_party/ColabSfM/
 python/benchmark_mms/docs/2026-06-17-plot-figure.md
 
 docs/todo*
+# navmap_console web app: re-include (the broad *vis* / log* / output* patterns above would swallow it),
+# then ignore its build/runtime products
+!app/navmap_console/
+!app/navmap_console/**
+app/navmap_console/frontend/node_modules/
+app/navmap_console/frontend/dist/
+app/navmap_console/**/__pycache__/
+app/navmap_console/**/.pytest_cache/
+app/navmap_console/**/.env
