@@ -12,6 +12,8 @@
 #   PGO_LOOP_SIGMA_TRANS, PGO_LOOP_SIGMA_ROT, PGO_LOOP_CONF_SCALING
 #   MERGE_EXTRA_LD_PRELOAD to prepend libraries to the pinned LD_PRELOAD
 #   MERGE_CPU_LIST to override CPU pinning (empty = no pinning)
+#   CONSOLIDATE_LITEVLOC_MAP (1=replace merge_finalmap with a LiteVLoc-ready directory, default=1)
+#   LITEVLOC_MAP_DIR (delivery directory, default "${RESULT_DIR}/merge_finalmap")
 #   RERUN_VIZ=1 to enable Rerun visualization recording
 #   RERUN_OUTPUT, RERUN_IMAGE_FORMAT, RERUN_JPEG_QUALITY,
 #   RERUN_DMATRIX_FORMAT, RERUN_AXIS_SCALE, RERUN_VIZ_DIR
@@ -168,12 +170,21 @@ echo "CPU affinity: ${MERGE_CPU_LIST:-<all>}"
 ${RUN_PREFIX[@]+"${RUN_PREFIX[@]}"} \
     "$PYTHON_OPENNAVMAP" "${PROJECT_PATH}/python/map_merge_pipeline.py" "${PIPELINE_ARGS[@]}"
 
+# The pipeline leaves merge_finalmap as a symlink so each merge step is
+# recoverable.  Resolve it now: once the delivery map below replaces the link,
+# trajectory conversion must still read the original step's component files.
+FINALMAP_STEP="$(readlink -f "$FINALMAP")"
+if [[ ! -d "$FINALMAP_STEP" ]]; then
+    echo "merge pipeline did not produce a readable final step: $FINALMAP" >&2
+    exit 1
+fi
+
 echo ""
 echo "=== Step 2: Convert MapFree poses to TUM ==="
 CONVERT_SCRIPT="${PROJECT_PATH}/third_party/litevloc_code/python/utils/utils_convert_pose_format.py"
-GT_SRC="${FINALMAP}/submap_disc_0/poses_abs_gt.txt"
-EST_SRC="${FINALMAP}/submap_disc_0/poses.txt"
-TS_SRC="${FINALMAP}/submap_disc_0/timestamps.txt"
+GT_SRC="${FINALMAP_STEP}/submap_disc_0/poses_abs_gt.txt"
+EST_SRC="${FINALMAP_STEP}/submap_disc_0/poses.txt"
+TS_SRC="${FINALMAP_STEP}/submap_disc_0/timestamps.txt"
 GT_DST="${TRAJ_EVAL_ROOT}/groundtruth/traj/${TUM_NAME}.txt"
 EST_DST="${TRAJ_EVAL_ROOT}/algorithms/${TRAJ_NAME}/laptop/traj/${TUM_NAME}.txt"
 
@@ -195,7 +206,49 @@ echo "TUM GT : $GT_DST"
 echo "TUM EST: $EST_DST"
 
 echo ""
-echo "=== Step 3: Trajectory evaluation ==="
+echo "=== Step 3: Deliver LiteVLoc-ready final map ==="
+CONSOLIDATE_LITEVLOC_MAP=${CONSOLIDATE_LITEVLOC_MAP:-1}
+LITEVLOC_MAP_DIR=${LITEVLOC_MAP_DIR:-$FINALMAP}
+if [[ "$CONSOLIDATE_LITEVLOC_MAP" == "1" ]]; then
+    if [[ -e "$LITEVLOC_MAP_DIR" || -L "$LITEVLOC_MAP_DIR" ]]; then
+        if [[ "$LITEVLOC_MAP_DIR" != "$FINALMAP" || ! -L "$FINALMAP" ]]; then
+            echo "refusing to replace existing LiteVLoc map path: $LITEVLOC_MAP_DIR" >&2
+            exit 1
+        fi
+    fi
+
+    LITEVLOC_MAP_TMP="${LITEVLOC_MAP_DIR}.tmp.$$"
+    if [[ -e "$LITEVLOC_MAP_TMP" || -L "$LITEVLOC_MAP_TMP" ]]; then
+        echo "temporary LiteVLoc map path already exists: $LITEVLOC_MAP_TMP" >&2
+        exit 1
+    fi
+
+    IMAGE_SOURCE_ARGS=()
+    FINAL_STEP_NAME="$(basename "$FINALMAP_STEP")"
+    while IFS= read -r -d '' step_dir; do
+        step_name="$(basename "$step_dir")"
+        if [[ "$FINAL_STEP_NAME" == "$step_name" || "$FINAL_STEP_NAME" == "${step_name}_"* ]]; then
+            IMAGE_SOURCE_ARGS+=(--images "$step_dir")
+        fi
+    done < <(find "$RESULT_DIR" -mindepth 1 -maxdepth 1 -type d -name 'merge_*' -print0 | sort -z)
+
+    "$PYTHON_OPENNAVMAP" "${PROJECT_PATH}/python/map_merge_pack.py" consolidate \
+        "$FINALMAP_STEP" "$LITEVLOC_MAP_TMP" "${IMAGE_SOURCE_ARGS[@]}"
+
+    # Only the pipeline-created symlink is removed; its target (the final merge
+    # step) and every intermediate merge_* directory remain intact.
+    rm -- "$FINALMAP"
+    mv "$LITEVLOC_MAP_TMP" "$LITEVLOC_MAP_DIR"
+    echo "LiteVLoc map: $LITEVLOC_MAP_DIR"
+elif [[ "$CONSOLIDATE_LITEVLOC_MAP" != "0" ]]; then
+    echo "CONSOLIDATE_LITEVLOC_MAP must be 0 or 1, got: $CONSOLIDATE_LITEVLOC_MAP" >&2
+    exit 2
+else
+    echo "LiteVLoc map consolidation disabled; retaining merge_finalmap symlink"
+fi
+
+echo ""
+echo "=== Step 4: Trajectory evaluation ==="
 TRAJ_PATH="$TRAJ_EVAL_ROOT" \
 EVAL_PROJ="${PROJECT_PATH}/third_party/slam_trajectory_evaluation" \
 PYTHON="$EVAL_PYTHON" \

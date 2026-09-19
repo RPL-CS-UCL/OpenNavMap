@@ -69,11 +69,7 @@ if [[ "$SKIP_MERGE" -eq 0 ]]; then
         bash "${PROJECT_PATH}/scripts/run_map_merging.sh" "$SCENE" 0 "$METHOD" master 1 1 1
 
     FINALMAP="${OUTPUT_ROOT}/${SCENE}_results_in_${METHOD}_iqaigtd/merge_finalmap"
-    N_DISC=$(ls -d "${FINALMAP}"/submap_disc_* | wc -l)
-    N_NODES=$(cat "${FINALMAP}"/submap_disc_*/poses.txt | wc -l)
-    echo "final map: ${N_NODES} nodes, ${N_DISC} connected component(s)"
-    if [[ "$N_DISC" -ne 1 ]]; then
-        echo "WARNING: sessions did not all connect (${N_DISC} components); ATE below covers only submap_disc_0" >&2
-    fi
+    N_NODES=$(wc -l < "${FINALMAP}/poses.txt")
+    echo "final LiteVLoc map: ${N_NODES} nodes"
     echo "report: ${TRAJ_EVAL_ROOT}/report"
 fi
