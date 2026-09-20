@@ -101,7 +101,7 @@ describe("Inspector", () => {
 
 describe("PanelDock", () => {
   it("renders six tab triggers with the VPR matrix panel active", async () => {
-    qcWrap(<PanelDock rid="reg_1" runId="run_20260918_120000_cd34" step={1} scene={scene} />);
+    qcWrap(<PanelDock rid="reg_1" runId="run_20260918_120000_cd34" step={1} scene={scene} summaries={summaries} logLines={[]} hasJob={false} />);
     for (const key of ["viewer.dock.vpr", "viewer.dock.loops", "viewer.dock.pgo", "viewer.dock.culling", "viewer.dock.charts", "viewer.dock.console"] as const) {
       expect(screen.getByRole("tab", { name: t(key) })).toBeInTheDocument();
     }

@@ -116,7 +116,7 @@ export function RunDetailPage() {
           <LogConsole lines={lines} title={job?.id} className="h-[60vh]" />
         </TabsContent>
         <TabsContent value="viz" className="min-h-0 flex-1">
-          <RunViewer rid={rid} runId={runId} />
+          <RunViewer rid={rid} runId={runId} logLines={lines} hasJob={!!job} />
         </TabsContent>
       </Tabs>
       <ConfirmDialog

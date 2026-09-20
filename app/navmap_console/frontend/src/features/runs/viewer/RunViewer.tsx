@@ -13,7 +13,9 @@ import { StepSlider } from "./StepSlider";
 import { useStepUrl } from "./use-step-url";
 import { useViewerHotkeys } from "./use-viewer-hotkeys";
 
-export function RunViewer({ rid, runId }: { rid: string; runId: string }) {
+export function RunViewer({ rid, runId, logLines = [], hasJob = true }: {
+  rid: string; runId: string; logLines?: string[]; hasJob?: boolean;
+}) {
   const qc = useQueryClient();
   const step = useSceneStore((s) => s.step);
   const summaries = useStepSummaries(rid, runId);
@@ -62,7 +64,15 @@ export function RunViewer({ rid, runId }: { rid: string; runId: string }) {
           <Inspector rid={rid} runId={runId} scene={scene.data ?? null} />
         </ResizablePanel>
       </ResizablePanelGroup>
-      <PanelDock rid={rid} runId={runId} step={step ?? 0} scene={scene.data ?? null} />
+      <PanelDock
+        rid={rid}
+        runId={runId}
+        step={step ?? 0}
+        scene={scene.data ?? null}
+        summaries={summaries.data}
+        logLines={logLines}
+        hasJob={hasJob}
+      />
     </div>
   );
 }
