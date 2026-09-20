@@ -55,6 +55,12 @@ export function apiUpload<T>(path: string, form: FormData, schema?: ZodType<T>):
   return fetch(absolute(path), { method: "POST", body: form }).then((r) => parse(r, schema));
 }
 
+export async function apiGetBinary(path: string): Promise<ArrayBuffer> {
+  const res = await fetch(absolute(path));
+  if (!res.ok) throw new ApiError(res.status, res.statusText || `HTTP ${res.status}`);
+  return res.arrayBuffer();
+}
+
 export function errorDetail(err: unknown): string {
   if (err instanceof ApiError) return err.detail;
   if (err instanceof Error) return err.message;

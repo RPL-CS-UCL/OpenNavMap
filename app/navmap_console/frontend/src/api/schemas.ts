@@ -167,3 +167,87 @@ export const paramSpecSchema = z.object({
   advanced: z.boolean(),
 });
 export const logChunkSchema = z.object({ lines: z.array(z.string()), next: z.number(), total: z.number() });
+export const loopStatsSchema = z.object({
+  total: z.number(), new: z.number(), hist: z.number(), accepted: z.number(),
+  rejected_new: z.number(), overturned_hist: z.number(),
+});
+export const stepSummarySchema = z.object({
+  index: z.number(),
+  dir_name: z.string(),
+  session_id: z.string(),
+  status: z.string(),
+  id_offset: z.number(),
+  num_nodes: z.number(),
+  num_covis_nodes: z.number(),
+  num_new: z.number(),
+  num_culled: z.number(),
+  component_sizes: z.array(z.number()),
+  edge_counts: z.record(z.string(), z.number()),
+  history: z.record(z.string(), z.number()),
+  precision: z.array(z.number()),
+  recall: z.array(z.number()),
+  loops: loopStatsSchema,
+  pgo_error_initial: z.number().nullable(),
+  pgo_error_final: z.number().nullable(),
+  max_displacement: z.number(),
+  num_moved: z.number(),
+  duration_s: z.number().nullable(),
+  has_dmatrix: z.boolean(),
+  has_pre_pgo: z.boolean(),
+});
+export const summariesSchema = z.object({ steps: z.array(stepSummarySchema) });
+export const dmatrixCandidateSchema = z.object({ db: z.number(), query: z.number(), stage: z.string(), gv_inliers: z.number() });
+export const dmatrixFactorSchema = z.object({
+  db: z.number(), query: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),
+});
+export const dmatrixSchema = z.object({
+  rows: z.string(),
+  cols: z.string(),
+  row_node_ids: z.array(z.number()),
+  col_node_ids: z.array(z.number()),
+  vmin: z.number(),
+  vmax: z.number(),
+  candidates: z.array(dmatrixCandidateSchema),
+  factors: z.array(dmatrixFactorSchema),
+});
+export const cullRowSchema = z.object({
+  node_id: z.number(),
+  kind: z.string(),
+  other: z.number().nullable(),
+  prob: z.number().nullable(),
+  method: z.string(),
+  detail: z.string(),
+  image_url: z.string(),
+  other_image_url: z.string().nullable(),
+  vis_url: z.string().nullable(),
+});
+export const cullingSchema = z.object({ culled: z.array(cullRowSchema), kept: z.array(cullRowSchema) });
+export const nodeLoopSchema = z.object({
+  other: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),
+});
+export const nodeDetailSchema = z.object({
+  node_id: z.number(),
+  step: z.number(),
+  session_id: z.string(),
+  frame: z.string(),
+  timestamp: z.number().nullable(),
+  pos: z.array(z.number()),
+  quat: z.array(z.number()),
+  pos_pre: z.array(z.number()),
+  gt: z.array(z.number()).nullable(),
+  degree: z.object({ odom: z.number(), covis: z.number(), trav: z.number() }),
+  flags: z.number(),
+  image_url: z.string(),
+  cull: z.object({ other: z.number().nullable(), prob: z.number().nullable(), method: z.string(), detail: z.string() }).nullable(),
+  loops: z.array(nodeLoopSchema),
+});
+export const runEventSchema = z.object({
+  demo_step: z.number().nullable().optional(),
+  merge_step: z.number(),
+  stage: z.string().nullable().optional(),
+  event_type: z.string(),
+  submap_id: z.union([z.number(), z.string()]).nullable().optional(),
+  keyframe_id: z.union([z.number(), z.string()]).nullable().optional(),
+  payload: z.record(z.string(), z.unknown()),
+  artifacts: z.record(z.string(), z.unknown()).optional(),
+});

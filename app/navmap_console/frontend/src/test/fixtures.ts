@@ -1,4 +1,4 @@
-import type { Job, ParamSpec, Region, Run, Session, StepRecord, ValidationReport } from "@/api/types";
+import type { Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport } from "@/api/types";
 
 export const region: Region = {
   id: "reg_1",
@@ -209,3 +209,28 @@ export const paramSpecs: ParamSpec[] = [
     advanced: true,
   },
 ];
+
+export const summaries: StepSummary[] = [0, 1].map((k) => ({
+  index: k,
+  dir_name: k === 0 ? "merge_000_a" : "merge_001_b",
+  session_id: k === 0 ? "ses_1" : "ses_2",
+  status: "done",
+  id_offset: k * 12,
+  num_nodes: 12 * (k + 1),
+  num_covis_nodes: 12 * (k + 1),
+  num_new: 12,
+  num_culled: k,
+  component_sizes: [12 * (k + 1)],
+  edge_counts: { odom: 11 + 12 * k, covis: 30 * (k + 1), trav: 11 * (k + 1) },
+  history: k === 0 ? ({} as Record<string, number>) : { vpr: 6, gv: 2, ccm: 1, pgo: 2, low: 0, retained: 1 },
+  precision: k === 0 ? [] : [0.5, 0.5, 1],
+  recall: k === 0 ? [] : [0.4, 0.4, 0.2],
+  loops: { total: 3 * k, new: 3 * k, hist: 0, accepted: k, rejected_new: 2 * k, overturned_hist: 0 },
+  pgo_error_initial: k === 0 ? null : 2,
+  pgo_error_final: k === 0 ? null : 0.7,
+  max_displacement: 0.02 * k,
+  num_moved: 0,
+  duration_s: 3,
+  has_dmatrix: k > 0,
+  has_pre_pgo: true,
+}));

@@ -1,6 +1,7 @@
 import { HttpResponse, http } from "msw";
-import type { Job, Region, Run, Session, StepRecord } from "@/api/types";
-import { job, paramSpecs, region, run, session, sessionInvalid, steps } from "./fixtures";
+import type { Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
+import { job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
+import { makeSceneFixture } from "./scene-fixture";
 
 // In-memory state shared by all handlers; call resetState() between tests.
 // Exported as one object so tests can tweak fixtures in place (e.g. state.runs[0].status = ...).
@@ -10,9 +11,10 @@ interface HandlerState {
   jobs: Job[];
   runs: Run[];
   runSteps: Record<string, StepRecord[]>;
+  summaries: StepSummary[];
   counter: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, counter: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -20,6 +22,7 @@ export function resetState(): void {
   state.jobs = [structuredClone(job)];
   state.runs = [structuredClone(run)];
   state.runSteps = { [run.id]: structuredClone(steps) };
+  state.summaries = structuredClone(summaries);
   state.counter = 0;
 }
 resetState();
@@ -221,5 +224,58 @@ export const handlers = [
     if (!reg) return notFound("region");
     reg.head = { run_id: body.run_id, step_index: body.step_index, session_ids: [], lineage: [body.run_id] };
     return HttpResponse.json(withCounts(reg));
+  }),
+  // ---- results (M4) ----
+  http.get("/api/regions/:rid/runs/:runId/summaries", () => HttpResponse.json({ steps: state.summaries })),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/scene.bin", ({ params }) => {
+    const k = Number(params.k);
+    if (!state.summaries.some((s) => s.index === k)) return notFound("step");
+    return HttpResponse.arrayBuffer(makeSceneFixture(12 * (k + 1), 3 * k), {
+      headers: { "Content-Type": "application/octet-stream" },
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/dmatrix.json", ({ params }) => {
+    if (Number(params.k) === 0) return notFound("dmatrix");
+    return HttpResponse.json({
+      rows: "db", cols: "query", row_node_ids: [...Array(12).keys()], col_node_ids: [...Array(12).keys()].map((i) => i + 12),
+      vmin: 0.1, vmax: 0.9,
+      candidates: [{ db: 0, query: 12, stage: "gv", gv_inliers: 40 }, { db: 1, query: 13, stage: "vpr", gv_inliers: 0 }],
+      factors: [{ db: 0, query: 12, weight: 0.9, conf: 0.8, accepted: true, origin: "new" },
+                { db: 1, query: 13, weight: 0.1, conf: 0.4, accepted: false, origin: "new" }],
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/culling.json", ({ params }) => {
+    const b = `/api/regions/${params.rid}/runs/${params.runId}`;
+    return HttpResponse.json({
+      culled: [{ node_id: 23, kind: "query", other: 5, prob: 0.91, method: "culled_by_forward", detail: "",
+                 image_url: `${b}/nodes/23/image`, other_image_url: `${b}/nodes/5/image`, vis_url: null }],
+      kept: [{ node_id: 12, kind: "query", other: 3, prob: 0.12, method: "kept", detail: "",
+               image_url: `${b}/nodes/12/image`, other_image_url: `${b}/nodes/3/image`, vis_url: null }],
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/nodes/:nid", ({ params }) => {
+    const nid = Number(params.nid);
+    if (nid >= 12 * (Number(params.k) + 1)) return notFound("node");
+    return HttpResponse.json({
+      node_id: nid, step: nid < 12 ? 0 : 1, session_id: nid < 12 ? "ses_1" : "ses_2",
+      frame: `seq/${String(nid).padStart(6, "0")}.color.jpg`, timestamp: 1000 + nid,
+      pos: [nid % 12 * 0.5, nid < 12 ? 0 : 2, 0], quat: [0, 0, 0, 1], pos_pre: [nid % 12 * 0.5, nid < 12 ? 0 : 2, 0],
+      gt: null, degree: { odom: 2, covis: 4, trav: 2 }, flags: nid < 12 ? 0 : 1,
+      image_url: `/api/regions/${params.rid}/runs/${params.runId}/nodes/${nid}/image`, cull: null,
+      loops: nid === 0 ? [{ other: 12, weight: 0.9, conf: 0.5, accepted: true, origin: "new" }] : [],
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/events", () => HttpResponse.json([])),
+  http.post("/api/regions/:rid/runs/import", async ({ params, request }) => {
+    const body = (await request.json()) as { result_dir: string; name?: string };
+    if (!body.result_dir.startsWith("/")) return HttpResponse.json({ detail: "outside allowed roots" }, { status: 403 });
+    state.counter += 1;
+    const created: Run = {
+      ...structuredClone(run), id: `run_imported_${state.counter}`, region_id: String(params.rid),
+      name: body.name ?? body.result_dir.split("/").pop() ?? "", kind: "imported", status: "succeeded",
+      job_id: null, num_steps_expected: 3, last_step_index: 2,
+    };
+    state.runs.push(created);
+    return HttpResponse.json(created);
   }),
 ];

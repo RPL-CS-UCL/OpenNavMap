@@ -1,5 +1,10 @@
 import type { z } from "zod";
 import type {
+  cullRowSchema,
+  cullingSchema,
+  dmatrixCandidateSchema,
+  dmatrixFactorSchema,
+  dmatrixSchema,
   fileCheckSchema,
   fsEntrySchema,
   fsListingSchema,
@@ -9,15 +14,20 @@ import type {
   jobSchema,
   jobStatusSchema,
   logChunkSchema,
+  loopStatsSchema,
+  nodeDetailSchema,
+  nodeLoopSchema,
   paramSpecSchema,
   regionHeadSchema,
   regionSchema,
   runDetailSchema,
+  runEventSchema,
   runParentSchema,
   runSchema,
   runStatusSchema,
   sessionSchema,
   stepRecordSchema,
+  stepSummarySchema,
   validationReportSchema,
   vprConfigSchema,
 } from "./schemas";
@@ -42,3 +52,14 @@ export type Run = z.infer<typeof runSchema>;
 export type RunDetail = z.infer<typeof runDetailSchema>;
 export type ParamSpec = z.infer<typeof paramSpecSchema>;
 export type LogChunk = z.infer<typeof logChunkSchema>;
+
+export type LoopStats = z.infer<typeof loopStatsSchema>;
+export type StepSummary = z.infer<typeof stepSummarySchema>;
+export type DMatrixCandidate = z.infer<typeof dmatrixCandidateSchema>;
+export type DMatrixFactor = z.infer<typeof dmatrixFactorSchema>;
+export type DMatrix = z.infer<typeof dmatrixSchema>;
+export type CullRow = z.infer<typeof cullRowSchema>;
+export type Culling = z.infer<typeof cullingSchema>;
+export type NodeLoop = z.infer<typeof nodeLoopSchema>;
+export type NodeDetail = z.infer<typeof nodeDetailSchema>;
+export type RunEvent = z.infer<typeof runEventSchema>;

@@ -16,5 +16,15 @@ export const qk = {
     list: (rid: string) => ["regions", rid, "runs"] as const,
     one: (rid: string, runId: string) => ["regions", rid, "runs", runId] as const,
   },
+  results: {
+    summaries: (rid: string, runId: string) => ["regions", rid, "runs", runId, "summaries"] as const,
+    scene: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "scene", k] as const,
+    dmatrix: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "dmatrix", k] as const,
+    culling: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "culling", k] as const,
+    node: (rid: string, runId: string, k: number, nid: number) =>
+      ["regions", rid, "runs", runId, "node", k, nid] as const,
+    events: (rid: string, runId: string, step: number | null, types: string) =>
+      ["regions", rid, "runs", runId, "events", step, types] as const,
+  },
   params: { merge: ["params", "merge"] as const },
 };
