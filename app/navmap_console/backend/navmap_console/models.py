@@ -144,6 +144,41 @@ class StepRecord(BaseModel):
     finished_at: Optional[str] = None
 
 
+class LoopStats(BaseModel):
+    total: int = 0
+    new: int = 0
+    hist: int = 0
+    accepted: int = 0
+    rejected_new: int = 0
+    overturned_hist: int = 0
+
+
+class StepSummary(BaseModel):
+    """Per-step numbers derived from a merge_* directory (spec §5.6 GET .../steps summaries)."""
+    index: int
+    dir_name: str
+    session_id: str
+    status: str
+    id_offset: int
+    num_nodes: int
+    num_covis_nodes: int
+    num_new: int
+    num_culled: int
+    component_sizes: List[int] = Field(default_factory=list)
+    edge_counts: Dict[str, int] = Field(default_factory=dict)
+    history: Dict[str, int] = Field(default_factory=dict)
+    precision: List[float] = Field(default_factory=list)
+    recall: List[float] = Field(default_factory=list)
+    loops: LoopStats = Field(default_factory=LoopStats)
+    pgo_error_initial: Optional[float] = None
+    pgo_error_final: Optional[float] = None
+    max_displacement: float = 0.0
+    num_moved: int = 0
+    duration_s: Optional[float] = None
+    has_dmatrix: bool = False
+    has_pre_pgo: bool = False
+
+
 class RunParent(BaseModel):
     run_id: str
     step_index: int
