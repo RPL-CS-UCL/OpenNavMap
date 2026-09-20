@@ -215,3 +215,11 @@ class RunCreate(BaseModel):
     session_ids: List[str] = Field(min_length=1)
     params: Dict[str, Any] = Field(default_factory=dict)
     meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ImportRequest(BaseModel):
+    """Register a result directory written by scripts/run_map_merging.sh as an imported run."""
+    result_dir: str
+    sessions_root: Optional[str] = None
+    name: Optional[str] = None
+    promote: bool = False

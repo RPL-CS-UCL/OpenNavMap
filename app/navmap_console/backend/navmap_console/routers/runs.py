@@ -4,7 +4,8 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, Request
 
 from ..jobs.specs import params_schema
-from ..models import Run, RunCreate, StepRecord
+from ..models import ImportRequest, Run, RunCreate, StepRecord
+from ..services.import_results import import_results
 from ..services.runs import RegionBusyError, RunService
 
 router = APIRouter(prefix="/api", tags=["runs"])
@@ -38,6 +39,21 @@ def create_run(rid: str, data: RunCreate, request: Request) -> Run:
         raise HTTPException(404, f"not found: {exc}")
     except RegionBusyError as exc:
         raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/regions/{rid}/runs/import", response_model=Run)
+def import_run(rid: str, data: ImportRequest, request: Request) -> Run:
+    service = get_run_service(request)
+    try:
+        return import_results(service, rid, data, service.settings.allowed_roots)
+    except KeyError as exc:
+        raise HTTPException(404, f"region {exc.args[0]} not found")
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
