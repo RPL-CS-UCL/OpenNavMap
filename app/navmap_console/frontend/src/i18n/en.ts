@@ -1,5 +1,5 @@
 export const en = {
-  "app.title": "NavMap Console",
+  "app.title": "OpenNavMap Console",
   "nav.regions": "Regions",
   "nav.jobs": "Jobs",
   "nav.settings": "Settings",
