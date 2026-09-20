@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { server } from "@/test/server";
 import { useSceneStore } from "@/stores/scene-store";
 import { RunViewer } from "./RunViewer";
 
@@ -63,5 +65,19 @@ describe("RunViewer", () => {
     await screen.findByText("1 / 1");
     act(() => useSceneStore.getState().select({ kind: "node", id: 13 }));
     expect(await screen.findByText("seq/000013.color.jpg")).toBeInTheDocument();
+  });
+
+  it("prefetches neighbours but never beyond the last step", async () => {
+    const sceneSteps: string[] = [];
+    server.use(
+      http.get("/api/regions/:rid/runs/:runId/steps/:k/scene.bin", ({ params }) => {
+        sceneSteps.push(String(params.k));
+        return HttpResponse.json({}, { status: 404 });
+      }),
+    );
+    wrap("/regions/reg_1/runs/run_20260918_120000_cd34?step=1");
+    await screen.findByText("1 / 1");
+    // useScene(1) plus prefetch of step 0; prefetch of 2 must be clipped at the last step.
+    expect([...sceneSteps].sort()).toEqual(["0", "1"]);
   });
 });

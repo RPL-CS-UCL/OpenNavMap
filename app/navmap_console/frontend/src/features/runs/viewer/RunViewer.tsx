@@ -19,6 +19,7 @@ export function RunViewer({ rid, runId, logLines = [], hasJob = true }: {
 }) {
   const qc = useQueryClient();
   const step = useSceneStore((s) => s.step);
+  const maxStep = useSceneStore((s) => s.maxStep);
   const summaries = useStepSummaries(rid, runId);
   const scene = useScene(rid, runId, step);
 
@@ -35,12 +36,12 @@ export function RunViewer({ rid, runId, logLines = [], hasJob = true }: {
     if (summaries.data) useSceneStore.getState().setMaxStep(summaries.data.length - 1);
   }, [summaries.data]);
 
-  // Prefetch neighbours so scrubbing the slider feels instant.
+  // Prefetch neighbours so scrubbing the slider feels instant; stay inside [0, maxStep].
   useEffect(() => {
     if (step === null) return;
-    void prefetchScene(qc, rid, runId, step - 1);
-    void prefetchScene(qc, rid, runId, step + 1);
-  }, [qc, rid, runId, step]);
+    if (step - 1 >= 0) void prefetchScene(qc, rid, runId, step - 1);
+    if (step + 1 <= maxStep) void prefetchScene(qc, rid, runId, step + 1);
+  }, [qc, rid, runId, step, maxStep]);
 
   const hasPrePgo = summaries.data?.[step ?? -1]?.has_pre_pgo ?? false;
 
