@@ -62,7 +62,7 @@ export function RunViewer({ rid, runId }: { rid: string; runId: string }) {
           <Inspector rid={rid} runId={runId} scene={scene.data ?? null} />
         </ResizablePanel>
       </ResizablePanelGroup>
-      <PanelDock />
+      <PanelDock rid={rid} runId={runId} step={step ?? 0} scene={scene.data ?? null} />
     </div>
   );
 }

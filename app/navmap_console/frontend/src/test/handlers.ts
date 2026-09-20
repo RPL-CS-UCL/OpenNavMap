@@ -251,6 +251,13 @@ export const handlers = [
                 { db: 1, query: 13, weight: 0.1, conf: 0.4, accepted: false, origin: "new" }],
     });
   }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/dmatrix.png", ({ params }) => {
+    const k = Number(params.k);
+    const has = state.summaries.find((s) => s.index === k)?.has_dmatrix ?? false;
+    return new HttpResponse(imgBytes(has ? IMAGE_PNG : IMAGE_JPEG), {
+      headers: { "Content-Type": has ? "image/png" : "image/jpeg" },
+    });
+  }),
   http.get("/api/regions/:rid/runs/:runId/steps/:k/culling.json", ({ params }) => {
     const b = `/api/regions/${params.rid}/runs/${params.runId}`;
     return HttpResponse.json({

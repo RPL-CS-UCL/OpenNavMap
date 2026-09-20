@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LOOP_ACCEPTED, LOOP_HIST, LOOP_OVERTURNED, LOOP_REJECTED_NEW, NODE_CULLED, NODE_NEW, NODE_NOT_COVIS, type Scene } from "@/api/scene-bundle";
 import { useNodeDetail, useStepSummaries, nodeImageUrl } from "@/api/hooks/use-results";
 import type { NodeDetail, StepSummary } from "@/api/types";
@@ -10,6 +10,7 @@ import { t } from "@/i18n";
 import { midpoints } from "@/scene/build/segments";
 import { nodeRowIndex } from "@/scene/build/visibility";
 import { useSceneStore } from "@/stores/scene-store";
+import { PairCard } from "../panels/PairCard";
 
 const fmt = (v: number, digits = 2) => (Number.isNaN(v) ? "–" : v.toFixed(digits));
 
@@ -98,7 +99,10 @@ function NodeBlock({ rid, runId, detail, scene, row, requestFly, togglePin }: {
   );
 }
 
-function LoopBlock({ scene, index, requestFly }: { scene: Scene; index: number; requestFly: (p: [number, number, number]) => void }) {
+function LoopBlock({ rid, runId, scene, index, requestFly }: {
+  rid: string; runId: string; scene: Scene; index: number; requestFly: (p: [number, number, number]) => void;
+}) {
+  const [pairOpen, setPairOpen] = useState(false);
   const db = scene.loopIdx[index * 2];
   const query = scene.loopIdx[index * 2 + 1];
   const f = scene.loopFlags[index];
@@ -133,9 +137,21 @@ function LoopBlock({ scene, index, requestFly }: { scene: Scene; index: number; 
         <span className="text-muted-foreground">t_err / r_err</span>
         <span className="font-mono">{fmt(scene.loopTerr[index])} / {fmt(scene.loopRerr[index])}</span>
       </div>
-      <Button size="sm" variant="outline" onClick={() => requestFly([mid[0], mid[1], mid[2]])}>
-        {t("viewer.inspector.flyTo")}
-      </Button>
+      <div className="flex gap-1">
+        <Button size="sm" variant="outline" onClick={() => requestFly([mid[0], mid[1], mid[2]])}>
+          {t("viewer.inspector.flyTo")}
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setPairOpen(true)}>
+          {t("panel.pair.viewPair")}
+        </Button>
+      </div>
+      <PairCard rid={rid} runId={runId} a={db} b={query}
+        meta={{
+          weight: scene.loopWeight[index], conf: scene.loopConf[index],
+          terr: Number.isNaN(scene.loopTerr[index]) ? null : scene.loopTerr[index],
+          rerr: Number.isNaN(scene.loopRerr[index]) ? null : scene.loopRerr[index],
+        }}
+        open={pairOpen} onOpenChange={setPairOpen} />
     </div>
   );
 }
@@ -175,5 +191,5 @@ export function Inspector({ rid, runId, scene }: { rid: string; runId: string; s
     return <NodeBlock rid={rid} runId={runId} detail={detail.data} scene={scene} row={nodeRow} requestFly={requestFly} togglePin={togglePin} />;
   }
   if (!scene || selected.index >= scene.numLoops) return <EmptyState title={t("viewer.inspector.loop")} />;
-  return <LoopBlock scene={scene} index={selected.index} requestFly={requestFly} />;
+  return <LoopBlock rid={rid} runId={runId} scene={scene} index={selected.index} requestFly={requestFly} />;
 }
