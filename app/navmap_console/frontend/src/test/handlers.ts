@@ -3,6 +3,8 @@ import type { Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/t
 import { job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
 import { makeSceneFixture } from "./scene-fixture";
 
+export { summaries };
+
 // In-memory state shared by all handlers; call resetState() between tests.
 // Exported as one object so tests can tweak fixtures in place (e.g. state.runs[0].status = ...).
 interface HandlerState {
@@ -36,6 +38,11 @@ function withCounts(r: Region): Region {
 }
 
 const notFound = (what: string) => HttpResponse.json({ detail: `${what} not found` }, { status: 404 });
+
+// 1x1 transparent PNG / 1x1 JPEG, base64-encoded.
+const IMAGE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const IMAGE_JPEG = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==";
+const imgBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 export const handlers = [
   http.get("/api/health", () =>
@@ -266,6 +273,11 @@ export const handlers = [
     });
   }),
   http.get("/api/regions/:rid/runs/:runId/events", () => HttpResponse.json([])),
+  // 1x1 placeholder bytes; jsdom never decodes them, but the content type must match the real backend.
+  http.get("/api/regions/:rid/runs/:runId/nodes/:nid/image", () =>
+    new HttpResponse(imgBytes(IMAGE_JPEG), { headers: { "Content-Type": "image/jpeg" } })),
+  http.get("/api/regions/:rid/runs/:runId/pairs/:a/:b/image", () =>
+    new HttpResponse(imgBytes(IMAGE_PNG), { headers: { "Content-Type": "image/png" } })),
   http.post("/api/regions/:rid/runs/import", async ({ params, request }) => {
     const body = (await request.json()) as { result_dir: string; name?: string };
     if (!body.result_dir.startsWith("/")) return HttpResponse.json({ detail: "outside allowed roots" }, { status: 403 });

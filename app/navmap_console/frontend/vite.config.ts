@@ -32,5 +32,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    alias: {
+      // jsdom reports zero sizes, so the real library writes "NaN%" flex-basis and jsdom's CSS parser throws.
+      "react-resizable-panels": path.resolve(__dirname, "./src/test/resizable-mock.tsx"),
+    },
   },
 });

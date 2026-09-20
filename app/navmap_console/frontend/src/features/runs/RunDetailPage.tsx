@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { errorDetail } from "@/api/client";
 import { usePromoteHead } from "@/api/hooks/use-regions";
@@ -8,7 +8,6 @@ import { useCancelRun, useRunDetail } from "@/api/hooks/use-runs";
 import { useSessions } from "@/api/hooks/use-sessions";
 import { qk } from "@/api/query-keys";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -21,9 +20,11 @@ import { useJobLog } from "@/features/jobs/use-job-log";
 import { t } from "@/i18n";
 import { useTopic } from "@/ws/use-socket";
 import { StepsTable } from "./StepsTable";
+import { RunViewer } from "./viewer/RunViewer";
 
 export function RunDetailPage() {
   const { rid = "", runId = "" } = useParams();
+  const [sp] = useSearchParams();
   const qc = useQueryClient();
   const detail = useRunDetail(rid, runId);
   const sessions = useSessions(rid);
@@ -102,7 +103,7 @@ export function RunDetailPage() {
           <AlertDescription>{t("run.final.error", { detail: run.final_error })}</AlertDescription>
         </Alert>
       )}
-      <Tabs defaultValue="steps" className="flex min-h-0 flex-1 flex-col">
+      <Tabs defaultValue={sp.has("step") ? "viz" : "steps"} className="flex min-h-0 flex-1 flex-col">
         <TabsList className="w-fit">
           <TabsTrigger value="steps">{t("run.steps.title")}</TabsTrigger>
           <TabsTrigger value="log">{t("run.log")}</TabsTrigger>
@@ -114,8 +115,8 @@ export function RunDetailPage() {
         <TabsContent value="log" className="min-h-0 flex-1">
           <LogConsole lines={lines} title={job?.id} className="h-[60vh]" />
         </TabsContent>
-        <TabsContent value="viz">
-          <EmptyState title="3D" body={t("run.viz.soon")} />
+        <TabsContent value="viz" className="min-h-0 flex-1">
+          <RunViewer rid={rid} runId={runId} />
         </TabsContent>
       </Tabs>
       <ConfirmDialog
