@@ -11,8 +11,9 @@ from .config import Settings, load_settings
 from .jobs.bus import EventBus
 from .jobs.runner import JobRunner
 from .jobs.store import JobStore
-from .routers import fs, health, jobs, regions, runs, sessions, ws
+from .routers import fs, health, jobs, regions, results, runs, sessions, ws
 from .services.catalog import RegionStore, SessionStore
+from .services.results import ResultService
 from .services.runs import RunJobHooks, RunService, RunStore
 
 
@@ -38,6 +39,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         runner.hooks = RunJobHooks(run_service)
         app.state.bus, app.state.job_store = bus, job_store
         app.state.runner, app.state.run_service = runner, run_service
+        app.state.results = ResultService(settings, run_service)
         await runner.start()  # queues must be created inside the running loop
         try:
             yield
@@ -52,6 +54,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.include_router(regions.router)
     app.include_router(sessions.router)
     app.include_router(runs.router)
+    app.include_router(results.router)
     app.include_router(jobs.router)
     app.include_router(fs.router)
     app.include_router(ws.router)

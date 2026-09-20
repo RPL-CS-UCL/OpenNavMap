@@ -167,6 +167,11 @@ class RunService:
                 sources.append(run_dir / "output" / s.dir_name)
         return sources
 
+    def image_sources(self, rid: str, run_id: str) -> List[Path]:
+        """base/ (append runs) plus every completed step directory, in order; later dirs override earlier."""
+        run = self.runs.get(rid, run_id)
+        return self._image_sources(rid, run, up_to=10 ** 9)
+
     async def cancel(self, rid: str, run_id: str) -> Run:
         """Ask the runner to stop the job; the run itself is finalised by the on_finished hook."""
         run = self.runs.get(rid, run_id)
