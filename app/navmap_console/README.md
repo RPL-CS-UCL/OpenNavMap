@@ -135,6 +135,48 @@ time per step (default 0.2) and `NAVMAP_CONSOLE_FAKE_FAIL_AT=<step>` makes that 
 `GET /api/jobs/<id>/log?after=<seq>` fills the gap. An unknown op is answered with a
 `type: "error"` message and the connection stays open.
 
+## Result viewer (M4)
+
+Opening a run shows the three-pane viewer:
+
+- **Left — step list.** One row per merge step with its session, node count and a marker
+  when the PGO error increased over the previous step. "Follow live" keeps the newest step
+  selected as steps land.
+- **Middle — 3D scene** of the merged point/pose graph: toolbar (camera mode, colour-by,
+  node style, loop filter, layer toggles), step slider with play + speed + ghost morph,
+  and a legend.
+- **Right — inspector.** The step summary (nodes, edges, components, displacement, loop
+  counts), details of the selected node or loop edge (with a pair image card), and the
+  live event feed of the step.
+
+A panel dock under the scene carries six tabs: **VPR matrix** (the D-matrix heatmap;
+clicking a cell selects the loop), **Loop edges** (accepted/rejected table, hover and
+click drive the scene), **PGO summary**, **Culling**, **Charts** (node/edge/error over
+steps, click to jump), and **Console** (job log; imported runs have no job, so an
+explanatory empty state is shown instead).
+
+**Deep links.** `?step=<n>`, `?node=<id>` and `?edge=loop:<index>` restore the view; the
+store is the source of truth and selections are mirrored back into the URL.
+
+**Hotkeys.** `[` / `]` step back/forward, `Space` play/pause, `f` fit the view, `t`
+top-down camera, `1`/`2`/`3`/`4` toggle odom/covis/trav/loop layers, `g` toggles the
+ghost layer (PGO-before positions), `Esc` clears the selection.
+
+**Live updates.** While the socket is up, `run.step_completed` invalidates the step list,
+refetches summaries and prefetches the new scene; when the socket drops the viewer falls
+back to polling the summaries every 5 s and re-subscribes on reconnect.
+
+**Import run.** The region page's "Import run" dialog registers a result directory written
+by `scripts/run_map_merging.sh` (`result_dir`, optional `sessions_root` to resolve the
+sessions each step merged, optional `name`, and `promote` to make it the region head).
+Paths must be inside `NAVMAP_CONSOLE_ALLOWED_ROOTS`. Imported runs get `kind=imported` and
+carry the same step data as pipeline runs.
+
+**Legacy result formats are degraded gracefully:** results without `D_matrix.npy` fall
+back to the old matplotlib D-matrix jpg, the 6-column `loop_registry.txt` is parsed
+alongside the newer format, and steps without `demo_events.jsonl` show an empty event
+feed instead of an error.
+
 ## Network access
 
 There is no login. The console is meant for the lab LAN only: it can browse server

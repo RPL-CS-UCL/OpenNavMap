@@ -1,4 +1,4 @@
-import { Ban, Check, HelpCircle, Plus, Trash2, X } from "lucide-react";
+import { Ban, Check, FolderDown, HelpCircle, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { JobStatusBadge } from "@/features/jobs/job-status";
+import { ImportRunDialog } from "@/features/runs/ImportRunDialog";
 import { t } from "@/i18n";
 import { formatDateTime } from "@/lib/format";
 
@@ -47,6 +48,7 @@ export function RegionDetailPage() {
   const deleteSession = useDeleteSession(rid);
   const [confirmRegion, setConfirmRegion] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   if (region.isPending) return <Skeleton className="h-40 w-full" />;
   if (region.error) return <p className="text-sm text-destructive">{t("common.error", { detail: region.error.message })}</p>;
@@ -65,6 +67,10 @@ export function RegionDetailPage() {
                 <Plus className="mr-1 h-3.5 w-3.5" />
                 {t("region.newSession")}
               </Link>
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+              <FolderDown className="mr-1 h-3.5 w-3.5" />
+              {t("region.importRun")}
             </Button>
             <Button asChild size="sm">
               <Link to={`/regions/${rid}/runs/new`}>{t("region.newRun")}</Link>
@@ -213,6 +219,7 @@ export function RegionDetailPage() {
           })
         }
       />
+      <ImportRunDialog open={importOpen} onOpenChange={setImportOpen} />
       <ConfirmDialog
         open={sessionToDelete !== null}
         onOpenChange={(o) => !o && setSessionToDelete(null)}

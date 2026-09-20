@@ -85,7 +85,7 @@ export function useNodeDetail(rid: string, runId: string, k: number | null, nid:
   });
 }
 
-export function useEvents(rid: string, runId: string, step: number | null, types: string[] = []) {
+export function useEvents(rid: string, runId: string, step: number | null, types: string[] = [], opts: { refetchInterval?: number | false } = {}) {
   const typesKey = types.join(",");
   const params = new URLSearchParams();
   if (step !== null) params.set("step", String(step));
@@ -94,6 +94,7 @@ export function useEvents(rid: string, runId: string, step: number | null, types
     queryKey: qk.results.events(rid, runId, step, typesKey),
     queryFn: (): Promise<RunEvent[]> => apiGet(`${base(rid, runId)}/events?${params}`, z.array(runEventSchema)),
     enabled: !!rid && !!runId,
+    refetchInterval: opts.refetchInterval,
   });
 }
 

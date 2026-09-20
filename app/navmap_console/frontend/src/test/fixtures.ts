@@ -222,7 +222,7 @@ export const summaries: StepSummary[] = [0, 1].map((k) => ({
   num_culled: k,
   component_sizes: [12 * (k + 1)],
   edge_counts: { odom: 11 + 12 * k, covis: 30 * (k + 1), trav: 11 * (k + 1) },
-  history: k === 0 ? ({} as Record<string, number>) : { vpr: 6, gv: 2, ccm: 1, pgo: 2, low: 0, retained: 1 },
+  history: k === 0 ? ({} as Record<string, number>) : { vpr: 6, gv: 6, ccm: 2, pgo: 1, low: 0, retained: 1 },
   precision: k === 0 ? [] : [0.5, 0.5, 1],
   recall: k === 0 ? [] : [0.4, 0.4, 0.2],
   loops: { total: 3 * k, new: 3 * k, hist: 0, accepted: k, rejected_new: 2 * k, overturned_hist: 0 },

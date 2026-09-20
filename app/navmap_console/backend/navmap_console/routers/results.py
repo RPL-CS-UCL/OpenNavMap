@@ -48,8 +48,8 @@ async def dmatrix_json(rid: str, run_id: str, k: int, request: Request) -> Dict[
 
 @router.get("/steps/{k}/dmatrix.png")
 async def dmatrix_png(rid: str, run_id: str, k: int, request: Request) -> Response:
-    data = await _call(get_results(request).dmatrix_png, rid, run_id, k)
-    return Response(content=data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+    data, media = await _call(get_results(request).dmatrix_png, rid, run_id, k)
+    return Response(content=data, media_type=media, headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/steps/{k}/culling.json")

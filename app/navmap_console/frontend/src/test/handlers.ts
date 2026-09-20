@@ -3,6 +3,8 @@ import type { Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/t
 import { job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
 import { makeSceneFixture } from "./scene-fixture";
 
+export { summaries };
+
 // In-memory state shared by all handlers; call resetState() between tests.
 // Exported as one object so tests can tweak fixtures in place (e.g. state.runs[0].status = ...).
 interface HandlerState {
@@ -13,8 +15,10 @@ interface HandlerState {
   runSteps: Record<string, StepRecord[]>;
   summaries: StepSummary[];
   counter: number;
+  summaryHits: number;
+  sceneHits: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0, summaryHits: 0, sceneHits: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -24,6 +28,8 @@ export function resetState(): void {
   state.runSteps = { [run.id]: structuredClone(steps) };
   state.summaries = structuredClone(summaries);
   state.counter = 0;
+  state.summaryHits = 0;
+  state.sceneHits = 0;
 }
 resetState();
 
@@ -36,6 +42,11 @@ function withCounts(r: Region): Region {
 }
 
 const notFound = (what: string) => HttpResponse.json({ detail: `${what} not found` }, { status: 404 });
+
+// 1x1 transparent PNG / 1x1 JPEG, base64-encoded.
+const IMAGE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const IMAGE_JPEG = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==";
+const imgBytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 export const handlers = [
   http.get("/api/health", () =>
@@ -226,8 +237,12 @@ export const handlers = [
     return HttpResponse.json(withCounts(reg));
   }),
   // ---- results (M4) ----
-  http.get("/api/regions/:rid/runs/:runId/summaries", () => HttpResponse.json({ steps: state.summaries })),
+  http.get("/api/regions/:rid/runs/:runId/summaries", () => {
+    state.summaryHits += 1;
+    return HttpResponse.json({ steps: state.summaries });
+  }),
   http.get("/api/regions/:rid/runs/:runId/steps/:k/scene.bin", ({ params }) => {
+    state.sceneHits += 1;
     const k = Number(params.k);
     if (!state.summaries.some((s) => s.index === k)) return notFound("step");
     return HttpResponse.arrayBuffer(makeSceneFixture(12 * (k + 1), 3 * k), {
@@ -242,6 +257,13 @@ export const handlers = [
       candidates: [{ db: 0, query: 12, stage: "gv", gv_inliers: 40 }, { db: 1, query: 13, stage: "vpr", gv_inliers: 0 }],
       factors: [{ db: 0, query: 12, weight: 0.9, conf: 0.8, accepted: true, origin: "new" },
                 { db: 1, query: 13, weight: 0.1, conf: 0.4, accepted: false, origin: "new" }],
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/dmatrix.png", ({ params }) => {
+    const k = Number(params.k);
+    const has = state.summaries.find((s) => s.index === k)?.has_dmatrix ?? false;
+    return new HttpResponse(imgBytes(has ? IMAGE_PNG : IMAGE_JPEG), {
+      headers: { "Content-Type": has ? "image/png" : "image/jpeg" },
     });
   }),
   http.get("/api/regions/:rid/runs/:runId/steps/:k/culling.json", ({ params }) => {
@@ -266,8 +288,13 @@ export const handlers = [
     });
   }),
   http.get("/api/regions/:rid/runs/:runId/events", () => HttpResponse.json([])),
+  // 1x1 placeholder bytes; jsdom never decodes them, but the content type must match the real backend.
+  http.get("/api/regions/:rid/runs/:runId/nodes/:nid/image", () =>
+    new HttpResponse(imgBytes(IMAGE_JPEG), { headers: { "Content-Type": "image/jpeg" } })),
+  http.get("/api/regions/:rid/runs/:runId/pairs/:a/:b/image", () =>
+    new HttpResponse(imgBytes(IMAGE_PNG), { headers: { "Content-Type": "image/png" } })),
   http.post("/api/regions/:rid/runs/import", async ({ params, request }) => {
-    const body = (await request.json()) as { result_dir: string; name?: string };
+    const body = (await request.json()) as { result_dir: string; sessions_root?: string; name?: string; promote?: boolean };
     if (!body.result_dir.startsWith("/")) return HttpResponse.json({ detail: "outside allowed roots" }, { status: 403 });
     state.counter += 1;
     const created: Run = {
@@ -276,6 +303,18 @@ export const handlers = [
       job_id: null, num_steps_expected: 3, last_step_index: 2,
     };
     state.runs.push(created);
+    if (body.sessions_root) {
+      for (let i = 0; i < 3; i += 1) {
+        state.sessions.push({
+          ...structuredClone(session), id: `imp_${state.counter}_${i}`, region_id: String(params.rid),
+          name: String(i), path: `${body.sessions_root}/${i}`, source: "imported",
+        });
+      }
+    }
+    if (body.promote) {
+      const reg = state.regions.find((x) => x.id === params.rid);
+      if (reg) reg.head = { run_id: created.id, step_index: created.last_step_index ?? 0, session_ids: [], lineage: [created.id] };
+    }
     return HttpResponse.json(created);
   }),
 ];
