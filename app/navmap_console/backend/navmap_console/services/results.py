@@ -102,8 +102,18 @@ class ResultService:
                         for g in read_gnc_weights(preds / "gnc_weights.txt")],
         }
 
-    def dmatrix_png(self, rid: str, run_id: str, k: int) -> bytes:
-        _, _, (matrix, _, _) = self._dmatrix(rid, run_id, k)
+    def dmatrix_png(self, rid: str, run_id: str, k: int) -> Tuple[bytes, str]:
+        _, step_dir, _ = self._step(rid, run_id, k)
+        try:
+            _, _, (matrix, _, _) = self._dmatrix(rid, run_id, k)
+        except FileNotFoundError:
+            # Legacy results have no D_matrix_*.npy, only the matplotlib jpg with axes.
+            preds = step_dir / "preds"
+            for name in ("D_matrix_vpr.jpg", "D_matrix_gv.jpg"):
+                p = preds / name
+                if p.is_file():
+                    return p.read_bytes(), "image/jpeg"
+            raise
         m = matrix.astype(np.float32)
         finite = np.isfinite(m)
         lo, hi = (float(m[finite].min()), float(m[finite].max())) if finite.any() else (0.0, 1.0)
@@ -111,7 +121,7 @@ class ResultService:
         gray = np.where(finite, 255.0 * (1.0 - (m - lo) / scale), 0.0)  # small distance = bright
         buf = io.BytesIO()
         Image.fromarray(np.clip(gray, 0, 255).astype(np.uint8), "L").save(buf, "PNG")
-        return buf.getvalue()
+        return buf.getvalue(), "image/png"
 
     def _kf_vis(self, preds: Path) -> Dict[Tuple[int, int], str]:
         """kf_rejection_query_{query_local}_{db}_{prob}.jpg -> (query_local, db) -> file name."""

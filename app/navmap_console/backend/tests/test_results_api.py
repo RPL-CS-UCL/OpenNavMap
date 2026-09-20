@@ -105,3 +105,21 @@ def test_images_preds_and_events(client, settings):
     ev = client.get(f"{base}/events", params={"step": 1}).json()
     assert [e["event_type"] for e in ev] == ["vpr_candidate", "map_committed"] and ev[1]["payload"] == {"omitted": True}
     assert len(client.get(f"{base}/events", params={"types": "vpr_candidate"}).json()) == 2
+
+
+def test_dmatrix_jpg_fallback_for_legacy_results(client, settings):
+    """旧结果没有 D_matrix_*.npy，只有 matplotlib 带坐标轴的 jpg：dmatrix.png 直接回退 serve jpg。"""
+    from navmap_console.services.runs import RunStore
+
+    rid, run_id = _make_run(client, settings)
+    step_dir = RunStore(settings.regions_dir).run_dir(rid, run_id) / "output" / "merge_001_b" / "preds"
+    for p in step_dir.glob("D_matrix*.npy"):
+        p.unlink()
+    Image.new("L", (12, 12), 128).save(step_dir / "D_matrix_vpr.jpg")
+    base = f"/api/regions/{rid}/runs/{run_id}"
+    r = client.get(f"{base}/steps/1/dmatrix.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    with Image.open(io.BytesIO(r.content)) as im:
+        assert im.size == (12, 12)
+    # json 仍是 404：前端以此隐藏候选叠加
+    assert client.get(f"{base}/steps/1/dmatrix.json").status_code == 404
