@@ -4,5 +4,15 @@
   "rules": {
     "react/rules-of-hooks": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/scene/**"],
+      "rules": {
+        "react/immutability": "off",
+        "react/refs": "off",
+        "react/only-export-components": "off"
+      }
+    }
+  ]
 }
