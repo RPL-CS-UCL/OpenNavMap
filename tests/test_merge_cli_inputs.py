@@ -136,3 +136,38 @@ def test_setup_log_environment_creates_kf_vis(tmp_path: Path):
     utils_map_merging.setup_log_environment(tmp_path, None)
     assert (tmp_path / "seq").is_dir()
     assert (tmp_path / "preds" / "kf_vis").is_dir()
+
+
+# --- per-step image backfill (each merge step self-contained) --------------
+
+from types import SimpleNamespace  # noqa: E402
+
+
+def _backfill_node(rgb="seq/000000.color.jpg", depth=None):
+    return SimpleNamespace(rgb_img_name=rgb, depth_img_name=depth)
+
+
+def test_backfill_step_images_from_prev_step(pipeline, tmp_path: Path):
+    step, prev = tmp_path / "step", tmp_path / "prev"
+    (step / "seq").mkdir(parents=True)
+    (prev / "seq").mkdir(parents=True)
+    (prev / "seq" / "000000.color.jpg").write_bytes(b"img")
+    (prev / "seq" / "000000.depth.png").write_bytes(b"depth")
+    graph = SimpleNamespace(nodes={"0": _backfill_node(depth="seq/000000.depth.png")})
+    pipeline._backfill_step_images(graph, step, [prev])
+    assert (step / "seq" / "000000.color.jpg").read_bytes() == b"img"
+    assert (step / "seq" / "000000.depth.png").read_bytes() == b"depth"
+
+
+def test_backfill_step_images_skips_missing_and_existing(pipeline, tmp_path: Path):
+    step, prev = tmp_path / "step", tmp_path / "prev"
+    (step / "seq").mkdir(parents=True)
+    (prev / "seq").mkdir(parents=True)
+    (step / "seq" / "000001.color.jpg").write_bytes(b"new")
+    graph = SimpleNamespace(nodes={
+        "0": _backfill_node(),                       # 源目录里没有,跳过不崩
+        "1": _backfill_node(rgb="seq/000001.color.jpg"),  # 已存在,不覆盖
+    })
+    pipeline._backfill_step_images(graph, step, [prev, tmp_path / "nope"])
+    assert (step / "seq" / "000001.color.jpg").read_bytes() == b"new"
+    assert not (step / "seq" / "000000.color.jpg").exists()

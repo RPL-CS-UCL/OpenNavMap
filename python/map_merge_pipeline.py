@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 
 import os
+import shutil
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -1659,6 +1660,32 @@ def update_finalmap_link(result_dir: pathlib.Path, target: pathlib.Path) -> None
 	link.symlink_to(target)
 
 
+def _backfill_step_images(covis_graph: ImageGraph, step_dir: pathlib.Path,
+						  image_source_dirs: List[pathlib.Path]) -> None:
+	"""Bring every covis node's image into step_dir so each step is self-contained.
+
+	copy_sensor_data only carries the new submap's images, so earlier steps hold
+	the rest; hard-link them here (falling back to a copy across filesystems).
+	"""
+	seq_dir = step_dir / "seq"
+	for node in covis_graph.nodes.values():
+		for img_name in (node.rgb_img_name, node.depth_img_name):
+			if not img_name:
+				continue
+			dest = seq_dir / pathlib.Path(img_name).name
+			if dest.exists():
+				continue
+			for src_dir in image_source_dirs:
+				src = src_dir / img_name
+				if not src.is_file():
+					continue
+				try:
+					os.link(src, dest)
+				except OSError:
+					shutil.copy2(src, dest)
+				break
+
+
 def run_incremental_merge(merger: MergePipeline, args):
 	"""Merge submaps one by one, optionally continuing from an existing consolidated map.
 
@@ -1754,6 +1781,10 @@ def run_incremental_merge(merger: MergePipeline, args):
 		merger.merge_single_submap(final_map, cur_submap, args)
 
 		final_map.save_to_file()
+		backfill_sources = [result_dir / prev_name]
+		if args.append_from:
+			backfill_sources.append(pathlib.Path(args.append_from))
+		_backfill_step_images(final_map.covis, output_dir, backfill_sources)
 		update_finalmap_link(result_dir, output_dir)
 		logging.info(f"Saved intermediate result: {output_dir}")
 		# Machine-readable per-step summary line (parsed by the console job runner).
