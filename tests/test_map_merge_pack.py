@@ -175,3 +175,24 @@ def test_consolidate_rejects_non_consecutive(tmp_path: Path):
     (s0 / "poses.txt").write_text("\n".join(lines) + "\n")
     with pytest.raises(ValueError, match="line 1"):
         consolidate_map(s0, [s0], tmp_path / "final")
+
+
+def test_consolidate_preserves_kf_vis(tmp_path: Path):
+    n = len([l for l in (SYNTHETIC / "poses.txt").read_text().splitlines() if l.strip()])
+    ids = list(range(n))
+    s0 = _fake_step(tmp_path, "m0", ids)
+    (s0 / "preds" / "kf_vis").mkdir()
+    shutil.copy(s0 / "seq" / "000000.color.jpg", s0 / "preds" / "kf_vis" / "kf_replacement_61_88.jpg")
+    out = tmp_path / "final"
+    consolidate_map(s0, [s0], out)
+    assert (out / "preds" / "kf_vis" / "kf_replacement_61_88.jpg").is_file()
+
+
+def test_consolidate_creates_empty_kf_vis(tmp_path: Path):
+    n = len([l for l in (SYNTHETIC / "poses.txt").read_text().splitlines() if l.strip()])
+    ids = list(range(n))
+    s0 = _fake_step(tmp_path, "m0", ids)  # step 里没有 kf_vis
+    out = tmp_path / "final"
+    consolidate_map(s0, [s0], out)
+    assert (out / "preds" / "kf_vis").is_dir()
+    assert list((out / "preds" / "kf_vis").iterdir()) == []

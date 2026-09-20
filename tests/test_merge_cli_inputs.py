@@ -130,3 +130,9 @@ def test_save_dmatrix_raw(pipeline, tmp_path: Path):
     axes = json.loads((tmp_path / "D_matrix_axes.json").read_text())
     assert axes == {"rows": "db", "row_node_ids": [10, 11, 12], "cols": "query",
                     "col_node_ids": [100, 101, 102, 103, 104]}
+
+
+def test_setup_log_environment_creates_kf_vis(tmp_path: Path):
+    utils_map_merging.setup_log_environment(tmp_path, None)
+    assert (tmp_path / "seq").is_dir()
+    assert (tmp_path / "preds" / "kf_vis").is_dir()

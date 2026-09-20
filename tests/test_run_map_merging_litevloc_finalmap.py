@@ -87,7 +87,8 @@ def test_final_map_delivery_mode(tmp_path: Path, consolidate: str, expects_symli
         """,
     )
 
-    env = os.environ | {
+    env = dict(os.environ)
+    env.update({
         "OUTPUT_ROOT": str(output_root),
         "TRAJ_EVAL_ROOT": str(traj_root),
         "PYTHON_OPENNAVMAP": str(fake_python),
@@ -96,7 +97,7 @@ def test_final_map_delivery_mode(tmp_path: Path, consolidate: str, expects_symli
         "MERGE_CPU_LIST": "",
         "CONSOLIDATE_LITEVLOC_MAP": consolidate,
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
-    }
+    })
     completed = subprocess.run(
         ["/bin/bash", str(SCRIPT), "s", "0", "method", "master", "1", "1", "1"],
         cwd=REPO,

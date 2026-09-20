@@ -153,7 +153,7 @@ def consolidate_map(step_dir: Path, image_source_dirs: Sequence[Path], out_dir: 
 					meta: Optional[Dict[str, object]] = None) -> Dict[str, object]:
 	"""Turn one merge_* step directory into a self-contained, reloadable map.
 
-	Copies the map text files (not preds/ or submap_disc_*), gathers every covis
+	Copies the map text files (not preds/ except kf_vis/, not submap_disc_*), gathers every covis
 	node's image from the lineage directories and writes a 13-column loop registry.
 	"""
 	step_dir, out_dir = Path(step_dir), Path(out_dir)
@@ -171,6 +171,11 @@ def consolidate_map(step_dir: Path, image_source_dirs: Sequence[Path], out_dir: 
 
 	(out_dir / "seq").mkdir(parents=True, exist_ok=True)
 	(out_dir / "preds").mkdir(parents=True, exist_ok=True)
+	kf_vis_src = step_dir / "preds" / "kf_vis"
+	if kf_vis_src.is_dir():
+		shutil.copytree(kf_vis_src, out_dir / "preds" / "kf_vis", dirs_exist_ok=True)
+	else:
+		(out_dir / "preds" / "kf_vis").mkdir(parents=True, exist_ok=True)
 	for name in MAP_FILES + OPTIONAL_MAP_FILES:
 		src = step_dir / name
 		if src.is_file():

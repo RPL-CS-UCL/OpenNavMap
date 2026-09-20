@@ -63,6 +63,9 @@ def setup_log_environment(out_dir: pathlib.Path, args):
 	out_dir.mkdir(parents=True, exist_ok=True)
 	(out_dir / "seq").mkdir(parents=True, exist_ok=True)
 	(out_dir / "preds").mkdir(parents=True, exist_ok=True)
+	# kf_vis 只会在发生关键帧剔除时写入内容,但目录本身每步都建,
+	# 保证所有 merge step 的结果目录结构一致。
+	(out_dir / "preds" / "kf_vis").mkdir(parents=True, exist_ok=True)
 	return out_dir
 
 def initialize_pose_estimator(model, device):
