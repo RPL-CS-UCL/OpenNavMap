@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { LOOP_ACCEPTED, LOOP_HIST, LOOP_OVERTURNED, LOOP_REJECTED_NEW, NODE_CULLED, NODE_NEW, NODE_NOT_COVIS, type Scene } from "@/api/scene-bundle";
-import { useNodeDetail, useStepSummaries, nodeImageUrl } from "@/api/hooks/use-results";
+import { useEvents, useNodeDetail, useStepSummaries, nodeImageUrl } from "@/api/hooks/use-results";
 import type { NodeDetail, StepSummary } from "@/api/types";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { t } from "@/i18n";
 import { midpoints } from "@/scene/build/segments";
 import { nodeRowIndex } from "@/scene/build/visibility";
 import { useSceneStore } from "@/stores/scene-store";
+import { useSocketStatus } from "@/ws/use-socket";
 import { PairCard } from "../panels/PairCard";
 
 const fmt = (v: number, digits = 2) => (Number.isNaN(v) ? "–" : v.toFixed(digits));
@@ -156,6 +157,30 @@ function LoopBlock({ rid, runId, scene, index, requestFly }: {
   );
 }
 
+function StepEvents({ rid, runId, step }: { rid: string; runId: string; step: number | null }) {
+  const socketOpen = useSocketStatus() === "open";
+  const events = useEvents(rid, runId, step, [], { refetchInterval: socketOpen ? 2000 : false });
+  return (
+    <section>
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("viewer.events.title")}</h3>
+      {events.data && events.data.length === 0 && <p className="text-xs text-muted-foreground">{t("viewer.events.empty")}</p>}
+      {events.data && events.data.length > 0 && (
+        <ul className="space-y-1">
+          {events.data.map((ev, i) => (
+            <li key={i} className="text-xs">
+              <span className="font-medium">{ev.event_type}</span>
+              {ev.submap_id !== null && ev.submap_id !== undefined && (
+                <span className="ml-1 text-muted-foreground">{t("viewer.events.submap", { id: ev.submap_id })}</span>
+              )}
+              <div className="truncate font-mono text-[10px] text-muted-foreground">{JSON.stringify(ev.payload).slice(0, 120)}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function Inspector({ rid, runId, scene }: { rid: string; runId: string; scene: Scene | null }) {
   const selected = useSceneStore((s) => s.selected);
   const step = useSceneStore((s) => s.step);
@@ -184,7 +209,12 @@ export function Inspector({ rid, runId, scene }: { rid: string; runId: string; s
 
   if (!selected) {
     if (!scene) return <EmptyState title={t("viewer.inspector.none")} body={t("viewer.inspector.noScene")} />;
-    return <SummaryBlock s={summaries.data?.[step ?? -1]} />;
+    return (
+      <div className="space-y-4">
+        <SummaryBlock s={summaries.data?.[step ?? -1]} />
+        <StepEvents rid={rid} runId={runId} step={step} />
+      </div>
+    );
   }
   if (selected.kind === "node") {
     if (!scene || nodeRow === undefined) return <EmptyState title={t("viewer.inspector.node")} />;

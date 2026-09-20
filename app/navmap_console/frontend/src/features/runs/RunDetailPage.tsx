@@ -8,6 +8,7 @@ import { useCancelRun, useRunDetail } from "@/api/hooks/use-runs";
 import { useSessions } from "@/api/hooks/use-sessions";
 import { qk } from "@/api/query-keys";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { EmptyState } from "@/components/common/EmptyState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -113,7 +114,11 @@ export function RunDetailPage() {
           <StepsTable steps={steps} expected={run.num_steps_expected} startStep={run.start_step} sessionNames={names} />
         </TabsContent>
         <TabsContent value="log" className="min-h-0 flex-1">
-          <LogConsole lines={lines} title={job?.id} className="h-[60vh]" />
+          {job ? (
+            <LogConsole lines={lines} title={job.id} className="h-[60vh]" />
+          ) : (
+            <EmptyState title={t("run.log.none")} body={t("run.log.imported")} />
+          )}
         </TabsContent>
         <TabsContent value="viz" className="min-h-0 flex-1">
           <RunViewer rid={rid} runId={runId} logLines={lines} hasJob={!!job} />

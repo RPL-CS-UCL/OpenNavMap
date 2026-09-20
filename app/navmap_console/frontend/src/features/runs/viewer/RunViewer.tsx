@@ -10,6 +10,7 @@ import { PanelDock } from "./PanelDock";
 import { SceneToolbar } from "./SceneToolbar";
 import { StepList } from "./StepList";
 import { StepSlider } from "./StepSlider";
+import { useLiveSteps } from "./use-live-steps";
 import { useStepUrl } from "./use-step-url";
 import { useViewerHotkeys } from "./use-viewer-hotkeys";
 
@@ -27,6 +28,7 @@ export function RunViewer({ rid, runId, logLines = [], hasJob = true }: {
   }, [rid, runId]);
   useStepUrl();
   useViewerHotkeys();
+  useLiveSteps(rid, runId);
 
   // Summaries define the step axis; follow mode (or no step yet) lands on the newest step.
   useEffect(() => {

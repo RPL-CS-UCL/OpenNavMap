@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 import { decodeSceneBundle, toScene } from "@/api/scene-bundle";
 import { t } from "@/i18n";
 import { useSceneStore } from "@/stores/scene-store";
 import { summaries } from "@/test/handlers";
 import { makeSceneFixture } from "@/test/scene-fixture";
+import { server } from "@/test/server";
 import { Inspector } from "./Inspector";
 import { PanelDock } from "./PanelDock";
 import { StepList } from "./StepList";
@@ -96,6 +98,17 @@ describe("Inspector", () => {
     qcWrap(<Inspector rid="reg_1" runId="run_20260918_120000_cd34" scene={scene} />);
     expect(screen.getByText("12")).toBeInTheDocument(); // query 端 id
     expect(screen.getByText(/0\.9/)).toBeInTheDocument(); // GNC weight
+  });
+
+  it("lists step events in the summary mode and hides the feed when empty", async () => {
+    server.use(http.get("/api/regions/:rid/runs/:runId/events", () => HttpResponse.json([
+      { demo_step: 1, merge_step: 1, stage: "vpr", event_type: "vpr_candidate", submap_id: 1, keyframe_id: null, payload: { i: 3 }, artifacts: {} },
+      { demo_step: 1, merge_step: 1, stage: "map", event_type: "map_committed", submap_id: 1, keyframe_id: null, payload: {}, artifacts: {} },
+    ])));
+    useSceneStore.getState().setMaxStep(1);
+    qcWrap(<Inspector rid="reg_1" runId="run_20260918_120000_cd34" scene={scene} />);
+    expect(await screen.findByText("vpr_candidate")).toBeInTheDocument();
+    expect(screen.getByText("map_committed")).toBeInTheDocument();
   });
 });
 

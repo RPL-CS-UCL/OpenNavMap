@@ -15,8 +15,10 @@ interface HandlerState {
   runSteps: Record<string, StepRecord[]>;
   summaries: StepSummary[];
   counter: number;
+  summaryHits: number;
+  sceneHits: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0, summaryHits: 0, sceneHits: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -26,6 +28,8 @@ export function resetState(): void {
   state.runSteps = { [run.id]: structuredClone(steps) };
   state.summaries = structuredClone(summaries);
   state.counter = 0;
+  state.summaryHits = 0;
+  state.sceneHits = 0;
 }
 resetState();
 
@@ -233,8 +237,12 @@ export const handlers = [
     return HttpResponse.json(withCounts(reg));
   }),
   // ---- results (M4) ----
-  http.get("/api/regions/:rid/runs/:runId/summaries", () => HttpResponse.json({ steps: state.summaries })),
+  http.get("/api/regions/:rid/runs/:runId/summaries", () => {
+    state.summaryHits += 1;
+    return HttpResponse.json({ steps: state.summaries });
+  }),
   http.get("/api/regions/:rid/runs/:runId/steps/:k/scene.bin", ({ params }) => {
+    state.sceneHits += 1;
     const k = Number(params.k);
     if (!state.summaries.some((s) => s.index === k)) return notFound("step");
     return HttpResponse.arrayBuffer(makeSceneFixture(12 * (k + 1), 3 * k), {
@@ -286,7 +294,7 @@ export const handlers = [
   http.get("/api/regions/:rid/runs/:runId/pairs/:a/:b/image", () =>
     new HttpResponse(imgBytes(IMAGE_PNG), { headers: { "Content-Type": "image/png" } })),
   http.post("/api/regions/:rid/runs/import", async ({ params, request }) => {
-    const body = (await request.json()) as { result_dir: string; name?: string };
+    const body = (await request.json()) as { result_dir: string; sessions_root?: string; name?: string; promote?: boolean };
     if (!body.result_dir.startsWith("/")) return HttpResponse.json({ detail: "outside allowed roots" }, { status: 403 });
     state.counter += 1;
     const created: Run = {
@@ -295,6 +303,18 @@ export const handlers = [
       job_id: null, num_steps_expected: 3, last_step_index: 2,
     };
     state.runs.push(created);
+    if (body.sessions_root) {
+      for (let i = 0; i < 3; i += 1) {
+        state.sessions.push({
+          ...structuredClone(session), id: `imp_${state.counter}_${i}`, region_id: String(params.rid),
+          name: String(i), path: `${body.sessions_root}/${i}`, source: "imported",
+        });
+      }
+    }
+    if (body.promote) {
+      const reg = state.regions.find((x) => x.id === params.rid);
+      if (reg) reg.head = { run_id: created.id, step_index: created.last_step_index ?? 0, session_ids: [], lineage: [created.id] };
+    }
     return HttpResponse.json(created);
   }),
 ];

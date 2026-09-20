@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import { t } from "@/i18n";
+import { state } from "@/test/handlers";
 import { RunDetailPage } from "./RunDetailPage";
 
 vi.mock("@/scene/SceneCanvas", () => ({ SceneCanvas: ({ scene }: { scene: unknown }) => (
@@ -48,5 +50,13 @@ describe("RunDetailPage", () => {
   it("defaults to the viz tab when ?step= is present", async () => {
     wrap("/regions/reg_1/runs/run_20260918_120000_cd34?step=0");
     expect(await screen.findByText("0 / 1")).toBeInTheDocument();
+  });
+
+  it("shows a hint instead of the log console for runs without a job", async () => {
+    state.runs[0].job_id = null;
+    wrap();
+    await screen.findByText("first merge");
+    await userEvent.click(screen.getByRole("tab", { name: t("run.log") }));
+    expect(screen.getByText(t("run.log.imported"))).toBeInTheDocument();
   });
 });
