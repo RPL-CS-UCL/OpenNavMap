@@ -79,9 +79,12 @@ class RunService:
     def __init__(self, settings: Settings, runner: JobRunner, regions: RegionStore, sessions: SessionStore,
                  runs: RunStore) -> None:
         self.settings, self.runner, self.regions, self.sessions, self.runs = settings, runner, regions, sessions, runs
-        from .evaluations import EvalService  # lazy: evaluations imports RunStore from this module
+        # lazy: both modules import RunStore from this module
+        from .evaluations import EvalService
+        from .exports import ExportService
 
         self.evals = EvalService(settings, runner, runs)
+        self.exports = ExportService(settings, runner, runs)
 
     # ---- queries ---------------------------------------------------------
     def job_of(self, run: Run) -> Optional[Job]:
@@ -279,3 +282,5 @@ class RunJobHooks(JobHooks):
             self.service.runner.bus.publish(f"run:{job.run_id}", "run.evaluated",
                                             {"run_id": job.run_id, "job_id": job.id, "kind": job.kind,
                                              "status": job.status})
+        elif job.kind == "export" and job.region_id and job.run_id:
+            self.service.exports.prune(job.region_id, job.run_id)
