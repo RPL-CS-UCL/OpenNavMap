@@ -90,7 +90,8 @@ class RegisterSessionRequest(BaseModel):
 
 # --- jobs and runs (spec §5.3 / §5.4) --------------------------------------
 
-JobKind = Literal["merge", "append", "consolidate", "official_eval", "import_results", "export", "export_verify"]
+JobKind = Literal["merge", "append", "consolidate", "official_eval", "per_step_eval", "import_results", "export",
+                  "export_verify"]
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "orphaned"]
 QueueName = Literal["gpu", "cpu"]
 

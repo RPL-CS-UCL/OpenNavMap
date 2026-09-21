@@ -24,6 +24,7 @@ def settings(tmp_path: Path):
         "NAVMAP_CONSOLE_REPO": str(REPO_ROOT),
         "NAVMAP_CONSOLE_FAKE_PIPELINE": "1",
         "NAVMAP_CONSOLE_PYTHON": sys.executable,
+        "NAVMAP_CONSOLE_EVAL_PYTHON": sys.executable,
         "MERGE_CPU_LIST": "",
     })
 

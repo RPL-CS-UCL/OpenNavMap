@@ -71,10 +71,11 @@ class JobRunner:
 
     # ---- public API ------------------------------------------------------
     def new_job(self, kind: JobKind, queue: QueueName, argv: List[str], *, region_id: Optional[str] = None,
-                run_id: Optional[str] = None, total_steps: Optional[int] = None) -> Job:
+                run_id: Optional[str] = None, total_steps: Optional[int] = None,
+                env: Optional[Dict[str, str]] = None) -> Job:
         jid = new_id("job")
         job = Job(id=jid, kind=kind, queue=queue, argv=list(argv), cwd=str(self.settings.repo_root),
-                  env=build_env(self.settings), cpu_list=resolve_cpu_list(self.settings) if queue == "gpu" else None,
+                  env=env if env is not None else build_env(self.settings), cpu_list=resolve_cpu_list(self.settings) if queue == "gpu" else None,
                   log_path=str(self.store.log_path(jid)), region_id=region_id, run_id=run_id)
         job.progress.total = total_steps
         self.store.save(job)
