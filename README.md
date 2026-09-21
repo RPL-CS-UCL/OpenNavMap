@@ -142,15 +142,16 @@ documented in [Instruction in Processing Dataset](docs/instruction_dataset.md).
 2. [Instruction in Processing Dataset](docs/instruction_dataset.md)
 3. [Benchmark Evaluation (datasets ↔ experiments, how to run)](docs/instruction_benchmark_evaluation.md)
 4. [Instruction in Data Collection (Project Aria)](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_data_collection.md)
+5. [Web console: run map merging, browse steps in 3D, evaluate and export](app/navmap_console/README.md)
 
 **LiteVLoc submodule (`third_party/litevloc_code`):**
 
-5. [Instruction in Running LiteVLoc with Offline Data](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vloc_data.md)
-6. [Instruction in Running Visual Navigation with Simulated Matterport3d](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_simu_matterport3d.md)
-7. [Instruction in Running Visual Navigation with Real Robots](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_real_robot.md)
+6. [Instruction in Running LiteVLoc with Offline Data](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vloc_data.md)
+7. [Instruction in Running Visual Navigation with Simulated Matterport3d](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_simu_matterport3d.md)
+8. [Instruction in Running Visual Navigation with Real Robots](https://github.com/RPL-CS-UCL/litevloc_code/blob/main/docs/instruction_vnav_real_robot.md)
 
 **Additional:**
-8. [Repo Structure Guide](docs/repo_structure_brief.md)
+9. [Repo Structure Guide](docs/repo_structure_brief.md)
 
 ---
 

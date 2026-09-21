@@ -145,12 +145,19 @@ Opening a run shows the three-pane viewer:
   step selected as steps land.
 - **Middle — 3D scene** of the merged point/pose graph: toolbar (camera mode, colour-by,
   node style, loop filter, layer toggles), step slider with play + speed + ghost morph,
-  and a legend.
+  and a legend. A metric ground grid (cell size and bold-line spacing are constants in
+  `scene/layers/GroundGrid.tsx`, stated in the legend) sits under the map with its lines
+  through world x=0 / y=0, and an XYZ axes marker sits at frame 0 (the world origin). Graph
+  edges and loop edges are drawn as screen-space lines (`LineSegments2`) so their width is
+  configurable — WebGL's plain lines are stuck at 1 px.
 - **Right — inspector.** The step summary (nodes, edges, components, displacement, loop
   counts), details of the selected node or loop edge (with a pair image card), and the
   live event feed of the step.
 
-A panel dock under the scene carries six tabs: **VPR matrix** (the D-matrix heatmap;
+The three panes and the panel dock below them are resizable (`react-resizable-panels`);
+the dock's collapse button shrinks it to its tab bar. The dock's `minSize` must stay a
+percentage — a px value is converted against an early, too-small measurement and silently
+overrides `defaultSize`. A panel dock under the scene carries six tabs: **VPR matrix** (the D-matrix heatmap;
 clicking a cell selects the loop), **Loop edges** (accepted/rejected table, hover and
 click drive the scene), **PGO summary**, **Culling**, **Charts** (node/edge/error over
 steps, click to jump), and **Console** (job log; imported runs have no job, so an
@@ -196,7 +203,8 @@ inspector's ATE row. The `run.evaluated` socket event refreshes them when a job 
 without the socket the summaries are polled.
 
 **Evaluation tab.** Final-map ATE (trans m / rot deg / frames), the job badge, the report
-files with preview (png/pdf) and download links, and a **Re-run evaluation** button
+files with an inline preview (png/pdf embedded in the tab; the file endpoint serves them
+`Content-Disposition: inline`) and download links, and a **Re-run evaluation** button
 (`POST .../evaluate`; 404 when the run has no GT).
 
 **Export tab.** Three bundles, each packed by an `export` job (`jobs/export_job.py`) into

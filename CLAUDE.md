@@ -68,9 +68,32 @@ bash scripts/run_map_merging.sh
 bash scripts/run_rosbag_to_multisession.sh python/rosbag_convert/config/cmt_szs_odin1.yaml
 ```
 
+### Web console (`app/navmap_console`)
+
+Browser UI to run map merging, follow each step in 3D, evaluate (ATE) and export bundles.
+Full usage in [app/navmap_console/README.md](app/navmap_console/README.md).
+
+```bash
+# production: build the frontend once, then one process on :8765 serves the API + UI
+bash app/navmap_console/scripts/build.sh
+bash app/navmap_console/scripts/serve.sh          # data root: NAVMAP_CONSOLE_DATA_ROOT
+
+# development: backend with reload (:8765) + Vite dev server (:5173)
+bash app/navmap_console/scripts/dev.sh
+
+# tests
+cd app/navmap_console/backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q
+cd app/navmap_console/frontend && pnpm test && pnpm build && pnpm check:ignored
+```
+
+Backend is Python 3.8 (no `X | Y`, no `functools.cache`) and must not import torch; ATE numbers
+only ever come from `third_party/slam_trajectory_evaluation`. Never point a test or E2E run at
+the production data root.
+
 ## Directory Structure
 
 ```
+app/navmap_console/         # web console: FastAPI backend + Vite/React frontend (see its README)
 python/
 ├── map_merge_pipeline.py   # main entry for multi-session map construction & merging
 ├── map_manager.py          # multi-graph coordination/management
