@@ -3,8 +3,9 @@
 Both run jobs/eval_job.py through the traj_evaluation toolchain (cpu queue); the console
 never computes an alignment or RMSE itself.
 """
+import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..config import Settings
 from ..jobs.env import build_env
@@ -65,3 +66,48 @@ class EvalService:
         jobs = [self.enqueue_step_eval(rid, run_id, s.index)
                 for s in self.runs.read_steps(rid, run_id) if s.status == "done" and s.dir_name]
         return [j for j in jobs if j is not None]
+
+    # ---- reads (the single "final" report) --------------------------------
+    def _final_job(self, run_id: str) -> Optional[Job]:
+        jobs = [j for j in self.runner.store.list() if j.kind == "official_eval" and j.run_id == run_id]
+        return max(jobs, key=lambda j: j.created_at) if jobs else None
+
+    def list_reports(self, rid: str, run_id: str) -> List[Dict[str, Any]]:
+        """eval.json of the final report (+ its job), or just the job while it is still queued/running."""
+        self.runs.get(rid, run_id)  # KeyError -> 404
+        eval_json = final_eval_dir(self.runs.run_dir(rid, run_id)) / "eval.json"
+        job = self._final_job(run_id)
+        if not eval_json.is_file():
+            return [] if job is None else [{"eid": "final", "status": job.status, "job": job.model_dump()}]
+        data = json.loads(eval_json.read_text())
+        if job is not None and job.status in ("queued", "running"):
+            data["status"] = job.status  # a re-run in flight supersedes the stale file
+        data.update(eid="final", job=job.model_dump() if job else None)
+        return [data]
+
+    def report_detail(self, rid: str, run_id: str, eid: str) -> Dict[str, Any]:
+        if eid != "final":
+            raise KeyError(eid)
+        items = self.list_reports(rid, run_id)
+        if not items or "ate_trans" not in items[0]:
+            raise FileNotFoundError(f"evaluation {eid} has no report yet")
+        report = self._report_dir(rid, run_id)
+        items[0]["report_files"] = sorted(str(p.relative_to(report)) for p in report.rglob("*") if p.is_file()) \
+            if report.is_dir() else []
+        return items[0]
+
+    def _report_dir(self, rid: str, run_id: str) -> Path:
+        return final_eval_dir(self.runs.run_dir(rid, run_id)) / "report"
+
+    def report_file(self, rid: str, run_id: str, eid: str, name: str) -> Path:
+        """A file below evaluations/final/report/ (nested paths allowed, escaping it is not)."""
+        self.runs.get(rid, run_id)
+        if eid != "final":
+            raise KeyError(eid)
+        report = self._report_dir(rid, run_id).resolve()
+        target = (report / name).resolve()
+        if report != target and report not in target.parents:
+            raise ValueError("path escapes report/")
+        if not target.is_file():
+            raise FileNotFoundError(name)
+        return target
