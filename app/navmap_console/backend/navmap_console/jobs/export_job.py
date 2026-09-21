@@ -109,7 +109,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     exports_dir = out_json.parent
     exports_dir.mkdir(parents=True, exist_ok=True)
     tar_path = exports_dir / f"{args.name}.tar.gz"
-    meta: Dict[str, Any] = {"name": args.name, "kind": args.kind, "status": "succeeded", "created_at": _now_iso()}
+    # keep the placeholder written by ExportService.create() (created_at/job_id): prune orders bundles by it
+    meta: Dict[str, Any] = json.loads(out_json.read_text()) if out_json.is_file() else {}
+    meta.update({"name": args.name, "kind": args.kind, "status": "succeeded"})
+    meta.setdefault("created_at", _now_iso())
     stage = exports_dir / f".stage_{args.name}"
     try:
         if args.kind == "map":

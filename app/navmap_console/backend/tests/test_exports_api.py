@@ -85,6 +85,22 @@ def test_prune_keeps_newest_three(client: TestClient, tmp_path: Path) -> None:
     assert names == ["map_2.json", "map_2.tar.gz", "map_3.json", "map_3.tar.gz", "map_4.json", "map_4.tar.gz"]
 
 
+def test_list_and_prune_follow_created_at_not_name(client: TestClient, tmp_path: Path) -> None:
+    """Bundle names sort by kind first, so the newest-first order and the prune victim must use created_at."""
+    rid, run_id = _imported_run_with_images(client, tmp_path)
+    svc = client.app.state.export_service
+    exports_dir = svc.exports_dir(rid, run_id)
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    for name, hour in (("preds_a", 3), ("map_b", 1), ("report_c", 2), ("map_d", 4)):
+        (exports_dir / f"{name}.tar.gz").write_bytes(b"x")
+        (exports_dir / f"{name}.json").write_text(json.dumps(
+            {"name": name, "kind": name.split("_")[0], "status": "succeeded",
+             "created_at": f"2026-09-20T0{hour}:00:00+00:00"}))
+    assert [i["name"] for i in _exports(client, rid, run_id)] == ["map_d", "preds_a", "report_c", "map_b"]
+    svc.prune(rid, run_id, keep=3)
+    assert [i["name"] for i in _exports(client, rid, run_id)] == ["map_d", "preds_a", "report_c"]
+
+
 def test_prune_runs_after_export_job(client: TestClient, tmp_path: Path) -> None:
     rid, run_id = _imported_run_with_images(client, tmp_path)
     for _ in range(4):

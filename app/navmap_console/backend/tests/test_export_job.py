@@ -112,3 +112,21 @@ def test_failure_writes_metadata(tmp_path: Path) -> None:
     assert rc.returncode == 1
     meta = _json_of(run_dir, "r0")
     assert meta["status"] == "failed" and "missing" in meta["error"]
+
+
+def test_placeholder_metadata_is_kept(tmp_path: Path) -> None:
+    """create() writes created_at/job_id before the job runs; the script must keep them, not restamp."""
+    run_dir = tmp_path / "run"
+    report = run_dir / "evaluations" / "final" / "report"
+    report.mkdir(parents=True)
+    (report / "plot.pdf").write_bytes(b"%PDF-fake")
+    out_json = run_dir / "exports" / "r1.json"
+    out_json.parent.mkdir(parents=True)
+    out_json.write_text(json.dumps({"name": "r1", "kind": "report", "status": "queued", "job_id": "job_x",
+                                    "created_at": "2026-09-20T01:02:03+00:00"}))
+    rc = _run("--run_dir", str(run_dir), "--kind", "report", "--name", "r1",
+              "--eval_dir", str(report), "--out_json", str(out_json))
+    assert rc.returncode == 0, rc.stderr
+    meta = _json_of(run_dir, "r1")
+    assert meta["status"] == "succeeded" and meta["entries"] == 1
+    assert meta["job_id"] == "job_x" and meta["created_at"] == "2026-09-20T01:02:03+00:00"

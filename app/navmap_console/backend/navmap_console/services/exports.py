@@ -53,16 +53,17 @@ class ExportService:
             return None
 
     def list(self, rid: str, run_id: str) -> List[Dict[str, Any]]:
+        """Bundles newest first by created_at (names sort by kind, so they are not a usable order)."""
         self.runs.get(rid, run_id)
         out: List[Dict[str, Any]] = []
-        for p in sorted(self.exports_dir(rid, run_id).glob("*.json"), reverse=True):
+        for p in self.exports_dir(rid, run_id).glob("*.json"):
             data = json.loads(p.read_text())
             data.setdefault("name", p.stem)
             status = self._job_status(data.get("job_id"))
             if status in ("queued", "running") or (status in ("failed", "cancelled") and data["status"] == "queued"):
                 data["status"] = status  # the job's state supersedes the placeholder written at create()
             out.append(data)
-        return out
+        return sorted(out, key=lambda d: (d.get("created_at", ""), d["name"]), reverse=True)
 
     def path(self, rid: str, run_id: str, name: str) -> Path:
         tar = self.exports_dir(rid, run_id) / f"{name}.tar.gz"
@@ -83,8 +84,7 @@ class ExportService:
 
     def prune(self, rid: str, run_id: str, keep: int = KEEP_RECENT) -> None:
         """Drop the oldest bundles beyond `keep` (by created_at, newest first); in-flight ones are skipped."""
-        items = sorted(self.list(rid, run_id), key=lambda d: d.get("created_at", ""), reverse=True)
-        for item in items[keep:]:
+        for item in self.list(rid, run_id)[keep:]:
             try:
                 self.delete(rid, run_id, item["name"])
             except (KeyError, RuntimeError):
