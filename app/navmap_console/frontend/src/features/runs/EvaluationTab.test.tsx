@@ -34,8 +34,17 @@ describe("EvaluationTab", () => {
       "href",
       "/api/regions/reg_1/runs/run_20260918_120000_cd34/evaluations/final/files/report_benchmark_eval_config/plot.pdf",
     );
-    // only image/pdf files get a preview link
-    expect(screen.getAllByRole("link", { name: t("run.evaluation.preview") })).toHaveLength(1);
+    // only image/pdf files get a preview button; it embeds the file inline instead of opening it
+    const previews = screen.getAllByRole("button", { name: t("run.evaluation.preview") });
+    expect(previews).toHaveLength(1);
+    expect(screen.queryByTestId("report-preview")).not.toBeInTheDocument();
+    await userEvent.click(previews[0]);
+    expect(screen.getByTestId("report-preview").querySelector("iframe")).toHaveAttribute(
+      "src",
+      "/api/regions/reg_1/runs/run_20260918_120000_cd34/evaluations/final/files/report_benchmark_eval_config/plot.pdf",
+    );
+    await userEvent.click(screen.getByRole("button", { name: t("run.evaluation.closePreview") }));
+    expect(screen.queryByTestId("report-preview")).not.toBeInTheDocument();
   });
 
   it("re-run posts to /evaluate and the list shows the queued job", async () => {

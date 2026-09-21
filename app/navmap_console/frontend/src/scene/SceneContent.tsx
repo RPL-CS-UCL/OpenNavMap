@@ -8,6 +8,7 @@ import { autoNodeStyle, nodeSizeFor } from "./build/visibility";
 import { CameraRig } from "./CameraRig";
 import { EdgesLayer } from "./layers/EdgesLayer";
 import { GhostLayer } from "./layers/GhostLayer";
+import { GroundGrid } from "./layers/GroundGrid";
 import { LoopsLayer } from "./layers/LoopsLayer";
 import { NodesLayer } from "./layers/NodesLayer";
 import { SelectionMarker } from "./layers/SelectionMarker";
@@ -26,6 +27,7 @@ export function SceneContent({ scene, palette }: { scene: Scene; palette: Palett
       <CameraRig bounds={bounds} ready />
       <ambientLight intensity={0.85} />
       <directionalLight position={[3, 5, 8]} intensity={0.5} />
+      <GroundGrid bounds={bounds} />
       {layers.ghost && <GhostLayer scene={scene} palette={palette} />}
       {layers.odom && <EdgesLayer positions={positions} pairs={scene.odom} color={palette.ref} opacity={0.9} />}
       {layers.covis && <EdgesLayer positions={positions} pairs={scene.covis} color={palette.pins[0]} opacity={0.25} />}

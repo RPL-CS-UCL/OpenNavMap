@@ -6,6 +6,7 @@ import { SceneCanvas } from "@/scene/SceneCanvas";
 import { SceneLegend } from "@/scene/SceneLegend";
 import { useSceneStore } from "@/stores/scene-store";
 import { Inspector } from "./Inspector";
+import { usePanelRef } from "react-resizable-panels";
 import { PanelDock } from "./PanelDock";
 import { SceneToolbar } from "./SceneToolbar";
 import { StepList } from "./StepList";
@@ -13,6 +14,9 @@ import { StepSlider } from "./StepSlider";
 import { useLiveSteps } from "./use-live-steps";
 import { useStepUrl } from "./use-step-url";
 import { useViewerHotkeys } from "./use-viewer-hotkeys";
+
+/** What stays visible when the dock is collapsed: its tab bar. */
+const DOCK_TAB_BAR_PX = "32px";
 
 export function RunViewer({ rid, runId, logLines = [], hasJob = true }: {
   rid: string; runId: string; logLines?: string[]; hasJob?: boolean;
@@ -44,38 +48,60 @@ export function RunViewer({ rid, runId, logLines = [], hasJob = true }: {
   }, [qc, rid, runId, step, maxStep]);
 
   const hasPrePgo = summaries.data?.[step ?? -1]?.has_pre_pgo ?? false;
+  const dockRef = usePanelRef();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-        <ResizablePanel defaultSize={20} minSize={14}>
-          <StepList steps={summaries.data} pending={summaries.isPending} />
+      {/* top (steps / scene / inspector) and the panel dock default split 1:0.75 (57.1/42.9), draggable; the dock collapses to its tab bar */}
+      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+        <ResizablePanel defaultSize={57.1} minSize={25} className="flex min-h-0 flex-col">
+          <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+            <ResizablePanel defaultSize={20} minSize={14}>
+              <StepList steps={summaries.data} pending={summaries.isPending} />
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel defaultSize={58} minSize={30} className="flex min-h-0 flex-col">
+              <SceneToolbar />
+              <div className="relative min-h-0 flex-1">
+                <SceneCanvas scene={scene.data ?? null} />
+                <div className="absolute bottom-2 left-2">
+                  <SceneLegend scene={scene.data ?? null} />
+                </div>
+              </div>
+              <StepSlider hasPrePgo={hasPrePgo} />
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel defaultSize={22} minSize={16}>
+              <Inspector rid={rid} runId={runId} scene={scene.data ?? null} />
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </ResizablePanel>
         <ResizableHandle />
-        <ResizablePanel defaultSize={58} minSize={30} className="flex min-h-0 flex-col">
-          <SceneToolbar />
-          <div className="relative min-h-0 flex-1">
-            <SceneCanvas scene={scene.data ?? null} />
-            <div className="absolute bottom-2 left-2">
-              <SceneLegend scene={scene.data ?? null} />
-            </div>
-          </div>
-          <StepSlider hasPrePgo={hasPrePgo} />
-        </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel defaultSize={22} minSize={16}>
-          <Inspector rid={rid} runId={runId} scene={scene.data ?? null} />
+        <ResizablePanel
+          panelRef={dockRef}
+          defaultSize={42.9}
+          minSize={15} /* percent: a px minSize is converted against an early, too-small group measurement and overrides defaultSize */
+          collapsible
+          collapsedSize={DOCK_TAB_BAR_PX}
+          className="flex min-h-0 flex-col"
+        >
+          <PanelDock
+            rid={rid}
+            runId={runId}
+            step={step ?? 0}
+            scene={scene.data ?? null}
+            summaries={summaries.data}
+            logLines={logLines}
+            hasJob={hasJob}
+            onToggleCollapse={() => {
+              const dock = dockRef.current;
+              if (!dock) return;
+              if (dock.isCollapsed()) dock.expand();
+              else dock.collapse();
+            }}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
-      <PanelDock
-        rid={rid}
-        runId={runId}
-        step={step ?? 0}
-        scene={scene.data ?? null}
-        summaries={summaries.data}
-        logLines={logLines}
-        hasJob={hasJob}
-      />
     </div>
   );
 }

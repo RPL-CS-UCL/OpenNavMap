@@ -1,3 +1,5 @@
+import { X } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { errorDetail } from "@/api/client";
 import { evaluationFileUrl, useEvaluations, useRerunEvaluation } from "@/api/hooks/use-evaluations";
@@ -8,11 +10,13 @@ import { JobStatusBadge } from "@/features/jobs/job-status";
 import { t } from "@/i18n";
 
 const PREVIEWABLE = /\.(png|pdf|jpe?g|svg)$/i;
+const IS_PDF = /\.pdf$/i;
 
 /** Final-map ATE from the traj_evaluation toolchain: numbers, report files and a re-run button. */
 export function EvaluationTab({ rid, runId }: { rid: string; runId: string }) {
   const evals = useEvaluations(rid, runId);
   const rerun = useRerunEvaluation(rid, runId);
+  const [previewed, setPreviewed] = useState<string | null>(null); // report file shown inline
   const rerunButton = (
     <Button
       size="sm"
@@ -61,6 +65,21 @@ export function EvaluationTab({ rid, runId }: { rid: string; runId: string }) {
       ) : (
         item.status !== "failed" && <p className="text-xs text-muted-foreground">{t("run.evaluation.pending")}</p>
       )}
+      {previewed && (
+        <div className="flex flex-col gap-1" data-testid="report-preview">
+          <div className="flex items-center justify-between gap-2 font-mono text-xs">
+            <span className="truncate">{previewed}</span>
+            <Button size="sm" variant="ghost" aria-label={t("run.evaluation.closePreview")} onClick={() => setPreviewed(null)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {IS_PDF.test(previewed) ? (
+            <iframe src={evaluationFileUrl(rid, runId, item.eid, previewed)} title={previewed} className="h-[70vh] w-full rounded-sm border" />
+          ) : (
+            <img src={evaluationFileUrl(rid, runId, item.eid, previewed)} alt={previewed} className="max-h-[70vh] w-fit rounded-sm border" />
+          )}
+        </div>
+      )}
       {item.report_files && item.report_files.length > 0 && (
         <ul className="flex flex-col gap-1">
           {item.report_files.map((f) => (
@@ -68,8 +87,8 @@ export function EvaluationTab({ rid, runId }: { rid: string; runId: string }) {
               <span className="truncate">{f}</span>
               <div className="flex shrink-0 gap-1">
                 {PREVIEWABLE.test(f) && (
-                  <Button size="sm" variant="ghost" asChild>
-                    <a href={evaluationFileUrl(rid, runId, item.eid, f)} target="_blank" rel="noreferrer">{t("run.evaluation.preview")}</a>
+                  <Button size="sm" variant={previewed === f ? "secondary" : "ghost"} onClick={() => setPreviewed(previewed === f ? null : f)}>
+                    {t("run.evaluation.preview")}
                   </Button>
                 )}
                 <Button size="sm" variant="ghost" asChild>

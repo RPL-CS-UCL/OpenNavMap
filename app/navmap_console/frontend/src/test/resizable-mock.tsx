@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useRef, type CSSProperties, type ReactNode } from "react";
 
 // jsdom cannot measure panel sizes, so react-resizable-panels computes "NaN%" flex-basis
 // values that make jsdom's CSS parser throw. Tests render a plain flex layout instead;
@@ -28,9 +28,12 @@ export function Panel({ children, className, style }: {
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
-  defaultSize?: number;
-  minSize?: number;
-  maxSize?: number;
+  defaultSize?: number | string;
+  minSize?: number | string;
+  maxSize?: number | string;
+  collapsible?: boolean;
+  collapsedSize?: number | string;
+  panelRef?: unknown;
   order?: number;
   id?: string;
 }) {
@@ -43,4 +46,14 @@ export function Panel({ children, className, style }: {
 
 export function Separator({ className }: { className?: string }) {
   return <div className={className} />;
+}
+
+/** No layout in jsdom: the imperative handle is a stand-in that only tracks the collapsed flag. */
+export function usePanelRef() {
+  const collapsed = useRef(false);
+  return useRef({
+    collapse: () => { collapsed.current = true; },
+    expand: () => { collapsed.current = false; },
+    isCollapsed: () => collapsed.current,
+  });
 }

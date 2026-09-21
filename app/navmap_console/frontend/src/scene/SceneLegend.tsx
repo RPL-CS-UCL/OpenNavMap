@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { NODE_CULLED, NODE_NEW, type Scene } from "@/api/scene-bundle";
 import { t } from "@/i18n";
 import { useSceneStore } from "@/stores/scene-store";
+import { GRID_CELL_M, GRID_SECTION_M } from "./layers/GroundGrid";
 
 interface Row { token: string; label: string }
 
@@ -47,6 +48,8 @@ export function SceneLegend({ scene }: { scene: Scene | null }) {
       {rows.map((r) => (
         <div key={r.token + r.label} className="flex items-center gap-1.5"><Swatch token={r.token} /><span>{r.label}</span></div>
       ))}
+      <div className="text-muted-foreground">{t("scene.legend.grid", { cell: GRID_CELL_M, section: GRID_SECTION_M })}</div>
+      <div className="text-muted-foreground">{t("scene.legend.axes", { size: GRID_CELL_M })}</div>
     </div>
   );
 }

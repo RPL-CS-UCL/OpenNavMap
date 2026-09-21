@@ -57,6 +57,7 @@ def test_report_file_served_and_escape_refused(client, tmp_path: Path) -> None:
     (report / "plot.pdf").write_bytes(b"%PDF-fake")
     res = client.get(f"/api/regions/{rid}/runs/{run_id}/evaluations/final/files/plot.pdf")
     assert res.status_code == 200 and res.content == b"%PDF-fake"
+    assert res.headers["content-disposition"].startswith("inline")  # browsers render the preview instead of saving it
     # nested report files are addressed by their path below report/
     nested = next(report.rglob("laptop_translation_rmse_*.txt")).relative_to(report)
     assert client.get(f"/api/regions/{rid}/runs/{run_id}/evaluations/final/files/{nested}").status_code == 200

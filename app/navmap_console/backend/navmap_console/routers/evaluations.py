@@ -40,4 +40,5 @@ async def evaluation_detail(rid: str, run_id: str, eid: str, request: Request) -
 @router.get("/regions/{rid}/runs/{run_id}/evaluations/{eid}/files/{name:path}")
 async def evaluation_file(rid: str, run_id: str, eid: str, name: str, request: Request) -> FileResponse:
     path = await _call(get_evals(request).report_file, rid, run_id, eid, name)
-    return FileResponse(path, filename=path.name)
+    # inline: the browser renders pdf/png previews; the download link uses the `download` attribute
+    return FileResponse(path, filename=path.name, content_disposition_type="inline")

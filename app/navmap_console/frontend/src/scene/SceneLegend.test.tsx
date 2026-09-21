@@ -17,6 +17,9 @@ describe("SceneLegend", () => {
     expect(screen.getByText("Reference")).toBeInTheDocument();
     expect(screen.getByText("Step 1 (current)")).toBeInTheDocument();
     expect(screen.getByText("Step 0 (pinned)")).toBeInTheDocument();
+    // the metric grid and the frame-0 axes are always explained
+    expect(screen.getByText("Grid · 10 m cells, bold line every 50 m")).toBeInTheDocument();
+    expect(screen.getByText(/Axes at frame 0/)).toBeInTheDocument();
   });
 
   it("component mode counts nodes per component", () => {
