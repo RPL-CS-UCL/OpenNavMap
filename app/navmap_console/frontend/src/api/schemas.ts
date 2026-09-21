@@ -202,6 +202,19 @@ export const stepSummarySchema = z.object({
   ate_reason: z.string().nullable(),
 });
 export const summariesSchema = z.object({ steps: z.array(stepSummarySchema) });
+/** One evaluation report (only "final" exists today); numbers come from eval.json written by the eval job. */
+export const evaluationSchema = z.object({
+  eid: z.string(),
+  status: z.string(),
+  ate_trans: z.number().nullable().optional(),
+  ate_rot: z.number().nullable().optional(),
+  frames: z.number().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  job: jobSchema.nullable().optional(),
+  report_files: z.array(z.string()).optional(),
+});
+export const evaluationsSchema = z.object({ items: z.array(evaluationSchema), evaluating: z.boolean() });
 export const dmatrixCandidateSchema = z.object({ db: z.number(), query: z.number(), stage: z.string(), gv_inliers: z.number() });
 export const dmatrixFactorSchema = z.object({
   db: z.number(), query: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),

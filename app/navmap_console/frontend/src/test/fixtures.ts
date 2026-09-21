@@ -1,4 +1,6 @@
-import type { Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport } from "@/api/types";
+import type {
+  Evaluation, Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport,
+} from "@/api/types";
 
 export const region: Region = {
   id: "reg_1",
@@ -238,3 +240,14 @@ export const summaries: StepSummary[] = [0, 1].map((k) => ({
   ate_frames: k === 0 ? null : 24,
   ate_reason: k === 0 ? "pending" : null,
 }));
+
+export const evaluation: Evaluation = {
+  eid: "final",
+  status: "succeeded",
+  ate_trans: 0.612,
+  ate_rot: 1.23,
+  frames: 24,
+  created_at: "2026-09-18T12:10:00+00:00",
+  job: { ...job, id: "job_eval_1", kind: "official_eval", queue: "cpu", status: "succeeded" },
+  report_files: ["report_benchmark_eval_config/laptop_translation_rmse_opennavmap.txt", "report_benchmark_eval_config/plot.pdf"],
+};

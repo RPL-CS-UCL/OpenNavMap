@@ -82,7 +82,10 @@ class EvalService:
         data = json.loads(eval_json.read_text())
         if job is not None and job.status in ("queued", "running"):
             data["status"] = job.status  # a re-run in flight supersedes the stale file
-        data.update(eid="final", job=job.model_dump() if job else None)
+        report = self._report_dir(rid, run_id)
+        data.update(eid="final", job=job.model_dump() if job else None,
+                    report_files=sorted(str(p.relative_to(report)) for p in report.rglob("*") if p.is_file())
+                    if report.is_dir() else [])
         return [data]
 
     def report_detail(self, rid: str, run_id: str, eid: str) -> Dict[str, Any]:
@@ -91,9 +94,6 @@ class EvalService:
         items = self.list_reports(rid, run_id)
         if not items or "ate_trans" not in items[0]:
             raise FileNotFoundError(f"evaluation {eid} has no report yet")
-        report = self._report_dir(rid, run_id)
-        items[0]["report_files"] = sorted(str(p.relative_to(report)) for p in report.rglob("*") if p.is_file()) \
-            if report.is_dir() else []
         return items[0]
 
     def _report_dir(self, rid: str, run_id: str) -> Path:

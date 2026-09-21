@@ -1,6 +1,6 @@
 import { HttpResponse, http } from "msw";
-import type { Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
-import { job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
+import type { Evaluation, Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
+import { evaluation, job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
 import { makeSceneFixture } from "./scene-fixture";
 
 export { summaries };
@@ -14,11 +14,12 @@ interface HandlerState {
   runs: Run[];
   runSteps: Record<string, StepRecord[]>;
   summaries: StepSummary[];
+  evaluations: Evaluation[];
   counter: number;
   summaryHits: number;
   sceneHits: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0, summaryHits: 0, sceneHits: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], evaluations: [], counter: 0, summaryHits: 0, sceneHits: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -27,6 +28,7 @@ export function resetState(): void {
   state.runs = [structuredClone(run)];
   state.runSteps = { [run.id]: structuredClone(steps) };
   state.summaries = structuredClone(summaries);
+  state.evaluations = [structuredClone(evaluation)];
   state.counter = 0;
   state.summaryHits = 0;
   state.sceneHits = 0;
@@ -235,6 +237,15 @@ export const handlers = [
     if (!reg) return notFound("region");
     reg.head = { run_id: body.run_id, step_index: body.step_index, session_ids: [], lineage: [body.run_id] };
     return HttpResponse.json(withCounts(reg));
+  }),
+  // ---- evaluations (M5) ----
+  http.get("/api/regions/:rid/runs/:runId/evaluations", () =>
+    HttpResponse.json({ items: state.evaluations, evaluating: state.evaluations.some((e) => e.status === "queued" || e.status === "running") })),
+  http.post("/api/regions/:rid/runs/:runId/evaluate", ({ params }) => {
+    if (params.runId === "run_no_gt") return notFound("run has no GT");
+    const queued: Job = { ...structuredClone(job), id: "job_eval_2", kind: "official_eval", queue: "cpu", status: "queued" };
+    state.evaluations = [{ eid: "final", status: "queued", job: queued }];
+    return HttpResponse.json(queued);
   }),
   // ---- results (M4) ----
   http.get("/api/regions/:rid/runs/:runId/summaries", () => {

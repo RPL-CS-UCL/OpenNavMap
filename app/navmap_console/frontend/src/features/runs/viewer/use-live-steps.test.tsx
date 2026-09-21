@@ -50,6 +50,18 @@ describe("useLiveSteps", () => {
     await waitFor(() => expect(state.sceneHits).toBeGreaterThan(0));
   });
 
+  it("invalidates summaries and the evaluations list on run.evaluated", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(<QueryClientProvider client={qc}><Harness /></QueryClientProvider>);
+    await waitFor(() => expect(state.summaryHits).toBe(1));
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    await act(async () => {
+      mock.handlers.get(`run:${RUN_ID}`)!({ topic: `run:${RUN_ID}`, type: "run.evaluated", seq: 2, ts: "", data: { kind: "per_step_eval" } });
+    });
+    await waitFor(() => expect(state.summaryHits).toBe(2));
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["regions", "reg_1", "runs", RUN_ID, "evaluations"] });
+  });
+
   it("falls back to polling while the socket is down", async () => {
     mock.status = "closed";
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });

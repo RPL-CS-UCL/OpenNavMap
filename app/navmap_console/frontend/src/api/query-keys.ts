@@ -26,5 +26,8 @@ export const qk = {
     events: (rid: string, runId: string, step: number | null, types: string) =>
       ["regions", rid, "runs", runId, "events", step, types] as const,
   },
+  evaluations: {
+    list: (rid: string, runId: string) => ["regions", rid, "runs", runId, "evaluations"] as const,
+  },
   params: { merge: ["params", "merge"] as const },
 };

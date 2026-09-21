@@ -20,6 +20,7 @@ import { LogConsole } from "@/features/jobs/LogConsole";
 import { useJobLog } from "@/features/jobs/use-job-log";
 import { t } from "@/i18n";
 import { useTopic } from "@/ws/use-socket";
+import { EvaluationTab } from "./EvaluationTab";
 import { StepsTable } from "./StepsTable";
 import { RunViewer } from "./viewer/RunViewer";
 
@@ -109,6 +110,7 @@ export function RunDetailPage() {
           <TabsTrigger value="steps">{t("run.steps.title")}</TabsTrigger>
           <TabsTrigger value="log">{t("run.log")}</TabsTrigger>
           <TabsTrigger value="viz">3D</TabsTrigger>
+          <TabsTrigger value="evaluation">{t("run.evaluation.title")}</TabsTrigger>
         </TabsList>
         <TabsContent value="steps" className="min-h-0 overflow-auto">
           <StepsTable steps={steps} expected={run.num_steps_expected} startStep={run.start_step} sessionNames={names} />
@@ -122,6 +124,9 @@ export function RunDetailPage() {
         </TabsContent>
         <TabsContent value="viz" className="min-h-0 flex-1">
           <RunViewer rid={rid} runId={runId} logLines={lines} hasJob={!!job} />
+        </TabsContent>
+        <TabsContent value="evaluation" className="min-h-0 flex-1 overflow-auto">
+          <EvaluationTab rid={rid} runId={runId} />
         </TabsContent>
       </Tabs>
       <ConfirmDialog

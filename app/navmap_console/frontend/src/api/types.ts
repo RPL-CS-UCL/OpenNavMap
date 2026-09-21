@@ -5,6 +5,8 @@ import type {
   dmatrixCandidateSchema,
   dmatrixFactorSchema,
   dmatrixSchema,
+  evaluationSchema,
+  evaluationsSchema,
   fileCheckSchema,
   fsEntrySchema,
   fsListingSchema,
@@ -63,3 +65,5 @@ export type Culling = z.infer<typeof cullingSchema>;
 export type NodeLoop = z.infer<typeof nodeLoopSchema>;
 export type NodeDetail = z.infer<typeof nodeDetailSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;
+export type Evaluation = z.infer<typeof evaluationSchema>;
+export type Evaluations = z.infer<typeof evaluationsSchema>;
