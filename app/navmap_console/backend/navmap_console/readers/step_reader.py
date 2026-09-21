@@ -10,6 +10,7 @@ import numpy as np
 
 from ..models import LoopStats, StepRecord, StepSummary
 from ..store import read_json, write_json_atomic
+from .ate import ate_fields, read_step_ate, step_eval_path, step_has_gt
 from .map_files import connected_components, read_edges, read_g2o_vertices, read_node_ids, read_poses_c2w
 from .preds_files import read_cull_rows, read_edge_history, read_gnc_weights
 from .scene_bundle import encode_scene_bundle
@@ -18,7 +19,7 @@ MOVE_THRESHOLD = 0.05  # metres; nodes the PGO moved further than this count as 
 INLIER_WEIGHT = 0.5  # PGO_INLIER_WEIGHT_THRESHOLD in python/utils_map_merging.py
 NODE_NEW, NODE_CULLED, NODE_NOT_COVIS = 1, 2, 4
 LOOP_ACCEPTED, LOOP_HIST, LOOP_OVERTURNED, LOOP_REJECTED_NEW = 1, 2, 4, 8
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 def _edge_arrays(path: Path, n: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -111,6 +112,12 @@ def build_step(step_dir: Path, record: StepRecord,
         loop_flags[i] = f
     keep = (loop_idx[:, 0] < n) & (loop_idx[:, 1] < n)
     history = read_edge_history(preds / "edge_history.txt", id_offset)
+    # step_dir is run_dir/output/<dir_name>; ATE numbers only ever come from eval.json (traj_evaluation output)
+    has_gt = step_has_gt(step_dir)
+    ate_trans, ate_rot, ate_frames, ate_reason = ate_fields(
+        read_step_ate(step_dir.parent.parent, record.index) if has_gt else None)
+    if not has_gt:
+        ate_reason = "no gt"
     summary = StepSummary(
         index=record.index, dir_name=step_dir.name, session_id=record.session_id, status=record.status,
         id_offset=id_offset, num_nodes=n, num_covis_nodes=len(covis_ids) if covis_ids else n,
@@ -123,7 +130,8 @@ def build_step(step_dir: Path, record: StepRecord,
         num_moved=int((disp > MOVE_THRESHOLD).sum()) if has_pre else 0,
         duration_s=_duration(record),
         has_dmatrix=(preds / "D_matrix.npy").is_file() and (preds / "D_matrix_axes.json").is_file(),
-        has_pre_pgo=has_pre)
+        has_pre_pgo=has_pre,
+        ate_trans_rmse=ate_trans, ate_rot_rmse=ate_rot, ate_frames=ate_frames, ate_reason=ate_reason)
     arrays: Dict[str, np.ndarray] = {
         "node_id": np.arange(n, dtype=np.uint32), "node_pos": poses.pos, "node_pos_pre": pos_pre.astype(np.float32),
         "node_quat": poses.quat, "node_step": _node_steps(n, offsets), "node_comp": comp, "node_flags": flags,
@@ -136,7 +144,7 @@ def build_step(step_dir: Path, record: StepRecord,
 
 
 class StepCache:
-    """cache/steps/<dir_name>.summary.json + .scene.bin, keyed on poses.txt mtime/size and the step record."""
+    """cache/steps/<dir_name>.summary.json + .scene.bin, keyed on poses.txt mtime/size, the step record and eval.json."""
 
     def __init__(self, run_dir: Path) -> None:
         self.dir = run_dir / "cache" / "steps"
@@ -144,7 +152,9 @@ class StepCache:
     @staticmethod
     def _source(step_dir: Path, record: StepRecord, offsets: Sequence[Tuple[int, int]]) -> str:
         st = (step_dir / "poses.txt").stat()
-        extra = hashlib.sha1(json.dumps([record.model_dump(), list(map(list, offsets))], sort_keys=True)
+        eval_path = step_eval_path(step_dir.parent.parent, record.index)
+        eval_mtime = str(eval_path.stat().st_mtime_ns) if eval_path.is_file() else "none"
+        extra = hashlib.sha1(json.dumps([record.model_dump(), list(map(list, offsets)), eval_mtime], sort_keys=True)
                              .encode()).hexdigest()[:12]
         return f"{st.st_mtime_ns}:{st.st_size}:{extra}"
 

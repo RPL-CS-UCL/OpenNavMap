@@ -177,6 +177,11 @@ class StepSummary(BaseModel):
     duration_s: Optional[float] = None
     has_dmatrix: bool = False
     has_pre_pgo: bool = False
+    # per-step ATE from evaluations/per_step/step_XX/eval.json; reason is None when the numbers are valid
+    ate_trans_rmse: Optional[float] = None
+    ate_rot_rmse: Optional[float] = None
+    ate_frames: Optional[int] = None
+    ate_reason: Optional[str] = None
 
 
 class RunParent(BaseModel):

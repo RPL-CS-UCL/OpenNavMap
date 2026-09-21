@@ -142,3 +142,84 @@ def test_fake_pipeline_prints_cumulative_step_done(tmp_path: Path, capsys):
     assert "STEP_DONE index=0 sid=a" in out and "id_offset=0 odom_nodes=12" in out
     assert "id_offset=12 odom_nodes=24 covis_nodes=24 components=1 registry=1" in out
     assert (tmp_path / "out" / "merge_finalmap").resolve() == (tmp_path / "out" / "merge_001_b").resolve()
+
+
+# --- per-step ATE fields (M5) -------------------------------------------------
+
+def _make_step(tmp_path: Path, with_gt: bool) -> Path:
+    """A minimal merge_* directory under a fake run dir; no preds/ files needed."""
+    run_dir = tmp_path / "run"
+    step = run_dir / "output" / "merge_0"
+    (step / "seq").mkdir(parents=True)
+    (step / "preds").mkdir()
+    lines = [f"seq/{i:06d}.color.jpg 1 0 0 0 {i}.0 0 0" for i in range(3)]
+    (step / "poses.txt").write_text("\n".join(lines) + "\n")
+    (step / "intrinsics.txt").write_text("\n".join(f"seq/{i:06d}.color.jpg 1 1 1 1 1 1" for i in range(3)) + "\n")
+    for name in ("edges_odom.txt", "edges_covis.txt", "edges_trav.txt"):
+        (step / name).write_text("")
+    if with_gt:
+        (step / "poses_abs_gt.txt").write_text("\n".join(lines) + "\n")
+        (step / "timestamps.txt").write_text(
+            "\n".join(f"seq/{i:06d}.color.jpg {1000 + i}.0" for i in range(3)) + "\n")
+    return step
+
+
+def test_build_step_ate_fields_no_gt(tmp_path: Path):
+    from navmap_console.models import StepRecord
+    from navmap_console.readers import step_reader as sr
+
+    step = _make_step(tmp_path, with_gt=False)
+    rec = StepRecord(index=0, session_id="s", status="done")
+    summary, _ = sr.build_step(step, rec, [(0, 0)])
+    assert summary.ate_trans_rmse is None
+    assert summary.ate_reason == "no gt"
+
+
+def test_build_step_ate_fields_pending(tmp_path: Path):
+    from navmap_console.models import StepRecord
+    from navmap_console.readers import step_reader as sr
+
+    step = _make_step(tmp_path, with_gt=True)
+    rec = StepRecord(index=0, session_id="s", status="done")
+    summary, _ = sr.build_step(step, rec, [(0, 0)])
+    assert summary.ate_trans_rmse is None
+    assert summary.ate_reason == "pending"
+
+
+def test_build_step_ate_fields_from_eval_json(tmp_path: Path):
+    import json
+
+    from navmap_console.models import StepRecord
+    from navmap_console.readers import step_reader as sr
+    from navmap_console.readers.ate import step_eval_path
+
+    step = _make_step(tmp_path, with_gt=True)
+    p = step_eval_path(step.parent.parent, 0)
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"status": "succeeded", "ate_trans": 0.612, "ate_rot": 1.23, "frames": 3}))
+    rec = StepRecord(index=0, session_id="s", status="done")
+    summary, _ = sr.build_step(step, rec, [(0, 0)])
+    assert summary.ate_trans_rmse == 0.612
+    assert summary.ate_rot_rmse == 1.23
+    assert summary.ate_frames == 3
+    assert summary.ate_reason is None
+
+
+def test_step_cache_invalidates_when_eval_json_appears(tmp_path: Path):
+    import json
+
+    from navmap_console.models import StepRecord
+    from navmap_console.readers.ate import step_eval_path
+    from navmap_console.readers.step_reader import StepCache
+
+    step = _make_step(tmp_path, with_gt=True)
+    run_dir = step.parent.parent
+    rec = StepRecord(index=0, session_id="s", status="done")
+    cache = StepCache(run_dir)
+    first, _ = cache.get(step, rec, [(0, 0)])
+    assert first.ate_reason == "pending"
+    p = step_eval_path(run_dir, 0)
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"status": "succeeded", "ate_trans": 0.612, "ate_rot": 1.23, "frames": 3}))
+    second, _ = cache.get(step, rec, [(0, 0)])
+    assert second.ate_trans_rmse == 0.612
