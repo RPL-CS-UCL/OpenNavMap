@@ -12,6 +12,24 @@ When running any OpenNavMap script, `PYTHONPATH` must include both paths:
 export PYTHONPATH=$(pwd)/python:$(pwd)/third_party/litevloc_code/python
 ```
 
+## Working Guidelines
+
+Behavioral rules for coding in this repo (after Karpathy's notes on LLM coding pitfalls).
+They bias toward caution over speed; use judgment on trivial tasks.
+
+1. **Think before coding.** State assumptions explicitly; if uncertain, ask. If several
+   interpretations exist, present them instead of picking one silently. If a simpler
+   approach exists, say so and push back.
+2. **Simplicity first.** Write the minimum code that solves the problem: no features beyond
+   the ask, no abstractions for single-use code, no unrequested configurability, no error
+   handling for impossible cases. If 200 lines could be 50, rewrite.
+3. **Surgical changes.** Touch only what the request requires. Do not "improve" adjacent
+   code, comments, or formatting; match existing style. Remove only the imports/variables
+   your change orphaned; mention pre-existing dead code, do not delete it.
+4. **Goal-driven execution.** Turn the task into a verifiable goal ("fix the bug" -> "write a
+   test that reproduces it, then make it pass"). For multi-step work, state a short plan
+   with a check per step, then loop until every check passes.
+
 ## Common Commands
 
 ```bash
