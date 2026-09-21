@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_DIR.parents[2]
-for p in (BACKEND_DIR, REPO_ROOT / "python"):
+for p in (BACKEND_DIR, REPO_ROOT / "python", REPO_ROOT / "third_party" / "litevloc_code" / "python"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 

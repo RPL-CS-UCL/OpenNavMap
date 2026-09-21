@@ -57,6 +57,11 @@ async def culling(rid: str, run_id: str, k: int, request: Request) -> Dict[str, 
     return await _call(get_results(request).culling, rid, run_id, k)
 
 
+@router.get("/steps/{k}/geo.json")
+async def geo(rid: str, run_id: str, k: int, request: Request) -> Dict[str, Any]:
+    return await _call(get_results(request).geo, rid, run_id, k)
+
+
 @router.get("/steps/{k}/nodes/{nid}")
 async def node_detail(rid: str, run_id: str, k: int, nid: int, request: Request) -> Dict[str, Any]:
     return await _call(get_results(request).node_detail, rid, run_id, k, nid)
