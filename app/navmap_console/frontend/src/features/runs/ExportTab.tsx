@@ -54,15 +54,15 @@ export function ExportTab({ rid, runId }: { rid: string; runId: string }) {
             return (
               <li key={e.name} className="flex items-center justify-between gap-2 rounded-sm border px-2 py-1 text-xs">
                 <div className="flex min-w-0 items-center gap-2">
-                  <JobStatusBadge status={e.status === "done" ? "succeeded" : e.status} />
+                  <JobStatusBadge status={e.status} />
                   <span className="truncate font-mono">{e.name}</span>
-                  {e.status === "done" && typeof e.size === "number" && (
+                  {e.status === "succeeded" && typeof e.size === "number" && (
                     <span className="text-muted-foreground">{formatBytes(e.size)}</span>
                   )}
                   {e.status === "failed" && e.error && <span className="truncate text-destructive">{e.error}</span>}
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  {e.status === "done" && (
+                  {e.status === "succeeded" && (
                     <Button size="sm" variant="ghost" asChild>
                       <a href={exportDownloadUrl(rid, runId, e.name)} download>{t("run.export.download")}</a>
                     </Button>

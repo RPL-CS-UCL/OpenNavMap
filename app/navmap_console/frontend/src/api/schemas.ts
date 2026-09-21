@@ -220,7 +220,7 @@ export const exportKindSchema = z.enum(["map", "report", "preds"]);
 export const exportItemSchema = z.object({
   name: z.string(),
   kind: exportKindSchema,
-  status: z.enum(["queued", "running", "done", "failed", "cancelled"]),
+  status: jobStatusSchema,  // same vocabulary as jobs: the job state until packed, then the script's "succeeded"/"failed"
   created_at: z.string().nullable().optional(),
   job_id: z.string().nullable().optional(),
   steps: z.array(z.number()).nullable().optional(),

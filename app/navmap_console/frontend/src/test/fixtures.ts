@@ -255,7 +255,7 @@ export const evaluation: Evaluation = {
 export const exportItem: ExportItem = {
   name: "map_20260918_121500",
   kind: "map",
-  status: "done",
+  status: "succeeded",
   created_at: "2026-09-18T12:15:00+00:00",
   job_id: "job_export_1",
   steps: null,

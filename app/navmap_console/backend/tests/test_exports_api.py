@@ -34,6 +34,7 @@ def test_create_list_download_delete(client: TestClient, tmp_path: Path) -> None
     item = _exports(client, rid, run_id)[0]
     assert item["status"] == "succeeded", item
     assert item["size"] > 0 and len(item["sha256"]) == 64
+    assert item["verified"] is True  # map bundles are re-extracted and checked
     dl = client.get(f"/api/regions/{rid}/runs/{run_id}/exports/{name}/download")
     assert dl.status_code == 200 and dl.content[:2] == b"\x1f\x8b"
     assert client.delete(f"/api/regions/{rid}/runs/{run_id}/exports/{name}").status_code == 204

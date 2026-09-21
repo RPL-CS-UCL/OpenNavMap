@@ -29,8 +29,10 @@ class ExportService:
         out_json = self.exports_dir(rid, run_id) / f"{name}.json"
         argv = [str(self.settings.python), str(EXPORT_SCRIPT), "--run_dir", str(run_dir),
                 "--kind", kind, "--name", name, "--out_json", str(out_json)]
-        if kind == "map" and image_sources:
-            argv += ["--sources", ":".join(str(p) for p in image_sources)]
+        if kind == "map":
+            argv.append("--verify")  # spec §4.3: the navigation-map bundle is re-extracted and checked
+            if image_sources:
+                argv += ["--sources", ":".join(str(p) for p in image_sources)]
         if kind == "report":
             argv += ["--eval_dir", str(final_eval_dir(run_dir) / "report")]
         if kind == "preds" and steps:
