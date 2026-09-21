@@ -67,6 +67,7 @@ The repository consists of three main lines:
 - [📦 Testing Data](#-testing-data)
 - [📚 Documentation](#-documentation)
 - [📊 Multi-Session Mapping Experiment](#-multi-session-mapping-experiment)
+- [🖥️ Web Console](#-web-console)
 - [🎬 Results Gallery](#-results-gallery)
 - [🐛 Known Issues](#-known-issues)
 - [🔗 Citation](#-citation)
@@ -170,6 +171,27 @@ The pipeline incrementally aligns submaps into a globally consistent map
 the ATE against ground truth. See [Instruction in Running Map Merging](docs/instruction_map_merging.md)
 for the full argument reference, and [Benchmark Evaluation](docs/instruction_benchmark_evaluation.md)
 for how each released dataset maps to a paper experiment.
+
+---
+
+## 🖥️ Web Console
+
+A browser UI (`app/navmap_console`) that starts map-merging runs, follows every merge step in
+an interactive 3D view, evaluates the ATE and packs the results for download. It needs the
+`opennavmap` conda environment plus Node >= 20 and pnpm; the first launch builds the frontend:
+
+```bash
+conda activate opennavmap
+cd app/navmap_console/frontend && pnpm install && cd ../../..
+bash app/navmap_console/scripts/build.sh      # bundles the frontend into frontend/dist (once, and after every UI change)
+NAVMAP_CONSOLE_DATA_ROOT=/path/to/console_data bash app/navmap_console/scripts/serve.sh
+```
+
+Then open `http://<server-ip>:8765` in a browser on the same LAN (the API docs are at
+`/api/docs`). `NAVMAP_CONSOLE_DATA_ROOT` is where the console keeps its sessions, runs and
+job records; every other setting has a default. There is no login, so keep it on a trusted
+network. `bash app/navmap_console/scripts/dev.sh` starts the hot-reloading development setup
+instead. See [the console README](app/navmap_console/README.md) for the full usage.
 
 ---
 
