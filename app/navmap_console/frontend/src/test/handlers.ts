@@ -1,6 +1,6 @@
 import { HttpResponse, http } from "msw";
-import type { Evaluation, Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
-import { evaluation, job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
+import type { Evaluation, ExportItem, Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
+import { evaluation, exportItem, job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
 import { makeSceneFixture } from "./scene-fixture";
 
 export { summaries };
@@ -15,11 +15,12 @@ interface HandlerState {
   runSteps: Record<string, StepRecord[]>;
   summaries: StepSummary[];
   evaluations: Evaluation[];
+  exports: ExportItem[];
   counter: number;
   summaryHits: number;
   sceneHits: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], evaluations: [], counter: 0, summaryHits: 0, sceneHits: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], evaluations: [], exports: [], counter: 0, summaryHits: 0, sceneHits: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -29,6 +30,7 @@ export function resetState(): void {
   state.runSteps = { [run.id]: structuredClone(steps) };
   state.summaries = structuredClone(summaries);
   state.evaluations = [structuredClone(evaluation)];
+  state.exports = [structuredClone(exportItem)];
   state.counter = 0;
   state.summaryHits = 0;
   state.sceneHits = 0;
@@ -246,6 +248,26 @@ export const handlers = [
     const queued: Job = { ...structuredClone(job), id: "job_eval_2", kind: "official_eval", queue: "cpu", status: "queued" };
     state.evaluations = [{ eid: "final", status: "queued", job: queued }];
     return HttpResponse.json(queued);
+  }),
+  // ---- exports (M5) ----
+  http.get("/api/regions/:rid/runs/:runId/exports", () => HttpResponse.json({ items: state.exports })),
+  http.post("/api/regions/:rid/runs/:runId/exports", async ({ request }) => {
+    const body = (await request.json()) as { kind: ExportItem["kind"]; steps?: number[] };
+    const queued: Job = { ...structuredClone(job), id: "job_export_2", kind: "export", queue: "cpu", status: "queued" };
+    state.exports = [
+      { name: `${body.kind}_20260918_130000`, kind: body.kind, status: "queued", job_id: queued.id, created_at: "2026-09-18T13:00:00+00:00", steps: body.steps ?? null },
+      ...state.exports,
+    ];
+    return HttpResponse.json(queued, { status: 201 });
+  }),
+  http.delete("/api/regions/:rid/runs/:runId/exports/:name", ({ params }) => {
+    const item = state.exports.find((e) => e.name === params.name);
+    if (!item) return notFound("export");
+    if (item.status === "queued" || item.status === "running") {
+      return HttpResponse.json({ detail: `export ${item.name} is still packing` }, { status: 409 });
+    }
+    state.exports = state.exports.filter((e) => e.name !== params.name);
+    return new HttpResponse(null, { status: 204 });
   }),
   // ---- results (M4) ----
   http.get("/api/regions/:rid/runs/:runId/summaries", () => {

@@ -215,6 +215,22 @@ export const evaluationSchema = z.object({
   report_files: z.array(z.string()).optional(),
 });
 export const evaluationsSchema = z.object({ items: z.array(evaluationSchema), evaluating: z.boolean() });
+export const exportKindSchema = z.enum(["map", "report", "preds"]);
+/** One download bundle under exports/; metadata json written by export_job.py (size/sha256 once packed). */
+export const exportItemSchema = z.object({
+  name: z.string(),
+  kind: exportKindSchema,
+  status: z.enum(["queued", "running", "done", "failed", "cancelled"]),
+  created_at: z.string().nullable().optional(),
+  job_id: z.string().nullable().optional(),
+  steps: z.array(z.number()).nullable().optional(),
+  entries: z.number().nullable().optional(),
+  size: z.number().nullable().optional(),
+  sha256: z.string().nullable().optional(),
+  verified: z.boolean().nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+export const exportsSchema = z.object({ items: z.array(exportItemSchema) });
 export const dmatrixCandidateSchema = z.object({ db: z.number(), query: z.number(), stage: z.string(), gv_inliers: z.number() });
 export const dmatrixFactorSchema = z.object({
   db: z.number(), query: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),

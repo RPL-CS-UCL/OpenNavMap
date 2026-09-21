@@ -1,5 +1,5 @@
 import type {
-  Evaluation, Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport,
+  Evaluation, ExportItem, Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport,
 } from "@/api/types";
 
 export const region: Region = {
@@ -250,4 +250,17 @@ export const evaluation: Evaluation = {
   created_at: "2026-09-18T12:10:00+00:00",
   job: { ...job, id: "job_eval_1", kind: "official_eval", queue: "cpu", status: "succeeded" },
   report_files: ["report_benchmark_eval_config/laptop_translation_rmse_opennavmap.txt", "report_benchmark_eval_config/plot.pdf"],
+};
+
+export const exportItem: ExportItem = {
+  name: "map_20260918_121500",
+  kind: "map",
+  status: "done",
+  created_at: "2026-09-18T12:15:00+00:00",
+  job_id: "job_export_1",
+  steps: null,
+  entries: 12,
+  size: 2_621_440,
+  sha256: "ab".repeat(32),
+  verified: true,
 };

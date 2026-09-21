@@ -21,6 +21,7 @@ import { useJobLog } from "@/features/jobs/use-job-log";
 import { t } from "@/i18n";
 import { useTopic } from "@/ws/use-socket";
 import { EvaluationTab } from "./EvaluationTab";
+import { ExportTab } from "./ExportTab";
 import { StepsTable } from "./StepsTable";
 import { RunViewer } from "./viewer/RunViewer";
 
@@ -111,6 +112,7 @@ export function RunDetailPage() {
           <TabsTrigger value="log">{t("run.log")}</TabsTrigger>
           <TabsTrigger value="viz">3D</TabsTrigger>
           <TabsTrigger value="evaluation">{t("run.evaluation.title")}</TabsTrigger>
+          <TabsTrigger value="export">{t("run.export.title")}</TabsTrigger>
         </TabsList>
         <TabsContent value="steps" className="min-h-0 overflow-auto">
           <StepsTable steps={steps} expected={run.num_steps_expected} startStep={run.start_step} sessionNames={names} />
@@ -127,6 +129,9 @@ export function RunDetailPage() {
         </TabsContent>
         <TabsContent value="evaluation" className="min-h-0 flex-1 overflow-auto">
           <EvaluationTab rid={rid} runId={runId} />
+        </TabsContent>
+        <TabsContent value="export" className="min-h-0 flex-1 overflow-auto">
+          <ExportTab rid={rid} runId={runId} />
         </TabsContent>
       </Tabs>
       <ConfirmDialog
