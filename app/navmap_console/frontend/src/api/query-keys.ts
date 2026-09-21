@@ -21,6 +21,7 @@ export const qk = {
     scene: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "scene", k] as const,
     dmatrix: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "dmatrix", k] as const,
     culling: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "culling", k] as const,
+    geo: (rid: string, runId: string, k: number) => ["regions", rid, "runs", runId, "geo", k] as const,
     node: (rid: string, runId: string, k: number, nid: number) =>
       ["regions", rid, "runs", runId, "node", k, nid] as const,
     events: (rid: string, runId: string, step: number | null, types: string) =>

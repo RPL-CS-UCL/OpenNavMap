@@ -257,6 +257,17 @@ export const cullRowSchema = z.object({
   vis_url: z.string().nullable(),
 });
 export const cullingSchema = z.object({ culled: z.array(cullRowSchema), kept: z.array(cullRowSchema) });
+const latLon = z.tuple([z.number(), z.number()]);
+/** GPS-aligned trajectory of one step (readers/geo.py): traj has one [lat, lon] per frame, gps the raw fixes. */
+export const geoSchema = z.object({
+  origin: latLon.nullable(),
+  n_frames: z.number(),
+  n_gps: z.number(),
+  traj: z.array(latLon),
+  gps: z.array(latLon),
+  rmse_m: z.number().nullable(),
+  reason: z.string().nullable(),
+});
 export const nodeLoopSchema = z.object({
   other: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),
 });

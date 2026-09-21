@@ -3,8 +3,8 @@ import { z } from "zod";
 import { ApiError, apiGet, apiGetBinary, apiSend } from "../client";
 import { qk } from "../query-keys";
 import { type Scene, decodeSceneBundle, toScene } from "../scene-bundle";
-import { cullingSchema, dmatrixSchema, nodeDetailSchema, runEventSchema, runSchema, summariesSchema } from "../schemas";
-import type { Culling, DMatrix, NodeDetail, Run, RunEvent, StepSummary } from "../types";
+import { cullingSchema, dmatrixSchema, geoSchema, nodeDetailSchema, runEventSchema, runSchema, summariesSchema } from "../schemas";
+import type { Culling, DMatrix, Geo, NodeDetail, Run, RunEvent, StepSummary } from "../types";
 
 const base = (rid: string, runId: string) => `/api/regions/${rid}/runs/${runId}`;
 
@@ -71,6 +71,15 @@ export function useCulling(rid: string, runId: string, k: number | null) {
   return useQuery({
     queryKey: qk.results.culling(rid, runId, k ?? -1),
     queryFn: (): Promise<Culling> => apiGet(`${base(rid, runId)}/steps/${k}/culling.json`, cullingSchema),
+    enabled: !!rid && !!runId && k !== null && k >= 0,
+    staleTime: Infinity,
+  });
+}
+
+export function useGeo(rid: string, runId: string, k: number | null) {
+  return useQuery({
+    queryKey: qk.results.geo(rid, runId, k ?? -1),
+    queryFn: (): Promise<Geo> => apiGet(`${base(rid, runId)}/steps/${k}/geo.json`, geoSchema),
     enabled: !!rid && !!runId && k !== null && k >= 0,
     staleTime: Infinity,
   });

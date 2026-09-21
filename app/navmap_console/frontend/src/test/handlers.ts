@@ -18,9 +18,10 @@ interface HandlerState {
   exports: ExportItem[];
   counter: number;
   summaryHits: number;
+  geoHits: number;
   sceneHits: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], evaluations: [], exports: [], counter: 0, summaryHits: 0, sceneHits: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], evaluations: [], exports: [], counter: 0, summaryHits: 0, geoHits: 0, sceneHits: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -33,6 +34,7 @@ export function resetState(): void {
   state.exports = [structuredClone(exportItem)];
   state.counter = 0;
   state.summaryHits = 0;
+  state.geoHits = 0;
   state.sceneHits = 0;
 }
 resetState();
@@ -297,6 +299,17 @@ export const handlers = [
     const has = state.summaries.find((s) => s.index === k)?.has_dmatrix ?? false;
     return new HttpResponse(imgBytes(has ? IMAGE_PNG : IMAGE_JPEG), {
       headers: { "Content-Type": has ? "image/png" : "image/jpeg" },
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/geo.json", ({ params }) => {
+    state.geoHits += 1;
+    const k = Number(params.k);
+    if (!state.summaries.some((s) => s.index === k)) return notFound(`step ${k}`);
+    if (k === 0) return HttpResponse.json({ origin: null, n_frames: 2, n_gps: 0, traj: [], gps: [], rmse_m: null, reason: "no_gps" });
+    return HttpResponse.json({
+      origin: [51.5368, -0.0096], n_frames: 3, n_gps: 2, rmse_m: 4.2, reason: null,
+      traj: [[51.5368, -0.0096], [51.5369, -0.0095], [51.537, -0.0094]],
+      gps: [[51.53681, -0.00961], [51.53701, -0.00939]],
     });
   }),
   http.get("/api/regions/:rid/runs/:runId/steps/:k/culling.json", ({ params }) => {

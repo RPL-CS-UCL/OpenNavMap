@@ -10,6 +10,7 @@ import type {
   exportItemSchema,
   exportKindSchema,
   fileCheckSchema,
+  geoSchema,
   fsEntrySchema,
   fsListingSchema,
   healthSchema,
@@ -71,3 +72,4 @@ export type Evaluation = z.infer<typeof evaluationSchema>;
 export type Evaluations = z.infer<typeof evaluationsSchema>;
 export type ExportKind = z.infer<typeof exportKindSchema>;
 export type ExportItem = z.infer<typeof exportItemSchema>;
+export type Geo = z.infer<typeof geoSchema>;
