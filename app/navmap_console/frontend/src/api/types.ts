@@ -5,7 +5,12 @@ import type {
   dmatrixCandidateSchema,
   dmatrixFactorSchema,
   dmatrixSchema,
+  evaluationSchema,
+  evaluationsSchema,
+  exportItemSchema,
+  exportKindSchema,
   fileCheckSchema,
+  geoSchema,
   fsEntrySchema,
   fsListingSchema,
   healthSchema,
@@ -63,3 +68,8 @@ export type Culling = z.infer<typeof cullingSchema>;
 export type NodeLoop = z.infer<typeof nodeLoopSchema>;
 export type NodeDetail = z.infer<typeof nodeDetailSchema>;
 export type RunEvent = z.infer<typeof runEventSchema>;
+export type Evaluation = z.infer<typeof evaluationSchema>;
+export type Evaluations = z.infer<typeof evaluationsSchema>;
+export type ExportKind = z.infer<typeof exportKindSchema>;
+export type ExportItem = z.infer<typeof exportItemSchema>;
+export type Geo = z.infer<typeof geoSchema>;

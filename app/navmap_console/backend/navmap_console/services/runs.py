@@ -12,6 +12,7 @@ from ..store import list_records, new_id, read_json, write_json_atomic
 from .catalog import RegionStore, SessionStore
 
 log = logging.getLogger(__name__)
+EVAL_KINDS = ("per_step_eval", "official_eval")  # job kinds owned by services/evaluations.py
 IMAGE_SIZE = (512, 288)
 
 
@@ -78,6 +79,12 @@ class RunService:
     def __init__(self, settings: Settings, runner: JobRunner, regions: RegionStore, sessions: SessionStore,
                  runs: RunStore) -> None:
         self.settings, self.runner, self.regions, self.sessions, self.runs = settings, runner, regions, sessions, runs
+        # lazy: both modules import RunStore from this module
+        from .evaluations import EvalService
+        from .exports import ExportService
+
+        self.evals = EvalService(settings, runner, runs)
+        self.exports = ExportService(settings, runner, runs)
 
     # ---- queries ---------------------------------------------------------
     def job_of(self, run: Run) -> Optional[Job]:
@@ -209,6 +216,7 @@ class RunService:
         if kind == "step_done":
             self.runner.bus.publish(f"run:{run_id}", "run.step_completed",
                                     {"run_id": run_id, "step": steps[-1].model_dump()})
+            self.evals.enqueue_step_eval(rid, run_id, steps[-1].index)
 
     async def finish(self, job: Job) -> None:
         rid, run_id = job.region_id or "", job.run_id or ""
@@ -224,6 +232,8 @@ class RunService:
             await self._consolidate_final(rid, run, steps)
         self.runs.save(run)
         self.runner.bus.publish(f"run:{run_id}", "run.state", run.model_dump())
+        if job.status == "succeeded":
+            self.evals.enqueue_final_eval(rid, run_id)
 
     async def _consolidate_final(self, rid: str, run: Run, steps: List[StepRecord]) -> None:
         done = [s for s in steps if s.status == "done"]
@@ -267,3 +277,10 @@ class RunJobHooks(JobHooks):
     async def on_finished(self, job: Job) -> None:
         if job.run_id and job.kind in ("merge", "append"):
             await self.service.finish(job)
+        elif job.run_id and job.kind in EVAL_KINDS:
+            # summaries/evaluations read eval.json lazily; tell subscribers it changed
+            self.service.runner.bus.publish(f"run:{job.run_id}", "run.evaluated",
+                                            {"run_id": job.run_id, "job_id": job.id, "kind": job.kind,
+                                             "status": job.status})
+        elif job.kind == "export" and job.region_id and job.run_id:
+            self.service.exports.prune(job.region_id, job.run_id)

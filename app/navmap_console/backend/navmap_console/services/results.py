@@ -11,6 +11,7 @@ from ..config import Settings
 from ..models import StepRecord, StepSummary
 from ..readers import step_reader as sr
 from ..readers.events import EventIndex
+from ..readers.geo import aligned_trajectory
 from ..readers.image_index import ImageIndex, pair_image, thumbnail
 from ..readers.map_files import read_poses_c2w, read_timestamps
 from ..readers.preds_files import read_cull_rows, read_dmatrix, read_edge_history, read_gnc_weights
@@ -213,6 +214,10 @@ class ResultService:
         if left is None or right is None:
             raise KeyError(f"no image for node pair {a},{b}")
         return pair_image(left, right, width, self._thumb_dir(rid, run_id))
+
+    def geo(self, rid: str, run_id: str, k: int) -> Dict[str, Any]:
+        _, step_dir, _ = self._step(rid, run_id, k)
+        return aligned_trajectory(step_dir)
 
     def preds_file(self, rid: str, run_id: str, k: int, name: str) -> Path:
         _, step_dir, _ = self._step(rid, run_id, k)

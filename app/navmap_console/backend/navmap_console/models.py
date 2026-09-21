@@ -90,7 +90,8 @@ class RegisterSessionRequest(BaseModel):
 
 # --- jobs and runs (spec §5.3 / §5.4) --------------------------------------
 
-JobKind = Literal["merge", "append", "consolidate", "official_eval", "import_results", "export", "export_verify"]
+JobKind = Literal["merge", "append", "consolidate", "official_eval", "per_step_eval", "import_results", "export",
+                  "export_verify"]
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "orphaned"]
 QueueName = Literal["gpu", "cpu"]
 
@@ -177,6 +178,11 @@ class StepSummary(BaseModel):
     duration_s: Optional[float] = None
     has_dmatrix: bool = False
     has_pre_pgo: bool = False
+    # per-step ATE from evaluations/per_step/step_XX/eval.json; reason is None when the numbers are valid
+    ate_trans_rmse: Optional[float] = None
+    ate_rot_rmse: Optional[float] = None
+    ate_frames: Optional[int] = None
+    ate_reason: Optional[str] = None
 
 
 class RunParent(BaseModel):

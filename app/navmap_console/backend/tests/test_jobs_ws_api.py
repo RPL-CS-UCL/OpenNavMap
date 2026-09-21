@@ -37,4 +37,6 @@ def test_ws_job_snapshot_log_and_run_events(client, tmp_path: Path, monkeypatch)
         ws.send_json({"op": "unsub", "topic": "jobs"})
         ws.send_json({"op": "bogus"})
         err = ws.receive_json()
+        while err["type"] != "error":  # eval jobs queued on completion still emit on the job topics
+            err = ws.receive_json()
         assert err["type"] == "error"

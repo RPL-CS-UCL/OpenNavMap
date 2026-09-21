@@ -93,4 +93,6 @@ def import_results(service: RunService, rid: str, req: ImportRequest, allowed_ro
     if req.promote:
         region.head = RegionHead(run_id=run_id, step_index=found[-1][0], session_ids=session_ids, lineage=[run_id])
         service.regions.save(region)
+    service.evals.enqueue_all_steps(rid, run_id)
+    service.evals.enqueue_final_eval(rid, run_id)
     return run

@@ -81,6 +81,7 @@ export const jobKindSchema = z.enum([
   "append",
   "consolidate",
   "official_eval",
+  "per_step_eval",
   "import_results",
   "export",
   "export_verify",
@@ -194,8 +195,42 @@ export const stepSummarySchema = z.object({
   duration_s: z.number().nullable(),
   has_dmatrix: z.boolean(),
   has_pre_pgo: z.boolean(),
+  // per-step ATE from the traj_evaluation toolchain; null until that step's eval job lands
+  ate_trans_rmse: z.number().nullable(),
+  ate_rot_rmse: z.number().nullable(),
+  ate_frames: z.number().nullable(),
+  ate_reason: z.string().nullable(),
 });
 export const summariesSchema = z.object({ steps: z.array(stepSummarySchema) });
+/** One evaluation report (only "final" exists today); numbers come from eval.json written by the eval job. */
+export const evaluationSchema = z.object({
+  eid: z.string(),
+  status: z.string(),
+  ate_trans: z.number().nullable().optional(),
+  ate_rot: z.number().nullable().optional(),
+  frames: z.number().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  job: jobSchema.nullable().optional(),
+  report_files: z.array(z.string()).optional(),
+});
+export const evaluationsSchema = z.object({ items: z.array(evaluationSchema), evaluating: z.boolean() });
+export const exportKindSchema = z.enum(["map", "report", "preds"]);
+/** One download bundle under exports/; metadata json written by export_job.py (size/sha256 once packed). */
+export const exportItemSchema = z.object({
+  name: z.string(),
+  kind: exportKindSchema,
+  status: jobStatusSchema,  // same vocabulary as jobs: the job state until packed, then the script's "succeeded"/"failed"
+  created_at: z.string().nullable().optional(),
+  job_id: z.string().nullable().optional(),
+  steps: z.array(z.number()).nullable().optional(),
+  entries: z.number().nullable().optional(),
+  size: z.number().nullable().optional(),
+  sha256: z.string().nullable().optional(),
+  verified: z.boolean().nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+export const exportsSchema = z.object({ items: z.array(exportItemSchema) });
 export const dmatrixCandidateSchema = z.object({ db: z.number(), query: z.number(), stage: z.string(), gv_inliers: z.number() });
 export const dmatrixFactorSchema = z.object({
   db: z.number(), query: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),
@@ -222,6 +257,17 @@ export const cullRowSchema = z.object({
   vis_url: z.string().nullable(),
 });
 export const cullingSchema = z.object({ culled: z.array(cullRowSchema), kept: z.array(cullRowSchema) });
+const latLon = z.tuple([z.number(), z.number()]);
+/** GPS-aligned trajectory of one step (readers/geo.py): traj has one [lat, lon] per frame, gps the raw fixes. */
+export const geoSchema = z.object({
+  origin: latLon.nullable(),
+  n_frames: z.number(),
+  n_gps: z.number(),
+  traj: z.array(latLon),
+  gps: z.array(latLon),
+  rmse_m: z.number().nullable(),
+  reason: z.string().nullable(),
+});
 export const nodeLoopSchema = z.object({
   other: z.number(), weight: z.number(), conf: z.number(), accepted: z.boolean(), origin: z.string(),
 });

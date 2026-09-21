@@ -63,8 +63,9 @@ Every variable has a default; set them in the shell before `serve.sh` / `dev.sh`
 │   ├── region.json               display name, VPR config, current head (run + step)
 │   ├── map -> runs/<run_id>/final symlink to the current final map
 │   ├── sessions/<session_id>/    session.json (+ data/ for uploaded sessions)
-│   ├── runs/<run_id>/            run.json, steps.json, inputs/, base/, output/, final/, cache/, evaluations/
-│   └── exports/<export_id>/      export.json + navigation-map zip
+│   └── runs/<run_id>/            run.json, steps.json, inputs/, base/, output/, final/, cache/
+│       ├── evaluations/          per_step/step_NN/eval.json, final/{eval.json,report/,traj/}
+│       └── exports/              <name>.tar.gz + <name>.json (map / report / preds bundles)
 ├── jobs/<job_id>.json            subprocess record; <job_id>.log is its merged stdout/stderr
 └── uploads/                      temporary upload files
 ```
@@ -140,8 +141,8 @@ time per step (default 0.2) and `NAVMAP_CONSOLE_FAKE_FAIL_AT=<step>` makes that 
 Opening a run shows the three-pane viewer:
 
 - **Left — step list.** One row per merge step with its session, node count and a marker
-  when the PGO error increased over the previous step. "Follow live" keeps the newest step
-  selected as steps land.
+  when the ATE (trans) increased over the previous step. "Follow live" keeps the newest
+  step selected as steps land.
 - **Middle — 3D scene** of the merged point/pose graph: toolbar (camera mode, colour-by,
   node style, loop filter, layer toggles), step slider with play + speed + ghost morph,
   and a legend.
@@ -176,6 +177,47 @@ carry the same step data as pipeline runs.
 back to the old matplotlib D-matrix jpg, the 6-column `loop_registry.txt` is parsed
 alongside the newer format, and steps without `demo_events.jsonl` show an empty event
 feed instead of an error.
+
+## Evaluation, export and map (M5)
+
+**Per-step ATE.** When a merge step completes (or a result directory is imported) a
+`per_step_eval` job is queued on the cpu queue for it; when the run finishes, an
+`official_eval` job evaluates the final map. Both run `jobs/eval_job.py` under
+`NAVMAP_CONSOLE_EVAL_PYTHON`: it exports the step's `poses.txt` / `poses_abs_gt.txt` to TUM
+files, calls `third_party/slam_trajectory_evaluation` (`run_evaluation.sh`) and writes the
+parsed numbers to `evaluations/per_step/step_NN/eval.json` (or `evaluations/final/eval.json`
+plus the `report/` directory). The console never computes an alignment or an RMSE itself:
+every ATE number on screen comes from that toolchain. Steps without `poses_abs_gt.txt` get
+`ate_reason="no gt"` and no job.
+
+The numbers surface in three places of the viewer: the sixth **Charts** cell (ATE trans/rot
+over steps), the step-list marker (ATE trans increased over the previous step) and the
+inspector's ATE row. The `run.evaluated` socket event refreshes them when a job lands;
+without the socket the summaries are polled.
+
+**Evaluation tab.** Final-map ATE (trans m / rot deg / frames), the job badge, the report
+files with preview (png/pdf) and download links, and a **Re-run evaluation** button
+(`POST .../evaluate`; 404 when the run has no GT).
+
+**Export tab.** Three bundles, each packed by an `export` job (`jobs/export_job.py`) into
+`runs/<run_id>/exports/<name>.tar.gz` with a `<name>.json` next to it:
+
+| Bundle | Contents |
+|---|---|
+| `map` | the navigation map: `final/` when present, otherwise the last step consolidated (`map_merge_pack.consolidate_map`) — poses, edges, descriptors, `seq/` images. Re-extracted and checked after packing (`verified`). |
+| `report` | `evaluations/final/report/` |
+| `preds` | `<step>/preds/...` for the requested steps (all steps by default) |
+
+Only the three newest bundles are kept (older ones are pruned when a new job finishes);
+`DELETE` refuses with 409 while the bundle is still packing.
+
+**Map tab.** `GET .../steps/{k}/geo.json` fits the step's camera centres (`poses.txt`) onto
+its GPS fixes (`gps_data.txt`) with `litevloc/utils/utils_gps_align.py` — ENU coordinates
+about the first fix, then Kabsch (rotation + translation, no scale) — and returns one
+lat/lon per frame plus the raw fixes. The tab draws them on OpenStreetMap tiles with
+Leaflet (trajectory as a line, fixes as dots) and shows the fix count and the fit residual
+in metres. Fewer than two fixes → empty state. Tiles need internet access; the trajectory
+still draws without them.
 
 ## Network access
 

@@ -47,6 +47,13 @@ def test_run_lifecycle_over_http(client, tmp_path: Path, monkeypatch):
     assert region["head"]["run_id"] == run_id and region["run_count"] == 1
     log = client.get(f"/api/jobs/{d['job']['id']}/log", params={"after": 1}).json()
     assert log["next"] == log["total"] and any("STEP_DONE" in l for l in log["lines"])
+    # the fake steps carry GT, so per-step + final evaluation jobs follow on the cpu queue
+    for _ in range(100):
+        pending = [j for j in client.get("/api/jobs").json()
+                   if j["run_id"] == run_id and j["status"] not in ("succeeded", "failed")]
+        if not pending:
+            break
+        time.sleep(0.1)
     assert client.get("/api/health").json()["queues"] == {"gpu": 0, "cpu": 0}
 
 

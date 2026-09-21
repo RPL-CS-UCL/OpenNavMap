@@ -28,6 +28,9 @@ function SummaryBlock({ s }: { s: StepSummary | undefined }) {
     [t("viewer.inspector.pgo"), s.pgo_error_final === null ? "–" : `${s.pgo_error_initial?.toFixed(2) ?? "–"} → ${s.pgo_error_final.toFixed(2)}`],
     [t("viewer.inspector.moved"), `${s.num_moved} (${s.max_displacement.toFixed(3)} m)`],
     [t("viewer.inspector.duration"), s.duration_s === null ? "–" : `${s.duration_s.toFixed(1)} s`],
+    [t("viewer.inspector.ate"), s.ate_trans_rmse === null
+      ? (s.ate_reason === "no gt" ? t("viewer.inspector.ateNoGt") : t("viewer.inspector.atePending"))
+      : `${s.ate_trans_rmse.toFixed(3)} m / ${(s.ate_rot_rmse ?? 0).toFixed(2)}° / ${s.ate_frames ?? 0} ${t("viewer.inspector.ateFrames")}`],
   ];
   return (
     <div className="flex flex-col gap-2 p-2 text-xs">

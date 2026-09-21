@@ -1,4 +1,6 @@
-import type { Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport } from "@/api/types";
+import type {
+  Evaluation, ExportItem, Job, ParamSpec, Region, Run, Session, StepRecord, StepSummary, ValidationReport,
+} from "@/api/types";
 
 export const region: Region = {
   id: "reg_1",
@@ -233,4 +235,32 @@ export const summaries: StepSummary[] = [0, 1].map((k) => ({
   duration_s: 3,
   has_dmatrix: k > 0,
   has_pre_pgo: true,
+  ate_trans_rmse: k === 0 ? null : 0.612,
+  ate_rot_rmse: k === 0 ? null : 1.23,
+  ate_frames: k === 0 ? null : 24,
+  ate_reason: k === 0 ? "pending" : null,
 }));
+
+export const evaluation: Evaluation = {
+  eid: "final",
+  status: "succeeded",
+  ate_trans: 0.612,
+  ate_rot: 1.23,
+  frames: 24,
+  created_at: "2026-09-18T12:10:00+00:00",
+  job: { ...job, id: "job_eval_1", kind: "official_eval", queue: "cpu", status: "succeeded" },
+  report_files: ["report_benchmark_eval_config/laptop_translation_rmse_opennavmap.txt", "report_benchmark_eval_config/plot.pdf"],
+};
+
+export const exportItem: ExportItem = {
+  name: "map_20260918_121500",
+  kind: "map",
+  status: "succeeded",
+  created_at: "2026-09-18T12:15:00+00:00",
+  job_id: "job_export_1",
+  steps: null,
+  entries: 12,
+  size: 2_621_440,
+  sha256: "ab".repeat(32),
+  verified: true,
+};

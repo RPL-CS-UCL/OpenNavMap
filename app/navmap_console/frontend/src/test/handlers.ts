@@ -1,6 +1,6 @@
 import { HttpResponse, http } from "msw";
-import type { Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
-import { job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
+import type { Evaluation, ExportItem, Job, Region, Run, Session, StepRecord, StepSummary } from "@/api/types";
+import { evaluation, exportItem, job, paramSpecs, region, run, session, sessionInvalid, steps, summaries } from "./fixtures";
 import { makeSceneFixture } from "./scene-fixture";
 
 export { summaries };
@@ -14,11 +14,14 @@ interface HandlerState {
   runs: Run[];
   runSteps: Record<string, StepRecord[]>;
   summaries: StepSummary[];
+  evaluations: Evaluation[];
+  exports: ExportItem[];
   counter: number;
   summaryHits: number;
+  geoHits: number;
   sceneHits: number;
 }
-export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], counter: 0, summaryHits: 0, sceneHits: 0 };
+export const state: HandlerState = { regions: [], sessions: [], jobs: [], runs: [], runSteps: {}, summaries: [], evaluations: [], exports: [], counter: 0, summaryHits: 0, geoHits: 0, sceneHits: 0 };
 
 export function resetState(): void {
   state.regions = [structuredClone(region)];
@@ -27,8 +30,11 @@ export function resetState(): void {
   state.runs = [structuredClone(run)];
   state.runSteps = { [run.id]: structuredClone(steps) };
   state.summaries = structuredClone(summaries);
+  state.evaluations = [structuredClone(evaluation)];
+  state.exports = [structuredClone(exportItem)];
   state.counter = 0;
   state.summaryHits = 0;
+  state.geoHits = 0;
   state.sceneHits = 0;
 }
 resetState();
@@ -236,6 +242,35 @@ export const handlers = [
     reg.head = { run_id: body.run_id, step_index: body.step_index, session_ids: [], lineage: [body.run_id] };
     return HttpResponse.json(withCounts(reg));
   }),
+  // ---- evaluations (M5) ----
+  http.get("/api/regions/:rid/runs/:runId/evaluations", () =>
+    HttpResponse.json({ items: state.evaluations, evaluating: state.evaluations.some((e) => e.status === "queued" || e.status === "running") })),
+  http.post("/api/regions/:rid/runs/:runId/evaluate", ({ params }) => {
+    if (params.runId === "run_no_gt") return notFound("run has no GT");
+    const queued: Job = { ...structuredClone(job), id: "job_eval_2", kind: "official_eval", queue: "cpu", status: "queued" };
+    state.evaluations = [{ eid: "final", status: "queued", job: queued }];
+    return HttpResponse.json(queued);
+  }),
+  // ---- exports (M5) ----
+  http.get("/api/regions/:rid/runs/:runId/exports", () => HttpResponse.json({ items: state.exports })),
+  http.post("/api/regions/:rid/runs/:runId/exports", async ({ request }) => {
+    const body = (await request.json()) as { kind: ExportItem["kind"]; steps?: number[] };
+    const queued: Job = { ...structuredClone(job), id: "job_export_2", kind: "export", queue: "cpu", status: "queued" };
+    state.exports = [
+      { name: `${body.kind}_20260918_130000`, kind: body.kind, status: "queued", job_id: queued.id, created_at: "2026-09-18T13:00:00+00:00", steps: body.steps ?? null },
+      ...state.exports,
+    ];
+    return HttpResponse.json(queued, { status: 201 });
+  }),
+  http.delete("/api/regions/:rid/runs/:runId/exports/:name", ({ params }) => {
+    const item = state.exports.find((e) => e.name === params.name);
+    if (!item) return notFound("export");
+    if (item.status === "queued" || item.status === "running") {
+      return HttpResponse.json({ detail: `export ${item.name} is still packing` }, { status: 409 });
+    }
+    state.exports = state.exports.filter((e) => e.name !== params.name);
+    return new HttpResponse(null, { status: 204 });
+  }),
   // ---- results (M4) ----
   http.get("/api/regions/:rid/runs/:runId/summaries", () => {
     state.summaryHits += 1;
@@ -264,6 +299,17 @@ export const handlers = [
     const has = state.summaries.find((s) => s.index === k)?.has_dmatrix ?? false;
     return new HttpResponse(imgBytes(has ? IMAGE_PNG : IMAGE_JPEG), {
       headers: { "Content-Type": has ? "image/png" : "image/jpeg" },
+    });
+  }),
+  http.get("/api/regions/:rid/runs/:runId/steps/:k/geo.json", ({ params }) => {
+    state.geoHits += 1;
+    const k = Number(params.k);
+    if (!state.summaries.some((s) => s.index === k)) return notFound(`step ${k}`);
+    if (k === 0) return HttpResponse.json({ origin: null, n_frames: 2, n_gps: 0, traj: [], gps: [], rmse_m: null, reason: "no_gps" });
+    return HttpResponse.json({
+      origin: [51.5368, -0.0096], n_frames: 3, n_gps: 2, rmse_m: 4.2, reason: null,
+      traj: [[51.5368, -0.0096], [51.5369, -0.0095], [51.537, -0.0094]],
+      gps: [[51.53681, -0.00961], [51.53701, -0.00939]],
     });
   }),
   http.get("/api/regions/:rid/runs/:runId/steps/:k/culling.json", ({ params }) => {

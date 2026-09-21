@@ -19,8 +19,8 @@ export function StepList({ steps, pending }: Props) {
       <div className="min-h-0 flex-1 overflow-auto">
         {pending && [0, 1, 2].map((i) => <Skeleton key={i} className="mx-2 mb-1 h-7" />)}
         {steps?.map((s, k) => {
-          // PGO error proxy for ATE (M5 swaps in the real number): worse than the previous step.
-          const degraded = s.pgo_error_final !== null && k > 0 && (steps[k - 1].pgo_error_final ?? 0) < s.pgo_error_final;
+          // ATE (trans) worse than the previous step; null until both steps' eval jobs land.
+          const degraded = s.ate_trans_rmse !== null && k > 0 && (steps[k - 1].ate_trans_rmse ?? Infinity) < s.ate_trans_rmse;
           const split = s.component_sizes.length > 1;
           const allRejected = s.loops.new > 0 && s.loops.rejected_new === s.loops.new;
           return (

@@ -31,7 +31,7 @@ describe("StepList", () => {
   it("shows the split, degraded and all-rejected markers", () => {
     const steps = structuredClone(summaries);
     steps[1].component_sizes = [20, 4];
-    steps[1].pgo_error_final = 5; // 比第 0 步 0.7 差
+    steps[0].ate_trans_rmse = 0.3; // 第 1 步 ATE 0.612 比第 0 步差
     steps[1].loops = { total: 3, new: 3, hist: 0, accepted: 0, rejected_new: 3, overturned_hist: 0 };
     useSceneStore.getState().setMaxStep(1);
     render(<StepList steps={steps} pending={false} />);
