@@ -39,6 +39,11 @@ export function newCulledRows(summaries: StepSummary[]): Row[] {
   return summaries.map((s) => ({ step: s.index, num_new: s.num_new, num_culled: s.num_culled }));
 }
 
+/** Per-step ATE from the traj_evaluation toolchain; null until that step's eval job lands. */
+export function ateRows(summaries: StepSummary[]): Row[] {
+  return summaries.map((s) => ({ step: s.index, ate_trans_rmse: s.ate_trans_rmse, ate_rot_rmse: s.ate_rot_rmse }));
+}
+
 const SERIES = (n: number) => `hsl(var(--series-${n}))`;
 
 /** X-axis tick that jumps the viewer to that step when clicked. */
@@ -95,7 +100,7 @@ function Cell({ title, rows, cols, children }: {
   );
 }
 
-/** 3x2 grid of small per-step charts (recharts, fixed size) plus the ATE placeholder (M5 data). */
+/** 3x2 grid of small per-step charts (recharts, fixed size). */
 export function ChartsPanel({ summaries, step: _step }: { summaries: StepSummary[]; step: number }) {
   const [activeStep, setActiveStep] = useState<number | null>(null);
   const onStep = (k: number) => useSceneStore.getState().setStep(k);
@@ -149,8 +154,17 @@ export function ChartsPanel({ summaries, step: _step }: { summaries: StepSummary
           <Line dataKey="num_culled" stroke={SERIES(2)} dot={false} isAnimationActive={false} />
         </LineChart>
       </Cell>
-      <Cell title={t("panel.charts.ate")} rows={[{ step: 0, ate: null }]} cols={["step", "ate"]}>
-        <div className="flex h-[88px] items-center justify-center text-muted-foreground">{t("panel.charts.ateSoon")}</div>
+      <Cell title={t("panel.charts.ate")} rows={ateRows(summaries)} cols={["step", "ate_trans_rmse", "ate_rot_rmse"]}>
+        {ateRows(summaries).every((r) => r.ate_trans_rmse === null) ? (
+          <div className="flex h-[88px] items-center justify-center text-muted-foreground">{t("panel.charts.ateNone")}</div>
+        ) : (
+          <LineChart width={170} height={88} data={ateRows(summaries)} onMouseMove={onMove}>
+            <XAxis dataKey="step" interval={0} tick={tick} tickLine={false} axisLine={false} />
+            {activeRef}
+            <Line dataKey="ate_trans_rmse" stroke={SERIES(1)} dot={false} isAnimationActive={false} connectNulls />
+            <Line dataKey="ate_rot_rmse" stroke={SERIES(2)} dot={false} isAnimationActive={false} connectNulls />
+          </LineChart>
+        )}
       </Cell>
     </div>
   );

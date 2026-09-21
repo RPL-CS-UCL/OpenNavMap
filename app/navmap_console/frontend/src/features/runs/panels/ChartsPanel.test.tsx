@@ -1,9 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
+import { t } from "@/i18n";
 import { useSceneStore } from "@/stores/scene-store";
 import { summaries } from "@/test/handlers";
-import { ChartsPanel, edgeSurvivalRows, pgoErrorRows } from "./ChartsPanel";
+import { ateRows, ChartsPanel, edgeSurvivalRows, pgoErrorRows } from "./ChartsPanel";
 
 describe("chart row builders", () => {
   it("pgoErrorRows and edgeSurvivalRows follow the funnel with guards", () => {
@@ -17,17 +18,30 @@ describe("chart row builders", () => {
     expect(r.removedByCcm).toBe(4); // gv 6 - ccm 2
     expect(r.removedByGv).toBe(0); // vpr 6 - gv 6
   });
+
+  it("ateRows passes null through until the step's eval job lands", () => {
+    expect(ateRows(summaries)).toEqual([
+      { step: 0, ate_trans_rmse: null, ate_rot_rmse: null },
+      { step: 1, ate_trans_rmse: 0.612, ate_rot_rmse: 1.23 },
+    ]);
+  });
 });
 
 describe("ChartsPanel", () => {
   beforeEach(() => useSceneStore.getState().reset());
 
-  it("renders six cells with the ATE placeholder", () => {
+  it("renders six cells; the ATE cell is a chart once any step has a number", () => {
     render(<ChartsPanel summaries={summaries} step={1} />);
     for (const label of ["pgoError", "nodes", "survival", "duration", "newCulled", "ate"]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
-    expect(screen.getByText("ateSoon")).toBeInTheDocument();
+    expect(screen.queryByText(t("panel.charts.ateNone"))).not.toBeInTheDocument();
+  });
+
+  it("shows the no-ATE notice when no step has a number", () => {
+    const steps = structuredClone(summaries).map((s) => ({ ...s, ate_trans_rmse: null, ate_rot_rmse: null, ate_frames: null, ate_reason: "no gt" }));
+    render(<ChartsPanel summaries={steps} step={1} />);
+    expect(screen.getByText(t("panel.charts.ateNone"))).toBeInTheDocument();
   });
 
   it("clicking a step tick jumps the viewer to that step", async () => {

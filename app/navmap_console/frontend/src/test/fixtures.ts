@@ -233,4 +233,8 @@ export const summaries: StepSummary[] = [0, 1].map((k) => ({
   duration_s: 3,
   has_dmatrix: k > 0,
   has_pre_pgo: true,
+  ate_trans_rmse: k === 0 ? null : 0.612,
+  ate_rot_rmse: k === 0 ? null : 1.23,
+  ate_frames: k === 0 ? null : 24,
+  ate_reason: k === 0 ? "pending" : null,
 }));

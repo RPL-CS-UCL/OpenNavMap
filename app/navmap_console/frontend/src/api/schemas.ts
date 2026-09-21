@@ -81,6 +81,7 @@ export const jobKindSchema = z.enum([
   "append",
   "consolidate",
   "official_eval",
+  "per_step_eval",
   "import_results",
   "export",
   "export_verify",
@@ -194,6 +195,11 @@ export const stepSummarySchema = z.object({
   duration_s: z.number().nullable(),
   has_dmatrix: z.boolean(),
   has_pre_pgo: z.boolean(),
+  // per-step ATE from the traj_evaluation toolchain; null until that step's eval job lands
+  ate_trans_rmse: z.number().nullable(),
+  ate_rot_rmse: z.number().nullable(),
+  ate_frames: z.number().nullable(),
+  ate_reason: z.string().nullable(),
 });
 export const summariesSchema = z.object({ steps: z.array(stepSummarySchema) });
 export const dmatrixCandidateSchema = z.object({ db: z.number(), query: z.number(), stage: z.string(), gv_inliers: z.number() });
