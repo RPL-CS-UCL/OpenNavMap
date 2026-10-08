@@ -28,15 +28,22 @@ class CosPlaceExtractor:
         backbone: str = "ResNet18",
         descriptors_dimension: int = 256,
         device: str = "cuda",
+        model: Any = None,
     ) -> None:
         if str(_LITEVLOC_PY) not in sys.path:
             sys.path.insert(0, str(_LITEVLOC_PY))
         import torchvision.transforms as tvf
-        from utils.utils_vpr_method import initialize_vpr_model
 
         self.device = device
         self.descriptors_dimension = int(descriptors_dimension)
-        self._model = initialize_vpr_model(method, backbone, self.descriptors_dimension, device)
+        if model is not None:
+            # Caller already loaded the model (e.g. offline, from a local torch.hub
+            # cache) -- reuse it instead of loading a second copy via initialize_vpr_model.
+            self._model = model.eval().to(device)
+        else:
+            from utils.utils_vpr_method import initialize_vpr_model
+
+            self._model = initialize_vpr_model(method, backbone, self.descriptors_dimension, device)
         # ImageNet-normalized 512x512 -- MUST match both build and query sides.
         self._transform = tvf.Compose(
             [
