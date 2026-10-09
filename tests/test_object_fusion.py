@@ -223,6 +223,21 @@ def test_overlap_ratio_bounds():
     assert overlap_ratio(a, far, tau=0.05) == pytest.approx(0.0)
 
 
+@pytest.mark.parametrize("n", [300, 2500])  # 门限 2000 两侧:单线程 / 全部核
+def test_kd_thread_count_does_not_change_results(n, monkeypatch):
+    """KD 树查询按点数选线程数只省开销:结果要和一律用全部核时逐元素一样。"""
+    import object_fusion.geom as geom
+
+    rng = np.random.default_rng(5)
+    a = rng.normal(0.0, 0.1, size=(n, 3)).astype(np.float32)
+    b = (a + rng.normal(0.0, 0.03, size=a.shape)).astype(np.float32)
+    got = (overlap_ratio(a, b, tau=0.05), dbscan(np.vstack([a, b]), eps=0.05, min_samples=5))
+    monkeypatch.setattr(geom, "_kd_workers", lambda n_query: -1)
+    ref = (overlap_ratio(a, b, tau=0.05), dbscan(np.vstack([a, b]), eps=0.05, min_samples=5))
+    assert got[0] == ref[0]
+    assert np.array_equal(got[1], ref[1])
+
+
 def test_voxel_downsample_thins_but_keeps_extent():
     rng = np.random.default_rng(2)
     pts = rng.uniform(0, 1, size=(5000, 3)).astype(np.float32)

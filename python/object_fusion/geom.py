@@ -23,6 +23,16 @@ import numpy as np
 
 from object_node import OBB
 
+# KD 树查询 workers=-1 每次都要新开、回收一批线程，点少时这份开销比查询本身大（在线去重一趟
+# 会调上万次）。Jetson Orin 12 核实测（scipy 1.10）：200 点 1.6 对 0.24 毫秒，约 2000 点持平，
+# 1 万点多线程快一倍。结果和线程数无关
+PARALLEL_MIN_POINTS = 2000
+
+
+def _kd_workers(n_query: int) -> int:
+    """查询点够多才用全部核，否则单线程。"""
+    return -1 if n_query >= PARALLEL_MIN_POINTS else 1
+
 
 # ------------------------------------------------------------------ 反投影
 
@@ -111,7 +121,7 @@ def overlap_ratio(query: np.ndarray, target: np.ndarray, tau: float = 0.05) -> f
     t = np.asarray(target, dtype=np.float32).reshape(-1, 3)
     if q.shape[0] == 0 or t.shape[0] == 0:
         return 0.0
-    dist, _ = cKDTree(t).query(q, k=1, workers=-1)
+    dist, _ = cKDTree(t).query(q, k=1, workers=_kd_workers(q.shape[0]))
     return float(np.mean(dist <= tau))
 
 
@@ -136,7 +146,7 @@ def dbscan(points: np.ndarray, eps: float = 0.1,
         return np.zeros((0,), dtype=np.int64)
     # 只数邻居个数，不要邻居列表 —— 取列表要为每个点建一个 python 数组，光这一下 20000 点
     # 就是 359 毫秒；只数个数是 12 毫秒
-    is_core = cKDTree(pts).query_ball_point(pts, eps, workers=-1,
+    is_core = cKDTree(pts).query_ball_point(pts, eps, workers=_kd_workers(n),
                                             return_length=True) >= min_samples
     labels = np.full(n, -1, dtype=np.int64)
     core = np.nonzero(is_core)[0]
@@ -154,7 +164,7 @@ def dbscan(points: np.ndarray, eps: float = 0.1,
     # DBSCAN 对边界点归哪个簇本来就有歧义（它可能同时贴着两个簇），取最近的确定且直观
     rest = np.nonzero(~is_core)[0]
     if rest.size:
-        dist, j = core_tree.query(pts[rest], k=1, workers=-1)
+        dist, j = core_tree.query(pts[rest], k=1, workers=_kd_workers(rest.size))
         near = dist <= eps
         labels[rest[near]] = comp[j[near]]
     return labels
