@@ -238,6 +238,42 @@ def test_kd_thread_count_does_not_change_results(n, monkeypatch):
     assert np.array_equal(got[1], ref[1])
 
 
+def _reference_overlap_ratio(query, target, tau):
+    """裁点前的原实现，只在测试里当参照。"""
+    from scipy.spatial import cKDTree
+
+    q = np.asarray(query, dtype=np.float32).reshape(-1, 3)
+    t = np.asarray(target, dtype=np.float32).reshape(-1, 3)
+    if q.shape[0] == 0 or t.shape[0] == 0:
+        return 0.0
+    dist, _ = cKDTree(t).query(q, k=1)
+    return float(np.mean(dist <= tau))
+
+
+def test_overlap_ratio_pruning_matches_reference_bitwise():
+    """先裁点再建树只省时间：重叠 / 相离 / 贴边 / 间隔卡在 tau 附近 / 中间夹空，和原实现逐位相等。"""
+    rng = np.random.default_rng(7)
+    tau = 0.05
+    cases = []
+    for _ in range(200):
+        n_a, n_b = rng.integers(1, 3000, size=2)
+        a = rng.normal(0.0, rng.uniform(0.02, 0.5), size=(n_a, 3)) + rng.uniform(-5, 5, size=3)
+        shift = rng.choice([0.0, tau * 0.999, tau, tau * 1.001, 0.3, 10.0])
+        b = rng.normal(0.0, rng.uniform(0.02, 0.5), size=(n_b, 3)) + a.mean(0)
+        b[:, rng.integers(0, 3)] += shift + (np.ptp(a, axis=0).max() if rng.random() < 0.3 else 0.0)
+        cases.append((a, b))
+    # 贴边：两层平行面间隔正好在 tau 两侧
+    plane = np.c_[rng.uniform(0, 1, (500, 2)), np.zeros(500)]
+    for gap in (tau * 0.999999, tau, tau * 1.000001):
+        cases.append((plane, plane + [0.0, 0.0, gap]))
+    # 中间夹空：target 两团离得很远，query 在两团中间
+    far = np.vstack([rng.normal(0, 0.01, (200, 3)), rng.normal(0, 0.01, (200, 3)) + [4.0, 0, 0]])
+    cases.append((rng.normal(0, 0.01, (100, 3)) + [2.0, 0, 0], far))
+    for a, b in cases:
+        for q, t in ((a, b), (b, a)):
+            assert overlap_ratio(q, t, tau) == _reference_overlap_ratio(q, t, tau)
+
+
 def test_voxel_downsample_thins_but_keeps_extent():
     rng = np.random.default_rng(2)
     pts = rng.uniform(0, 1, size=(5000, 3)).astype(np.float32)

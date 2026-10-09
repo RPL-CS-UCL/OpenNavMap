@@ -121,8 +121,23 @@ def overlap_ratio(query: np.ndarray, target: np.ndarray, tau: float = 0.05) -> f
     t = np.asarray(target, dtype=np.float32).reshape(-1, 3)
     if q.shape[0] == 0 or t.shape[0] == 0:
         return 0.0
+    n_q = q.shape[0]
+    # 先裁点再建树，结果逐位不变：落在对方外框 ± tau 之外的点，至少一个轴上差超过 tau，
+    # 不可能有 tau 以内的邻居（query 点原来就判"找不到"；target 点不可能是留下的 query 点的近邻）。
+    # 外框按 float64 算、再略放宽一点，只会多留点不会少留，避开浮点卡在边界上
+    pad = tau * (1 + 1e-6) + 1e-6
+    q64, t64 = q.astype(np.float64), t.astype(np.float64)
+    keep_q = np.all((q64 >= t64.min(0) - pad) & (q64 <= t64.max(0) + pad), axis=1)
+    if not keep_q.any():
+        return 0.0
+    q, q64 = q[keep_q], q64[keep_q]
+    keep_t = np.all((t64 >= q64.min(0) - pad) & (t64 <= q64.max(0) + pad), axis=1)
+    if not keep_t.any():
+        return 0.0
+    t = t[keep_t]
     dist, _ = cKDTree(t).query(q, k=1, workers=_kd_workers(q.shape[0]))
-    return float(np.mean(dist <= tau))
+    # 分母仍是原 query 点数（裁掉的都算"找不到"），与原来 np.mean(dist <= tau) 同值
+    return float(np.count_nonzero(dist <= tau) / n_q)
 
 
 def dbscan(points: np.ndarray, eps: float = 0.1,
